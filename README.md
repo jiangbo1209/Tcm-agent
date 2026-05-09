@@ -4,7 +4,7 @@
 
 **核心业务痛点**：将海量非结构化的中医文献与临床病案自动化提炼为结构化医疗实体，通过知识图谱进行可视化串联，并最终由 Agent 对话系统为医生/科研人员提供智能问答与辅助诊疗。
 
-**技术栈**：Python、FastAPI、AntV G6、MySQL、MinIO、Docker、LLM（大模型）。
+**技术栈**：Python、FastAPI、AntV G6、PostgreSQL、MinIO、Docker、LLM（大模型）。
 
 ---
 
@@ -14,7 +14,7 @@
 1. 用户上传文档至 MinIO
 2. 触发后台解析流程
 3. 调用大模型抽取中医实体
-4. 结构化结果写入 MySQL 核心表
+4. 结构化结果写入 PostgreSQL 核心表
 5. 通过 ETL 脚本建模生成图谱底表（Nodes/Edges）
 
 **阶段二：KG 图谱应用层（Knowledge Graph）**
