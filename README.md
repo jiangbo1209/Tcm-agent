@@ -52,7 +52,7 @@
 仅启动基础设施，然后在各子模块目录中使用本地 IDE 断点调试：
 
 ```bash
-docker compose up -d mysql minio
+docker compose up -d PostgreSQL minio
 ```
 
 在本地模块中读取 `.env`，以 127.0.0.1 连接数据库，即可进行独立开发调试。
