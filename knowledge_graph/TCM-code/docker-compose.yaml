@@ -1,0 +1,47 @@
+services:
+  mysql:
+    image: mysql:8.0
+    container_name: tcm_mysql
+    environment:
+      MYSQL_ROOT_PASSWORD: ${MYSQL_ROOT_PASSWORD:-123456}
+      MYSQL_DATABASE: ${MYSQL_DATABASE:-papers_records}
+    ports:
+      - "3306:3306"
+    command: ["--character-set-server=utf8mb4", "--collation-server=utf8mb4_unicode_ci"]
+    volumes:
+      - mysql_data:/var/lib/mysql
+
+  backend:
+    image: python:3.11-slim
+    container_name: tcm_backend
+    working_dir: /workspace/backend
+    environment:
+      DB_HOST: mysql
+      DB_PORT: 3306
+      DB_USER: root
+      DB_PASSWORD: ${MYSQL_ROOT_PASSWORD:-123456}
+      DB_NAME: ${MYSQL_DATABASE:-papers_records}
+      CORS_ALLOW_ORIGINS: http://localhost:8080,http://127.0.0.1:8080
+    command: >
+      sh -c "pip install --no-cache-dir -r requirements.txt &&
+             uvicorn main:app --host 0.0.0.0 --port 8000"
+    volumes:
+      - ./backend:/workspace/backend
+      - ./configs:/workspace/configs
+    ports:
+      - "8000:8000"
+    depends_on:
+      - mysql
+
+  frontend:
+    image: nginx:alpine
+    container_name: tcm_frontend
+    volumes:
+      - ./frontend:/usr/share/nginx/html:ro
+    ports:
+      - "8080:80"
+    depends_on:
+      - backend
+
+volumes:
+  mysql_data:

@@ -1,0 +1,66 @@
+version: "3.9"
+
+services:
+	mysql:
+		image: mysql:8.0
+		ports:
+			- "3306:3306"
+		env_file:
+			- .env
+		environment:
+			MYSQL_ROOT_PASSWORD: ${MYSQL_ROOT_PASSWORD}
+			MYSQL_DATABASE: ${MYSQL_DATABASE}
+		volumes:
+			- ./data/mysql:/var/lib/mysql
+			- ./configs/sql:/docker-entrypoint-initdb.d
+		networks:
+			- app-network
+
+	minio:
+		image: minio/minio
+		command: server /data --console-address ":9001"
+		ports:
+			- "9000:9000"
+			- "9001:9001"
+		env_file:
+			- .env
+		environment:
+			MINIO_ROOT_USER: ${MINIO_ROOT_USER}
+			MINIO_ROOT_PASSWORD: ${MINIO_ROOT_PASSWORD}
+		volumes:
+			- ./data/minio:/data
+		networks:
+			- app-network
+
+	kg-backend:
+		build:
+			context: ./knowledge_graph/TCM-code/backend
+		depends_on:
+			- mysql
+		ports:
+			- "8000:8000"
+		networks:
+			- app-network
+
+	kg-frontend:
+		image: nginx:latest
+		volumes:
+			- ./knowledge_graph/TCM-code/frontend:/usr/share/nginx/html:ro
+		ports:
+			- "8080:80"
+		networks:
+			- app-network
+
+	agent-worker:
+		build:
+			context: ./agent
+		command: tail -f /dev/null
+		depends_on:
+			- mysql
+			- minio
+		networks:
+			- app-network
+
+networks:
+	app-network:
+		driver: bridge

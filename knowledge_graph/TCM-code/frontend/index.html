@@ -1,0 +1,83 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>中医文献与病案知识图谱</title>
+  <link rel="stylesheet" href="/static/src/styles.css" />
+</head>
+<body>
+  <header class="app-header">
+    <a href="/" class="back-home-link" title="返回搜索首页" aria-label="返回搜索首页">
+      <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="#00796b" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" focusable="false">
+        <line x1="19" y1="12" x2="5" y2="12"></line>
+        <polyline points="12 19 5 12 12 5"></polyline>
+      </svg>
+    </a>
+    <form id="searchForm" class="header-search" autocomplete="off">
+      <div class="search-input-wrap">
+        <input
+          id="seedInput"
+          type="text"
+          placeholder="搜索关键词、论文标题、文献 ID 或病案编号..."
+          aria-label="搜索关键词"
+          autocomplete="off"
+        />
+        <button id="clearSearchBtn" class="search-clear is-hidden" type="button" aria-label="清空搜索">
+          <svg viewBox="0 0 24 24" focusable="false" aria-hidden="true">
+            <path d="M6 6l12 12M18 6l-12 12" />
+          </svg>
+        </button>
+        <div id="searchSuggest" class="search-suggest is-hidden" role="listbox" aria-label="搜索联想"></div>
+      </div>
+      <button id="expandBtn" type="submit">Search</button>
+    </form>
+    <div class="header-actions">
+      <button id="helpBtn" type="button" class="ghost">帮助</button>
+      <button id="clearBtn" type="button" class="primary">刷新</button>
+    </div>
+  </header>
+
+  <main class="layout">
+    <aside class="panel left-panel">
+      <div class="panel-head">
+        <div>
+          <h2>Result List</h2>
+          <p class="panel-sub">当前图谱节点列表</p>
+        </div>
+      </div>
+      <div id="resultList" class="result-list"></div>
+    </aside>
+
+    <section class="graph-area">
+      <div id="graphContainer"></div>
+      <div id="graphLoading" class="graph-loading is-hidden" role="status" aria-live="polite">
+        <div class="taiji-spinner" aria-hidden="true">
+          <span class="taiji-dot"></span>
+        </div>
+        <div class="loading-text">正在演算中医关系网络...</div>
+      </div>
+      <div id="graphEmpty" class="graph-empty">
+        <div class="empty-art" aria-hidden="true">
+          <span class="empty-ring"></span>
+          <span class="empty-dot"></span>
+          <span class="empty-wave"></span>
+        </div>
+      </div>
+    </section>
+
+    <aside class="panel detail-panel">
+      <header class="detail-header">
+        <h2 id="detailTitle">节点详情</h2>
+        <p id="detailMeta"></p>
+      </header>
+      <div id="detailBody" class="detail-body">
+      </div>
+    </aside>
+  </main>
+
+  <script src="https://gw.alipayobjects.com/os/lib/antv/g6/4.8.24/dist/g6.min.js"></script>
+  <script src="/static/env.js"></script>
+  <script type="module" src="/static/src/main.js"></script>
+</body>
+</html>

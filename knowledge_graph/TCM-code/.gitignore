@@ -1,0 +1,19 @@
+*.py[cod]
+
+# Virtual environment
+.venv/
+venv/
+
+# IDE
+.idea/
+.vscode/
+
+# Local secrets
+.env
+
+# Runtime artifacts
+outputs/batch_raws/
+*.log
+.venv/
+pycache/
+__pycache__/
