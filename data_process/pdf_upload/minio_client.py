@@ -96,6 +96,17 @@ class MinioClient:
         except S3Error:
             raise
 
+    def get_object(self, object_name: str) -> bytes:
+        """Download object from MinIO, return bytes."""
+        response = self._client.get_object(
+            bucket_name=self._config.bucket_name,
+            object_name=object_name,
+        )
+        data = response.read()
+        response.close()
+        response.release_conn()
+        return data
+
     def remove_object(self, object_name: str) -> None:
         """Remove an object from MinIO."""
         self._client.remove_object(
