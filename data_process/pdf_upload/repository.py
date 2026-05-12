@@ -52,7 +52,7 @@ class CoreFileRepository:
     async def delete_by_uuid(self, file_uuid: str) -> bool:
         stmt = delete(CoreFile).where(CoreFile.file_uuid == file_uuid)
         result = await self._session.execute(stmt)
-        return result.rowcount > 0
+        return result.rowcount > 0  # type: ignore[attr-defined]
 
     async def delete_by_uuids(self, file_uuids: list[str]) -> dict[str, CoreFile]:
         """Delete multiple files and return deleted file info.

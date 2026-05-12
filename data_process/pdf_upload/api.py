@@ -102,6 +102,7 @@ async def batch_upload_pdf(
             filename.lower().endswith(ext) for ext in service.allowed_extensions
         ):
             results.append(BatchUploadItem(
+                file_uuid=None,
                 original_name=file.filename or "",
                 status="failed",
                 detail="Only PDF files are accepted",
@@ -116,12 +117,14 @@ async def batch_upload_pdf(
         # Validate size
         if len(content) == 0:
             results.append(BatchUploadItem(
+                file_uuid=None,
                 original_name=filename, status="failed", detail="Empty file rejected",
             ))
             failed += 1
             continue
         if len(content) > service.max_file_size_bytes:
             results.append(BatchUploadItem(
+                file_uuid=None,
                 original_name=filename, status="failed",
                 detail=f"File exceeds maximum size of {service.max_file_size_mb}MB",
             ))
@@ -139,6 +142,7 @@ async def batch_upload_pdf(
             uploaded += 1
         except ValueError:
             results.append(BatchUploadItem(
+                file_uuid=None,
                 original_name=filename, status="skipped",
                 detail="File already exists",
             ))
@@ -146,6 +150,7 @@ async def batch_upload_pdf(
         except (S3Error, Exception) as exc:
             LOGGER.exception("Batch upload failed for %s", filename)
             results.append(BatchUploadItem(
+                file_uuid=None,
                 original_name=filename, status="failed",
                 detail="Internal upload error",
             ))
@@ -155,8 +160,7 @@ async def batch_upload_pdf(
         items=results,
         total=len(results),
         uploaded=uploaded,
-        skipped=skipped,
-        failed=failed,
+        skipped=skipped
     )
 
 

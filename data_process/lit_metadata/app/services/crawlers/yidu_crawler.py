@@ -136,6 +136,8 @@ class YiduCrawler(BaseCrawler):
         abstract = clean_text(record.get("string_abstract"))
         keywords_text = clean_text(record.get("string_Key") or record.get("string_keyword"))
         explicit_type = self._type_text(record)
+        journal = clean_text(record.get("string_journal_title"))
+        pub_year = clean_text(record.get("string_publishyear"))
 
         metadata = PaperMetadata(
             title=title,
@@ -145,6 +147,8 @@ class YiduCrawler(BaseCrawler):
             paper_type=self.infer_paper_type(json.dumps(record, ensure_ascii=False), explicit_type),
             source_site="yidu",
             source_url=result.detail_url,
+            journal=journal,
+            pub_year=pub_year,
             raw_data=record,
         )
         logger.info(
