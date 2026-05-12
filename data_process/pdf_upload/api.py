@@ -16,6 +16,8 @@ from .schemas import (
     DownloadUrlResponse,
     FileListResponse,
     UploadResponse,
+    BatchDeleteRequest,
+    BatchDeleteResponse,
 )
 from .service import UploadService
 
@@ -202,3 +204,21 @@ async def delete_file(
     if not deleted:
         raise HTTPException(status_code=404, detail="File not found")
     return DeleteResponse(deleted=True, file_uuid=file_uuid)
+
+@router.post("/batch-delete", response_model=BatchDeleteResponse)
+async def batch_delete_files(
+    request: BatchDeleteRequest,
+    service: UploadService = Depends(_get_service),
+):
+    """Delete multiple files in one request"""
+    if not request.file_uuids:
+        raise HTTPException(status_code=400, detail="file_uuids cannot be empty")
+
+    result = await service.delete_files(request.file_uuids)
+    return BatchDeleteResponse(
+        items=result["items"],
+        total=result["total"],
+        deleted=result["deleted"],
+        skipped=result["skipped"],
+        failed=result["failed"],
+    )

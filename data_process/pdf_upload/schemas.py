@@ -48,6 +48,24 @@ class BatchUploadResponse(BaseModel):
     items: list[BatchUploadItem]
     total: int = Field(..., description="Total files in batch")
     uploaded: int = Field(..., description="Successfully uploaded count")
+    skipped: int = Field(..., description="Skipped count")
+
+
+class BatchDeleteRequest(BaseModel):
+    file_uuids: list[str] = Field(..., description="List of file UUIDs to delete")
+
+
+class BatchDeleteItem(BaseModel):
+    file_uuid: str
+    original_name: str | None = None
+    status: str = Field(..., description="deleted | not_found | failed")
+    detail: str | None = None
+
+
+class BatchDeleteResponse(BaseModel):
+    items: list[BatchDeleteItem]
+    total: int = Field(..., description="Total files requested for deletion")
+    deleted: int = Field(..., description="Successfully deleted count")
     skipped: int = Field(..., description="Skipped (duplicate) count")
     failed: int = Field(..., description="Failed count")
 
