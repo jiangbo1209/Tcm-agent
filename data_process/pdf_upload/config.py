@@ -2,18 +2,30 @@
 
 from __future__ import annotations
 
-import os
-from dataclasses import dataclass
+from pathlib import Path
+from typing import Tuple
 from urllib.parse import quote_plus
 
+from pydantic_settings import BaseSettings, SettingsConfigDict
 
-@dataclass(frozen=True)
-class PostgresConfig:
-    host: str
-    port: int
-    user: str
-    password: str
-    database: str
+# Get the project root directory (two levels up from this file)
+PROJECT_ROOT = Path(__file__).resolve().parents[2]
+ENV_FILE = PROJECT_ROOT / ".env"
+
+
+class PostgresConfig(BaseSettings):
+    model_config = SettingsConfigDict(
+        env_prefix="POSTGRES_",
+        env_file=str(ENV_FILE),
+        env_file_encoding="utf-8",
+        extra="ignore",
+    )
+
+    host: str = "172.16.150.45"
+    port: int = 5432
+    user: str = "postgres"
+    password: str = ""
+    database: str = "papers_records"
 
     @property
     def dsn(self) -> str:
@@ -25,43 +37,51 @@ class PostgresConfig:
         )
 
 
-@dataclass(frozen=True)
-class MinioConfig:
-    endpoint: str
-    access_key: str
-    secret_key: str
-    bucket_name: str
+class MinioConfig(BaseSettings):
+    model_config = SettingsConfigDict(
+        env_prefix="MINIO_",
+        env_file=str(ENV_FILE),
+        extra="ignore",
+        env_file_encoding="utf-8",
+    )
+
+    endpoint: str = "172.16.150.45:9000"
+    root_user: str = "admin"
+    root_password: str = ""
+    bucket_name: str = "tcm-documents"
+
+    @property
+    def access_key(self) -> str:
+        return self.root_user
+
+    @property
+    def secret_key(self) -> str:
+        return self.root_password
 
 
-@dataclass(frozen=True)
-class UploadConfig:
-    max_file_size_mb: int
-    allowed_extensions: tuple[str, ...]
+class UploadConfig(BaseSettings):
+    model_config = SettingsConfigDict(
+        env_prefix="UPLOAD_",
+        env_file=str(ENV_FILE),
+        extra="ignore",
+        env_file_encoding="utf-8",
+    )
+
+    max_file_size_mb: int = 100
+    allowed_extensions: str = ".pdf"
+
+    @property
+    def extensions_tuple(self) -> Tuple[str, ...]:
+        return tuple(self.allowed_extensions.split(","))
 
 
 def get_postgres_config() -> PostgresConfig:
-    return PostgresConfig(
-        host=os.getenv("POSTGRES_HOST", "172.16.150.45"),
-        port=int(os.getenv("POSTGRES_PORT", "5432")),
-        user=os.getenv("POSTGRES_USER", "postgres"),
-        password=os.getenv("POSTGRES_PASSWORD", ""),
-        database=os.getenv("POSTGRES_DB", "papers_records"),
-    )
+    return PostgresConfig()
 
 
 def get_minio_config() -> MinioConfig:
-    return MinioConfig(
-        endpoint=os.getenv("MINIO_ENDPOINT", "172.16.150.45:9000"),
-        access_key=os.getenv("MINIO_ROOT_USER", "admin"),
-        secret_key=os.getenv("MINIO_ROOT_PASSWORD", ""),
-        bucket_name=os.getenv("MINIO_BUCKET_NAME", "tcm-documents"),
-    )
+    return MinioConfig()
 
 
 def get_upload_config() -> UploadConfig:
-    return UploadConfig(
-        max_file_size_mb=int(os.getenv("UPLOAD_MAX_SIZE_MB", "100")),
-        allowed_extensions=tuple(
-            os.getenv("UPLOAD_ALLOWED_EXTENSIONS", ".pdf").split(",")
-        ),
-    )
+    return UploadConfig()

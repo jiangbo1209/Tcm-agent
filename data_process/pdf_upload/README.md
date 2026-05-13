@@ -17,6 +17,27 @@ uvicorn data_process.pdf_upload.main:app --port 8001 --reload
 
 Swagger 文档：http://localhost:8001/docs
 
+## 文件管理工具（推荐使用）
+
+### TUI 管理工具（完整增删查功能）
+
+```bash
+python data_process/pdf_upload/pdf_manager_tui.py
+```
+
+菜单功能：
+- **📤 上传文件** - 弹出文件选择器，支持单选或多选 PDF 文件
+- **📋 查看文件列表** - 查看所有已上传的文件和处理状态
+- **🗑️  删除文件** - 通过编号选择文件删除（确认后执行）
+
+### 简单上传工具
+
+```bash
+python data_process/pdf_upload/upload_to_tcm.py
+```
+
+直接弹出文件选择器，快速上传 PDF 文件。
+
 ## API 端点
 
 | 方法 | 路径 | 说明 |
@@ -27,6 +48,7 @@ Swagger 文档：http://localhost:8001/docs
 | GET | `/api/files/` | 文件列表（分页） |
 | GET | `/api/files/{uuid}` | 文件详情 |
 | GET | `/api/files/{uuid}/download-url` | 生成 MinIO 下载链接 |
+| POST | `/api/files/batch-delete` | 批量删除文件（请求体含 file_uuids 列表） |
 | DELETE | `/api/files/{uuid}` | 删除文件（MinIO + DB 同步） |
 
 ## 使用示例

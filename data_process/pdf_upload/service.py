@@ -83,6 +83,59 @@ class UploadService:
             LOGGER.exception("MinIO deletion failed for %s, proceeding with DB cleanup", file_uuid)
         return await self._repository.delete_by_uuid(file_uuid)
 
+    async def delete_files(self, file_uuids: list[str]) -> dict:
+        """Delete multiple files and return deletion results."""
+        # Delete from DB first (so repeated requests are idempotent),
+        # but keep the record info for MinIO deletion + response.
+        files_map = await self._repository.delete_by_uuids(file_uuids)
+
+        results: list[dict] = []
+        for file_uuid in file_uuids:
+            core_file = files_map.get(file_uuid)
+
+            if not core_file:
+                results.append(
+                    {
+                        "file_uuid": file_uuid,
+                        "original_name": None,
+                        "status": "not_found",
+                        "detail": "File not found",
+                    }
+                )
+                continue
+
+            try:
+                self._minio.remove_object(core_file.storage_path)
+                results.append(
+                    {
+                        "file_uuid": file_uuid,
+                        "original_name": core_file.original_name,
+                        "status": "deleted",
+                        "detail": None,
+                    }
+                )
+            except Exception as exc:
+                LOGGER.exception("MinIO deletion failed for %s", file_uuid)
+                results.append(
+                    {
+                        "file_uuid": file_uuid,
+                        "original_name": core_file.original_name,
+                        "status": "failed",
+                        "detail": str(exc),
+                    }
+                )
+
+        deleted_count = sum(1 for r in results if r["status"] == "deleted")
+        skipped_count = sum(1 for r in results if r["status"] == "not_found")
+        failed_count = sum(1 for r in results if r["status"] == "failed")
+
+        return {
+            "items": results,
+            "total": len(file_uuids),
+            "deleted": deleted_count,
+            "skipped": skipped_count,
+            "failed": failed_count,
+        }
     async def get_download_url(self, file_uuid: str) -> dict | None:
         core_file = await self._repository.get_by_uuid(file_uuid)
         if not core_file:

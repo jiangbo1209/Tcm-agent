@@ -23,3 +23,5 @@ data/
 
 病案文献
 .claude
+.vscode
+.pytest_cache

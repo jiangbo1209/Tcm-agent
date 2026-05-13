@@ -53,3 +53,23 @@ class CoreFileRepository:
         stmt = delete(CoreFile).where(CoreFile.file_uuid == file_uuid)
         result = await self._session.execute(stmt)
         return result.rowcount > 0
+
+    async def delete_by_uuids(self, file_uuids: list[str]) -> dict[str, CoreFile]:
+        """Delete multiple files and return deleted file info.
+
+        Returns a map of uuid -> CoreFile for records that existed.
+        """
+        if not file_uuids:
+            return {}
+
+        # Fetch first for response details
+        stmt = select(CoreFile).where(CoreFile.file_uuid.in_(file_uuids))
+        result = await self._session.execute(stmt)
+        files = result.scalars().all()
+        files_map = {f.file_uuid: f for f in files}
+
+        # Delete in one statement
+        delete_stmt = delete(CoreFile).where(CoreFile.file_uuid.in_(file_uuids))
+        await self._session.execute(delete_stmt)
+
+        return files_map

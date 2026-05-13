@@ -16,6 +16,8 @@ from .schemas import (
     DownloadUrlResponse,
     FileListResponse,
     UploadResponse,
+    BatchDeleteRequest,
+    BatchDeleteResponse,
 )
 from .service import UploadService
 
@@ -100,6 +102,7 @@ async def batch_upload_pdf(
             filename.lower().endswith(ext) for ext in service.allowed_extensions
         ):
             results.append(BatchUploadItem(
+                file_uuid=None,
                 original_name=file.filename or "",
                 status="failed",
                 detail="Only PDF files are accepted",
@@ -114,13 +117,18 @@ async def batch_upload_pdf(
         # Validate size
         if len(content) == 0:
             results.append(BatchUploadItem(
-                original_name=filename, status="failed", detail="Empty file rejected",
+                file_uuid=None,
+                original_name=filename,
+                status="failed",
+                detail="Empty file rejected",
             ))
             failed += 1
             continue
         if len(content) > service.max_file_size_bytes:
             results.append(BatchUploadItem(
-                original_name=filename, status="failed",
+                file_uuid=None,
+                original_name=filename,
+                status="failed",
                 detail=f"File exceeds maximum size of {service.max_file_size_mb}MB",
             ))
             failed += 1
@@ -137,14 +145,18 @@ async def batch_upload_pdf(
             uploaded += 1
         except ValueError:
             results.append(BatchUploadItem(
-                original_name=filename, status="skipped",
+                file_uuid=None,
+                original_name=filename,
+                status="skipped",
                 detail="File already exists",
             ))
             skipped += 1
         except (S3Error, Exception) as exc:
             LOGGER.exception("Batch upload failed for %s", filename)
             results.append(BatchUploadItem(
-                original_name=filename, status="failed",
+                file_uuid=None,
+                original_name=filename,
+                status="failed",
                 detail="Internal upload error",
             ))
             failed += 1
@@ -154,7 +166,6 @@ async def batch_upload_pdf(
         total=len(results),
         uploaded=uploaded,
         skipped=skipped,
-        failed=failed,
     )
 
 
@@ -202,3 +213,21 @@ async def delete_file(
     if not deleted:
         raise HTTPException(status_code=404, detail="File not found")
     return DeleteResponse(deleted=True, file_uuid=file_uuid)
+
+@router.post("/batch-delete", response_model=BatchDeleteResponse)
+async def batch_delete_files(
+    request: BatchDeleteRequest,
+    service: UploadService = Depends(_get_service),
+):
+    """Delete multiple files in one request"""
+    if not request.file_uuids:
+        raise HTTPException(status_code=400, detail="file_uuids cannot be empty")
+
+    result = await service.delete_files(request.file_uuids)
+    return BatchDeleteResponse(
+        items=result["items"],
+        total=result["total"],
+        deleted=result["deleted"],
+        skipped=result["skipped"],
+        failed=result["failed"],
+    )

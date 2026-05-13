@@ -4,9 +4,7 @@ from __future__ import annotations
 
 import logging
 from contextlib import asynccontextmanager
-from pathlib import Path
 
-from dotenv import load_dotenv
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
@@ -14,9 +12,6 @@ from .api import router
 from .dependencies import dispose_engine, ensure_tables, init_dependencies
 
 logging.basicConfig(level=logging.INFO)
-
-ROOT_DIR = Path(__file__).resolve().parents[2]  # project root
-load_dotenv(ROOT_DIR / ".env", override=False)
 
 
 @asynccontextmanager
