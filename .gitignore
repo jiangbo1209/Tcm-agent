@@ -1,27 +1,51 @@
 # Python
 __pycache__/
 *.py[cod]
-*.pyo
-*.pyd
-*.egg-info/
-build/
-dist/
+*$py.class
+.pytest_cache/
+.pytest_tmp/
+.mypy_cache/
+.ruff_cache/
+.hypothesis/
+.coverage
+.coverage.*
+htmlcov/
 
-# Virtual environments
+# Virtual env
 .venv/
 venv/
+env/
+ENV/
 
-# Env files
-*.env
-!.env.example
+# Env / secrets
+.env
+.env.local
+.env.*.local
 
-# Data
-data/
+# Local databases
+*.db
+*.sqlite
+*.sqlite3
 
-# OS
+# Runtime outputs
+outputs/
+*.log
+logs/
+tmp/
+temp/
+
+# Local dataset files
+dataset/
+datasets/
+
+# Build / packaging
+build/
+dist/
+*.egg-info/
+pip-wheel-metadata/
+
+# OS / editor
 .DS_Store
-
-病案文献
-.claude
-.vscode
-.pytest_cache
+Thumbs.db
+.vscode/
+.idea/
