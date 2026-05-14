@@ -15,8 +15,6 @@ class Settings(BaseSettings):
     )
 
     DATABASE_URL: str = "sqlite+aiosqlite:///./paper_info.db"
-    INPUT_SOURCE: str = "core_file"
-    DATASET_DIR: str = "./dataset"
     OUTPUT_DIR: str = "./outputs"
     CORE_FILE_PENDING_LIMIT: int = 0
 
@@ -42,14 +40,6 @@ class Settings(BaseSettings):
     CNKI_BROWSER_CHANNEL: str = ""
     CNKI_HUMAN_PAUSE_MIN: float = 0.8
     CNKI_HUMAN_PAUSE_MAX: float = 2.4
-
-    @field_validator("INPUT_SOURCE")
-    @classmethod
-    def validate_input_source(cls, value: str) -> str:
-        normalized = value.strip().lower()
-        if normalized not in {"dataset", "core_file"}:
-            raise ValueError("INPUT_SOURCE must be either 'dataset' or 'core_file'")
-        return normalized
 
     @field_validator("CRAWLER_TIMEOUT", "CRAWLER_MAX_RETRIES", "CRAWLER_CONCURRENCY", "CORE_FILE_PENDING_LIMIT")
     @classmethod

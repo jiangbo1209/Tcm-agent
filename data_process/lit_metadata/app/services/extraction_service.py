@@ -22,14 +22,12 @@ from app.models.schemas import (
     FailedRecordCreate,
     LitMetadataCreate,
     PaperMetadata,
-    PaperRecordCreate,
     ProcessingSummary,
     SearchResult,
 )
 from app.repositories.core_file_repository import CoreFileRepository
 from app.repositories.failed_record_repository import FailedRecordRepository
 from app.repositories.lit_metadata_repository import LitMetadataRepository
-from app.repositories.paper_repository import PaperRepository
 from app.services.crawlers.base import BaseCrawler
 from app.services.filename_cleaner import FilenameCleaner
 from app.services.title_matcher import ExactTitleMatcher
@@ -129,20 +127,13 @@ class ExtractionService:
             )
 
             async with self.session_factory() as session:
-                paper_repo = PaperRepository(session)
-                failed_repo = FailedRecordRepository(session)
-
                 if self.settings.SKIP_EXISTING_RECORDS:
-                    if file.file_uuid is not None:
-                        lit_repo = LitMetadataRepository(session)
-                        if await lit_repo.exists_by_file_uuid(file.file_uuid):
-                            core_file_repo = CoreFileRepository(session)
-                            await core_file_repo.mark_metadata_found(file.file_uuid)
-                            await session.commit()
-                            logger.info("Skipping existing file_uuid={}", file.file_uuid)
-                            return "skipped"
-                    elif await paper_repo.exists_by_file_name(file_name) or await failed_repo.exists_by_file_name(file_name):
-                        logger.info("Skipping existing file_name={}", file_name)
+                    lit_repo = LitMetadataRepository(session)
+                    if await lit_repo.exists_by_file_uuid(file.file_uuid):
+                        core_file_repo = CoreFileRepository(session)
+                        await core_file_repo.mark_metadata_found(file.file_uuid)
+                        await session.commit()
+                        logger.info("Skipping existing file_uuid={}", file.file_uuid)
                         return "skipped"
 
             yidu_outcome = await self._attempt_site("yidu", self.yidu_crawler, cleaned_title)
@@ -156,18 +147,6 @@ class ExtractionService:
                 await self._write_failed_record(file, cleaned_title, attempted_sites, last_reason, last_message)
                 return "failed"
 
-            if self.settings.ENABLE_NSTL and self.nstl_crawler is not None:
-                nstl_outcome = await self._attempt_site("nstl", self.nstl_crawler, cleaned_title)
-                attempted_sites.append("nstl")
-                if nstl_outcome.success and nstl_outcome.metadata and nstl_outcome.match_result:
-                    return await self._save_success(file, cleaned_title, nstl_outcome)
-
-                last_reason = nstl_outcome.failure_reason or last_reason
-                last_message = nstl_outcome.error_message or last_message
-                if nstl_outcome.stop_processing:
-                    await self._write_failed_record(file, cleaned_title, attempted_sites, last_reason, last_message)
-                    return "failed"
-
             if self.settings.ENABLE_CNKI and self.cnki_crawler is not None:
                 cnki_outcome = await self._attempt_site("cnki", self.cnki_crawler, cleaned_title)
                 attempted_sites.append("cnki")
@@ -177,6 +156,18 @@ class ExtractionService:
                 last_reason = cnki_outcome.failure_reason or last_reason
                 last_message = cnki_outcome.error_message or last_message
                 if cnki_outcome.stop_processing:
+                    await self._write_failed_record(file, cleaned_title, attempted_sites, last_reason, last_message)
+                    return "failed"
+
+            if self.settings.ENABLE_NSTL and self.nstl_crawler is not None:
+                nstl_outcome = await self._attempt_site("nstl", self.nstl_crawler, cleaned_title)
+                attempted_sites.append("nstl")
+                if nstl_outcome.success and nstl_outcome.metadata and nstl_outcome.match_result:
+                    return await self._save_success(file, cleaned_title, nstl_outcome)
+
+                last_reason = nstl_outcome.failure_reason or last_reason
+                last_message = nstl_outcome.error_message or last_message
+                if nstl_outcome.stop_processing:
                     await self._write_failed_record(file, cleaned_title, attempted_sites, last_reason, last_message)
                     return "failed"
 
@@ -289,55 +280,33 @@ class ExtractionService:
             raise ValueError("Successful site outcome requires metadata and match_result")
 
         crawl_status, error_message = self._metadata_status(outcome.metadata)
-        data = PaperRecordCreate(
-            file_name=file.file_name,
-            file_path=file.file_path,
-            cleaned_title=cleaned_title,
-            title=outcome.metadata.title,
-            authors=outcome.metadata.authors,
-            abstract=outcome.metadata.abstract,
-            keywords=outcome.metadata.keywords,
-            paper_type=outcome.metadata.paper_type,
-            source_site=outcome.metadata.source_site,
-            source_url=outcome.metadata.source_url,
-            journal=outcome.metadata.journal,
-            pub_year=outcome.metadata.pub_year,
-            matched_title=outcome.match_result.title,
-            is_exact_match=True,
-            crawl_status=crawl_status,
-            error_message=error_message,
-        )
 
         async with self.session_factory() as session:
-            if file.file_uuid is None:
-                repo = PaperRepository(session)
-                await repo.create(data)
-            else:
-                lit_repo = LitMetadataRepository(session)
-                core_file_repo = CoreFileRepository(session)
-                await lit_repo.upsert(
-                    LitMetadataCreate(
-                        file_uuid=file.file_uuid,
-                        original_name=file.file_name,
-                        storage_path=file.file_path,
-                        cleaned_title=cleaned_title,
-                        title=outcome.metadata.title,
-                        authors=outcome.metadata.authors,
-                        abstract=outcome.metadata.abstract,
-                        keywords=outcome.metadata.keywords,
-                        paper_type=outcome.metadata.paper_type,
-                        source_site=outcome.metadata.source_site,
-                        source_url=outcome.metadata.source_url,
-                        journal=outcome.metadata.journal,
-                        pub_year=outcome.metadata.pub_year,
-                        matched_title=outcome.match_result.title,
-                        is_exact_match=True,
-                        crawl_status=crawl_status,
-                        error_message=error_message,
-                    )
+            lit_repo = LitMetadataRepository(session)
+            core_file_repo = CoreFileRepository(session)
+            await lit_repo.upsert(
+                LitMetadataCreate(
+                    file_uuid=file.file_uuid,
+                    original_name=file.file_name,
+                    storage_path=file.file_path,
+                    cleaned_title=cleaned_title,
+                    title=outcome.metadata.title,
+                    authors=outcome.metadata.authors,
+                    abstract=outcome.metadata.abstract,
+                    keywords=outcome.metadata.keywords,
+                    paper_type=outcome.metadata.paper_type,
+                    source_site=outcome.metadata.source_site,
+                    source_url=outcome.metadata.source_url,
+                    journal=outcome.metadata.journal,
+                    pub_year=outcome.metadata.pub_year,
+                    matched_title=outcome.match_result.title,
+                    is_exact_match=True,
+                    crawl_status=crawl_status,
+                    error_message=error_message,
                 )
-                await core_file_repo.mark_metadata_found(file.file_uuid)
-                await session.commit()
+            )
+            await core_file_repo.mark_metadata_found(file.file_uuid)
+            await session.commit()
 
         logger.info(
             "Saved metadata record: file_name={}, file_uuid={}, source_site={}, crawl_status={}",

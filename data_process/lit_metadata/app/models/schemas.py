@@ -9,7 +9,7 @@ class DatasetFile(BaseModel):
     file_name: str
     file_path: str
     suffix: str
-    file_uuid: str | None = None
+    file_uuid: str
 
 
 class SearchResult(BaseModel):
@@ -30,25 +30,6 @@ class PaperMetadata(BaseModel):
     journal: str | None = None
     pub_year: str | None = None
     raw_data: dict[str, Any] | None = None
-
-
-class PaperRecordCreate(BaseModel):
-    file_name: str
-    file_path: str
-    cleaned_title: str
-    title: str
-    authors: list[str] = Field(default_factory=list)
-    abstract: str | None = None
-    keywords: list[str] = Field(default_factory=list)
-    paper_type: str | None = None
-    source_site: str
-    source_url: str | None = None
-    journal: str | None = None
-    pub_year: str | None = None
-    matched_title: str
-    is_exact_match: bool
-    crawl_status: str
-    error_message: str | None = None
 
 
 class FailedRecordCreate(BaseModel):

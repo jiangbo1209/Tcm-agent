@@ -6,7 +6,7 @@ from typing import Any
 from loguru import logger
 
 from app.core.config import Settings, settings
-from app.core.exceptions import DetailPageParseError
+from app.core.exceptions import CrawlerError, DetailPageParseError
 from app.models.schemas import PaperMetadata, SearchResult
 from app.services.crawlers.base import BaseCrawler
 from app.utils.text import clean_text, split_authors, split_keywords, strip_html
@@ -136,6 +136,8 @@ class YiduCrawler(BaseCrawler):
         abstract = clean_text(record.get("string_abstract"))
         keywords_text = clean_text(record.get("string_Key") or record.get("string_keyword"))
         explicit_type = self._type_text(record)
+        journal = clean_text(record.get("string_journal_title"))
+        pub_year = clean_text(record.get("string_publishyear"))
 
         metadata = PaperMetadata(
             title=title,
@@ -146,6 +148,8 @@ class YiduCrawler(BaseCrawler):
             source_site="yidu",
             source_url=result.detail_url,
             raw_data=record,
+            journal=journal,
+            pub_year=pub_year,
         )
         logger.info(
             "Parsed yidu metadata: title={}, authors={}, keywords={}, paper_type={}",
