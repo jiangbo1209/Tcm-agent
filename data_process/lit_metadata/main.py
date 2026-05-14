@@ -12,7 +12,6 @@ from app.services.core_file_scanner import CoreFileScanner
 from app.services.crawlers.cnki_crawler import CnkiCrawler
 from app.services.crawlers.nstl_crawler import NstlCrawler
 from app.services.crawlers.yidu_crawler import YiduCrawler
-from app.services.dataset_scanner import DatasetScanner
 from app.services.export_service import ExportService
 from app.services.extraction_service import ExtractionService
 
@@ -21,21 +20,15 @@ async def main() -> None:
     setup_logging(settings)
     logger.info("Starting paper_info_crawler")
     logger.info(
-        "Settings loaded: input_source={}, dataset_dir={}, output_dir={}",
-        settings.INPUT_SOURCE,
-        settings.DATASET_DIR,
+        "Settings loaded: output_dir={}",
         settings.OUTPUT_DIR,
     )
 
     await init_db()
     logger.info("Database initialized")
 
-    if settings.INPUT_SOURCE == "core_file":
-        scanner = CoreFileScanner(settings)
-        files = await scanner.scan()
-    else:
-        scanner = DatasetScanner(settings)
-        files = scanner.scan()
+    scanner = CoreFileScanner(settings)
+    files = await scanner.scan()
 
     yidu_crawler = YiduCrawler(settings)
     nstl_crawler = NstlCrawler(settings) if settings.ENABLE_NSTL else None
