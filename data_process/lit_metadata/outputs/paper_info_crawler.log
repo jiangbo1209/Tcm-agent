@@ -1,0 +1,11 @@
+2026-05-14 11:05:02.784 | INFO     | __main__:main:21 - Starting paper_info_crawler
+2026-05-14 11:05:02.785 | INFO     | __main__:main:22 - Settings loaded: output_dir=./outputs
+2026-05-14 11:10:08.994 | INFO     | __main__:main:21 - Starting paper_info_crawler
+2026-05-14 11:10:08.995 | INFO     | __main__:main:22 - Settings loaded: output_dir=./outputs
+2026-05-14 11:12:48.867 | INFO     | __main__:main:21 - Starting paper_info_crawler
+2026-05-14 11:12:48.867 | INFO     | __main__:main:22 - Settings loaded: output_dir=./outputs
+2026-05-14 11:12:48.887 | INFO     | __main__:main:28 - Database initialized
+2026-05-14 11:12:48.891 | INFO     | app.services.core_file_scanner:scan:32 - Core file scan finished: pending_pdf_count=0
+2026-05-14 11:12:48.947 | INFO     | app.services.extraction_service:process_all:108 - Processing summary: {'total_files': 0, 'success_count': 0, 'partial_count': 0, 'failed_count': 0, 'skipped_count': 0, 'failed_export_path': None}
+2026-05-14 11:12:48.949 | INFO     | app.services.export_service:export_failed_to_csv:65 - Exported failed records: path=outputs/failed_records.csv, count=0
+2026-05-14 11:12:48.949 | INFO     | __main__:main:51 - Final summary: {'total_files': 0, 'success_count': 0, 'partial_count': 0, 'failed_count': 0, 'skipped_count': 0, 'failed_export_path': 'outputs/failed_records.csv'}

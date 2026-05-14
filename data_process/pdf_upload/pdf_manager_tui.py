@@ -6,6 +6,7 @@ TCM PDF 文件管理工具 - TUI 版本
 
 from __future__ import annotations
 
+import os
 import sys
 from pathlib import Path
 from typing import Optional
@@ -20,9 +21,9 @@ from rich.text import Text
 
 try:
     from tkinter import Tk, filedialog
+    TK_AVAILABLE = True
 except ImportError:
-    print("错误：需要 tkinter 支持")
-    sys.exit(1)
+    TK_AVAILABLE = False
 
 # API 服务配置
 API_BASE_URL = "http://localhost:8001"
@@ -106,19 +107,40 @@ def _parse_selection(choice: str, max_index: int) -> tuple[list[int], str | None
     return valid, None
 
 
+def _prompt_file_paths() -> list[str]:
+    console.print("[yellow]未检测到图形界面，切换为命令行输入[/yellow]")
+    raw = Prompt.ask("请输入 PDF 路径（逗号分隔）或输入目录路径")
+    raw = raw.strip()
+    if not raw:
+        return []
+
+    candidate = Path(raw).expanduser()
+    if candidate.exists() and candidate.is_dir():
+        return [str(path) for path in sorted(candidate.glob("*.pdf"))]
+
+    paths = [Path(item.strip()).expanduser() for item in raw.split(",") if item.strip()]
+    return [str(path) for path in paths]
+
+
 def select_pdf_files() -> list[str]:
     """弹出文件选择器，选择 PDF 文件"""
+    has_display = bool(os.getenv("DISPLAY") or os.getenv("WAYLAND_DISPLAY"))
+    if not TK_AVAILABLE or not has_display:
+        return _prompt_file_paths()
+
     root = Tk()
     root.withdraw()
     root.attributes("-topmost", True)
 
-    file_paths = filedialog.askopenfilenames(
-        title="选择要上传的 PDF 文件",
-        filetypes=[("PDF 文件", "*.pdf"), ("所有文件", "*.*")],
-        multiple=True,
-    )
+    try:
+        file_paths = filedialog.askopenfilenames(
+            title="选择要上传的 PDF 文件",
+            filetypes=[("PDF 文件", "*.pdf"), ("所有文件", "*.*")],
+            multiple=True,
+        )
+    finally:
+        root.destroy()
 
-    root.destroy()
     return list(file_paths)
 
 
