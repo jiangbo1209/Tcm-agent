@@ -61,6 +61,7 @@ graph TD
 **阶段二：KG 图谱应用层（Knowledge Graph）**
 1. FastAPI 后端提供图数据检索与 BFS 扩展接口
 2. 前端 AntV G6 实现交互式高亮渲染与节点探索
+<img src="./docs/image/阶段二.svg" alt="阶段二架构图" width="100%" />
 
 **阶段三：Agent 对话系统（Agent Dialogue System）**
 1. 基于大模型与RAG进行语义增强
