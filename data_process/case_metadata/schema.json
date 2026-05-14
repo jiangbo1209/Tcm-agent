@@ -1,0 +1,149 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "type": "object",
+  "additionalProperties": false,
+  "properties": {
+    "年齡": {
+      "type": [
+        "string",
+        "null"
+      ]
+    },
+    "BMI": {
+      "type": [
+        "string",
+        "null"
+      ]
+    },
+    "月经情况": {
+      "type": [
+        "string",
+        "null"
+      ]
+    },
+    "不孕情况": {
+      "type": [
+        "string",
+        "null"
+      ]
+    },
+    "生活习惯": {
+      "type": [
+        "string",
+        "null"
+      ]
+    },
+    "刻下症": {
+      "type": [
+        "string",
+        "null"
+      ]
+    },
+    "既往病史": {
+      "type": [
+        "string",
+        "null"
+      ]
+    },
+    "生化检查": {
+      "type": [
+        "string",
+        "null"
+      ]
+    },
+    "超声检查": {
+      "type": [
+        "string",
+        "null"
+      ]
+    },
+    "复诊情况": {
+      "type": [
+        "string",
+        "null"
+      ]
+    },
+    "西医病名诊断": {
+      "type": [
+        "string",
+        "null"
+      ]
+    },
+    "中医证候诊断": {
+      "type": [
+        "string",
+        "null"
+      ]
+    },
+    "治法": {
+      "type": [
+        "string",
+        "null"
+      ]
+    },
+    "方剂": {
+      "type": [
+        "string",
+        "null"
+      ]
+    },
+    "针刺选穴": {
+      "type": [
+        "string",
+        "null"
+      ]
+    },
+    "辅助生殖技术": {
+      "type": [
+        "string",
+        "null"
+      ]
+    },
+    "西药": {
+      "type": [
+        "string",
+        "null"
+      ]
+    },
+    "疔效评价": {
+      "type": [
+        "string",
+        "null"
+      ]
+    },
+    "不良反应": {
+      "type": [
+        "string",
+        "null"
+      ]
+    },
+    "按语/评价说明": {
+      "type": [
+        "string",
+        "null"
+      ]
+    }
+  },
+  "required": [
+    "年齡",
+    "BMI",
+    "月经情况",
+    "不孕情况",
+    "生活习惯",
+    "刻下症",
+    "既往病史",
+    "生化检查",
+    "超声检查",
+    "复诊情况",
+    "西医病名诊断",
+    "中医证候诊断",
+    "治法",
+    "方剂",
+    "针刺选穴",
+    "辅助生殖技术",
+    "西药",
+    "疔效评价",
+    "不良反应",
+    "按语/评价说明"
+  ]
+}
