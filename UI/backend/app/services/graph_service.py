@@ -5,11 +5,12 @@ from __future__ import annotations
 from collections import deque
 from datetime import timedelta
 from typing import Any
+import json
 import math
 from urllib.parse import quote
 
 from app.core.minio_utils import MinioClient
-from app.models.entities import PAPER_COLUMNS, RECORD_COLUMNS
+from app.models.entities import RECORD_COLUMNS
 from app.repositories.graph_repository import GraphRepository
 
 
@@ -26,6 +27,77 @@ class GraphService:
             return float(value)
         except (TypeError, ValueError):
             return None
+
+    @staticmethod
+    def _format_list_field(value: Any) -> str | None:
+        if value is None:
+            return None
+        if isinstance(value, list):
+            return ", ".join(str(item) for item in value if item is not None and str(item).strip()) or None
+        if isinstance(value, str):
+            raw = value.strip()
+            if raw.startswith("[") and raw.endswith("]"):
+                try:
+                    data = json.loads(raw)
+                except json.JSONDecodeError:
+                    return value
+                if isinstance(data, list):
+                    return ", ".join(str(item) for item in data if item is not None and str(item).strip()) or None
+            return value
+        return str(value)
+
+    def _map_paper_detail(self, paper: dict[str, Any]) -> dict[str, Any]:
+        authors = self._format_list_field(paper.get("authors"))
+        keywords = self._format_list_field(paper.get("keywords"))
+        return {
+            "file_name": paper.get("original_name"),
+            "file_key": paper.get("storage_path"),
+            "title": paper.get("title"),
+            "authors": authors,
+            "abstract": paper.get("abstract"),
+            "keywords": keywords,
+            "journal": paper.get("journal"),
+            "pub_year": paper.get("pub_year"),
+            "paper_type": paper.get("paper_type"),
+            "created_at": paper.get("created_at"),
+            "updated_at": paper.get("updated_at"),
+            "source_site": paper.get("source_site"),
+            "source_url": paper.get("source_url"),
+            "matched_title": paper.get("matched_title"),
+            "is_exact_match": paper.get("is_exact_match"),
+            "crawl_status": paper.get("crawl_status"),
+            "error_message": paper.get("error_message"),
+        }
+
+    @staticmethod
+    def _build_record_fields(record: dict[str, Any] | None, fallback_title: str) -> list[dict[str, Any]]:
+        if not record:
+            return []
+        title_value = record.get("literature_title") or fallback_title
+        record_map = {
+            "论文名称": title_value,
+            "年齡": record.get("age"),
+            "BMI": record.get("bmi"),
+            "月经情况": record.get("menstruation"),
+            "不孕情况": record.get("infertility"),
+            "生活习惯": record.get("lifestyle"),
+            "刻下症": record.get("present_symptoms"),
+            "既往病史": record.get("medical_history"),
+            "生化检查": record.get("lab_tests"),
+            "超声检查": record.get("ultrasound"),
+            "复诊情况": record.get("followup"),
+            "西医病名诊断": record.get("western_diagnosis"),
+            "中医证候诊断": record.get("tcm_diagnosis"),
+            "治法": record.get("treatment_principle"),
+            "方剂": record.get("prescription"),
+            "针刺选穴": record.get("acupoints"),
+            "辅助生殖技术": record.get("assisted_reproduction"),
+            "西药": record.get("western_medicine"),
+            "疔效评价": record.get("efficacy"),
+            "不良反应": record.get("adverse_reactions"),
+            "按语/评价说明": record.get("commentary"),
+        }
+        return [{"name": col, "value": record_map.get(col)} for col in RECORD_COLUMNS]
 
     @staticmethod
     def clamp_limit(raw_limit: str | None) -> int:
@@ -113,7 +185,7 @@ class GraphService:
             paper = self._repository.fetch_paper_detail_by_title(title)
             paper_payload = None
             if paper:
-                paper_payload = {col: paper.get(col) for col in PAPER_COLUMNS}
+                paper_payload = self._map_paper_detail(paper)
             return {
                 "node": node_payload,
                 "detail_type": "paper",
@@ -121,14 +193,21 @@ class GraphService:
             }
 
         record = self._repository.fetch_record_detail_by_title(title)
-        record_fields = []
+        record_fields = self._build_record_fields(record, title)
+        record_summary = None
         if record:
-            record_fields = [{"name": col, "value": record.get(col)} for col in RECORD_COLUMNS]
+            record_summary = {
+                "diagnosis": record.get("western_diagnosis"),
+                "syndrome": record.get("tcm_diagnosis"),
+                "treatment_principle": record.get("treatment_principle"),
+                "prescription": record.get("prescription"),
+            }
 
         return {
             "node": node_payload,
             "detail_type": "record",
             "record_fields": record_fields,
+            "record": record_summary,
         }
 
     def search_graph(self, keyword: str, page: int, size: int) -> dict[str, Any]:

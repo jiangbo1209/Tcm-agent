@@ -4,37 +4,58 @@ from __future__ import annotations
 
 from typing import Any
 
-import mysql.connector
-from mysql.connector import Error
+try:
+    import psycopg2
+    from psycopg2 import Error
+    from psycopg2.extras import RealDictCursor
+except Exception:  # pragma: no cover
+    psycopg2 = None
+    Error = Exception
+    RealDictCursor = None
 
 from app.config import DatabaseConfig
-from app.models.entities import PAPER_COLUMNS, RECORD_COLUMNS
 from app.search.settings import SearchBackendMode, SearchConfig
-
-
-def quote_ident(name: str) -> str:
-    return f"`{name.replace('`', '``')}`"
 
 
 class GraphRepository:
     PAPER_FULLTEXT_COLUMNS = ("title", "keywords", "abstract")
-    RECORD_FULLTEXT_COLUMNS = ("论文名称", "中医证候诊断", "西医病名诊断")
+    RECORD_FULLTEXT_COLUMNS = ("tcm_diagnosis", "western_diagnosis")
+    PAPER_SEARCH_INDEX = "idx_lit_metadata_search"
+    RECORD_SEARCH_INDEX = "idx_med_case_search"
 
     def __init__(self, db_config: DatabaseConfig, search_config: SearchConfig | None = None) -> None:
         self._db_config = db_config
         self._search_config = search_config or SearchConfig()
-        self._fulltext_cache: dict[tuple[str, tuple[str, ...]], bool] = {}
-        self._paper_column_cache: dict[str, bool] = {}
+        self._fulltext_cache: dict[str, bool] = {}
+
+    @staticmethod
+    def _lit_match_condition(title_expr: str) -> str:
+        return (
+            f"(lm.title = {title_expr} OR "
+            f"lm.matched_title = {title_expr} OR "
+            f"lm.cleaned_title = {title_expr} OR "
+            f"lm.original_name = {title_expr})"
+        )
+
+    def _completion_rank_sql(self, title_expr: str) -> str:
+        return (
+            "CASE WHEN EXISTS ("
+            "SELECT 1 FROM lit_metadata lm "
+            "JOIN core_file cf ON cf.file_uuid = lm.file_uuid "
+            f"WHERE {self._lit_match_condition(title_expr)} "
+            "AND cf.status_metadata = TRUE AND cf.status_case = TRUE"
+            ") THEN 1 ELSE 0 END"
+        )
 
     def _connect(self):
-        return mysql.connector.connect(
+        if psycopg2 is None:
+            raise RuntimeError("Missing dependency: psycopg2-binary")
+        return psycopg2.connect(
             host=self._db_config.host,
             port=self._db_config.port,
             user=self._db_config.user,
             password=self._db_config.password,
-            database=self._db_config.database,
-            charset="utf8mb4",
-            use_unicode=True,
+            dbname=self._db_config.database,
         )
 
     def fetch_edges_by_seed(self, seed_id: str, limit: int) -> list[dict[str, Any]]:
@@ -47,7 +68,7 @@ class GraphRepository:
         )
 
         with self._connect() as conn:
-            with conn.cursor(dictionary=True) as cursor:
+            with conn.cursor(cursor_factory=RealDictCursor) as cursor:
                 cursor.execute(sql, (seed_id, seed_id, limit))
                 return cursor.fetchall() or []
 
@@ -56,13 +77,15 @@ class GraphRepository:
             return []
 
         placeholders = ", ".join(["%s"] * len(node_ids))
+        completion_rank = self._completion_rank_sql("n.title")
         sql = (
             "SELECT id, node_type, title, metric_value, top_k_value "
-            f"FROM nodes WHERE id IN ({placeholders})"
+            f"FROM nodes n WHERE id IN ({placeholders}) "
+            f"ORDER BY {completion_rank} DESC, n.id ASC"
         )
 
         with self._connect() as conn:
-            with conn.cursor(dictionary=True) as cursor:
+            with conn.cursor(cursor_factory=RealDictCursor) as cursor:
                 cursor.execute(sql, tuple(node_ids))
                 return cursor.fetchall() or []
 
@@ -73,53 +96,106 @@ class GraphRepository:
         )
 
         with self._connect() as conn:
-            with conn.cursor(dictionary=True) as cursor:
+            with conn.cursor(cursor_factory=RealDictCursor) as cursor:
                 cursor.execute(sql, (node_id,))
                 row = cursor.fetchone()
                 return row or None
 
     def fetch_paper_detail_by_title(self, title: str) -> dict[str, Any] | None:
+        columns = (
+            "id",
+            "file_uuid",
+            "original_name",
+            "storage_path",
+            "cleaned_title",
+            "title",
+            "authors",
+            "abstract",
+            "keywords",
+            "paper_type",
+            "source_site",
+            "source_url",
+            "journal",
+            "pub_year",
+            "matched_title",
+            "is_exact_match",
+            "crawl_status",
+            "error_message",
+            "created_at",
+            "updated_at",
+        )
+        fields = ", ".join(f"lm.{col}" for col in columns)
+        match_sql = "(lm.title = %s OR lm.matched_title = %s OR lm.cleaned_title = %s OR lm.original_name = %s)"
+        order_sql = (
+            "CASE "
+            "WHEN lm.title = %s THEN 0 "
+            "WHEN lm.matched_title = %s THEN 1 "
+            "WHEN lm.cleaned_title = %s THEN 2 "
+            "WHEN lm.original_name = %s THEN 3 "
+            "ELSE 4 END"
+        )
+
         with self._connect() as conn:
-            with conn.cursor(dictionary=True) as cursor:
-                paper_columns = [
-                    col
-                    for col in PAPER_COLUMNS
-                    if col != "file_key" or self._paper_has_column(cursor, "file_key")
-                ]
-                fields = ", ".join(quote_ident(col) for col in paper_columns)
+            with conn.cursor(cursor_factory=RealDictCursor) as cursor:
                 exact_sql = (
-                    f"SELECT {fields} FROM paper "
-                    "WHERE title = %s OR file_name = %s "
-                    "ORDER BY CASE WHEN title = %s THEN 0 ELSE 1 END "
+                    f"SELECT {fields} FROM lit_metadata lm "
+                    f"WHERE {match_sql} "
+                    f"ORDER BY {order_sql}, lm.updated_at DESC "
                     "LIMIT 1"
                 )
                 fuzzy_sql = (
-                    f"SELECT {fields} FROM paper "
-                    "WHERE title LIKE %s OR file_name LIKE %s "
+                    f"SELECT {fields} FROM lit_metadata lm "
+                    "WHERE (lm.title LIKE %s OR lm.matched_title LIKE %s OR lm.cleaned_title LIKE %s "
+                    "OR lm.original_name LIKE %s) "
+                    "ORDER BY lm.updated_at DESC "
                     "LIMIT 1"
                 )
 
-                cursor.execute(exact_sql, (title, title, title))
+                cursor.execute(
+                    exact_sql,
+                    (
+                        title,
+                        title,
+                        title,
+                        title,
+                        title,
+                        title,
+                        title,
+                        title,
+                    ),
+                )
                 row = cursor.fetchone()
                 if row:
                     return row
 
                 like_pattern = f"%{title}%"
-                cursor.execute(fuzzy_sql, (like_pattern, like_pattern))
+                cursor.execute(
+                    fuzzy_sql,
+                    (like_pattern, like_pattern, like_pattern, like_pattern),
+                )
                 return cursor.fetchone() or None
 
     def get_file_reference_by_node_id(self, node_id: str) -> dict[str, Any] | None:
         with self._connect() as conn:
-            with conn.cursor(dictionary=True) as cursor:
-                has_file_key = self._paper_has_column(cursor, "file_key")
-                file_key_expr = "p.file_key" if has_file_key else "NULL"
-
+            with conn.cursor(cursor_factory=RealDictCursor) as cursor:
                 sql = (
                     "SELECT n.id AS node_id, n.node_type AS node_type, n.title AS node_title, "
-                    "p.file_name AS file_name, "
-                    f"{file_key_expr} AS file_key "
+                    "cf.original_name AS file_name, "
+                    "cf.storage_path AS file_key "
                     "FROM nodes n "
-                    "LEFT JOIN paper p ON p.title = n.title "
+                    "LEFT JOIN lit_metadata lm ON lm.id = ("
+                    "SELECT lm2.id FROM lit_metadata lm2 "
+                    "WHERE (lm2.title = n.title OR lm2.matched_title = n.title "
+                    "OR lm2.cleaned_title = n.title OR lm2.original_name = n.title) "
+                    "ORDER BY "
+                    "CASE WHEN lm2.title = n.title THEN 0 "
+                    "WHEN lm2.matched_title = n.title THEN 1 "
+                    "WHEN lm2.cleaned_title = n.title THEN 2 "
+                    "WHEN lm2.original_name = n.title THEN 3 ELSE 4 END, "
+                    "lm2.updated_at DESC "
+                    "LIMIT 1"
+                    ") "
+                    "LEFT JOIN core_file cf ON cf.file_uuid = lm.file_uuid "
                     "WHERE n.id = %s LIMIT 1"
                 )
                 cursor.execute(sql, (node_id,))
@@ -130,32 +206,76 @@ class GraphRepository:
                 return row
 
     def fetch_record_detail_by_title(self, title: str) -> dict[str, Any] | None:
-        fields = ", ".join(quote_ident(col) for col in RECORD_COLUMNS)
+        fields = (
+            "mc.id AS id, mc.file_uuid AS file_uuid, mc.age AS age, mc.bmi AS bmi, "
+            "mc.menstruation AS menstruation, mc.infertility AS infertility, "
+            "mc.lifestyle AS lifestyle, mc.present_symptoms AS present_symptoms, "
+            "mc.medical_history AS medical_history, mc.lab_tests AS lab_tests, "
+            "mc.ultrasound AS ultrasound, mc.followup AS followup, "
+            "mc.western_diagnosis AS western_diagnosis, mc.tcm_diagnosis AS tcm_diagnosis, "
+            "mc.treatment_principle AS treatment_principle, mc.prescription AS prescription, "
+            "mc.acupoints AS acupoints, mc.assisted_reproduction AS assisted_reproduction, "
+            "mc.western_medicine AS western_medicine, mc.efficacy AS efficacy, "
+            "mc.adverse_reactions AS adverse_reactions, mc.commentary AS commentary, "
+            "mc.created_at AS created_at, mc.updated_at AS updated_at, "
+            "lm.title AS literature_title"
+        )
+        match_sql = "(lm.title = %s OR lm.matched_title = %s OR lm.cleaned_title = %s OR lm.original_name = %s)"
+        order_sql = (
+            "CASE "
+            "WHEN lm.title = %s THEN 0 "
+            "WHEN lm.matched_title = %s THEN 1 "
+            "WHEN lm.cleaned_title = %s THEN 2 "
+            "WHEN lm.original_name = %s THEN 3 "
+            "ELSE 4 END"
+        )
         exact_sql = (
-            f"SELECT {fields} FROM all_papers_records "
-            f"WHERE {quote_ident('论文名称')} = %s "
+            f"SELECT {fields} "
+            "FROM lit_metadata lm "
+            "JOIN med_case mc ON mc.file_uuid = lm.file_uuid "
+            f"WHERE {match_sql} "
+            f"ORDER BY {order_sql}, mc.updated_at DESC "
             "LIMIT 1"
         )
         fuzzy_sql = (
-            f"SELECT {fields} FROM all_papers_records "
-            f"WHERE {quote_ident('论文名称')} LIKE %s "
+            f"SELECT {fields} "
+            "FROM lit_metadata lm "
+            "JOIN med_case mc ON mc.file_uuid = lm.file_uuid "
+            "WHERE (lm.title LIKE %s OR lm.matched_title LIKE %s OR lm.cleaned_title LIKE %s "
+            "OR lm.original_name LIKE %s) "
+            "ORDER BY mc.updated_at DESC "
             "LIMIT 1"
         )
 
         with self._connect() as conn:
-            with conn.cursor(dictionary=True) as cursor:
-                cursor.execute(exact_sql, (title,))
+            with conn.cursor(cursor_factory=RealDictCursor) as cursor:
+                cursor.execute(
+                    exact_sql,
+                    (
+                        title,
+                        title,
+                        title,
+                        title,
+                        title,
+                        title,
+                        title,
+                        title,
+                    ),
+                )
                 row = cursor.fetchone()
                 if row:
                     return row
 
                 like_pattern = f"%{title}%"
-                cursor.execute(fuzzy_sql, (like_pattern,))
+                cursor.execute(
+                    fuzzy_sql,
+                    (like_pattern, like_pattern, like_pattern, like_pattern),
+                )
                 return cursor.fetchone() or None
 
     def search_graph(self, keyword: str, limit: int, offset: int) -> tuple[list[dict[str, Any]], int]:
         with self._connect() as conn:
-            with conn.cursor(dictionary=True) as cursor:
+            with conn.cursor(cursor_factory=RealDictCursor) as cursor:
                 backend = self._resolve_search_backend(cursor)
 
                 if backend == SearchBackendMode.FULLTEXT:
@@ -168,9 +288,17 @@ class GraphRepository:
 
     def get_search_index_status(self) -> dict[str, Any]:
         with self._connect() as conn:
-            with conn.cursor(dictionary=True) as cursor:
-                paper_indexed = self._fetch_fulltext_columns(cursor, "paper")
-                record_indexed = self._fetch_fulltext_columns(cursor, "all_papers_records")
+            with conn.cursor(cursor_factory=RealDictCursor) as cursor:
+                paper_indexed = self._fetch_fulltext_columns(
+                    cursor,
+                    self.PAPER_SEARCH_INDEX,
+                    self.PAPER_FULLTEXT_COLUMNS,
+                )
+                record_indexed = self._fetch_fulltext_columns(
+                    cursor,
+                    self.RECORD_SEARCH_INDEX,
+                    self.RECORD_FULLTEXT_COLUMNS,
+                )
 
                 paper_missing = [col for col in self.PAPER_FULLTEXT_COLUMNS if col not in paper_indexed]
                 record_missing = [col for col in self.RECORD_FULLTEXT_COLUMNS if col not in record_indexed]
@@ -189,13 +317,13 @@ class GraphRepository:
                     "fulltext_ready": fulltext_ready,
                     "tables": [
                         {
-                            "name": "paper",
+                            "name": "lit_metadata",
                             "required_columns": list(self.PAPER_FULLTEXT_COLUMNS),
                             "indexed_columns": sorted(paper_indexed),
                             "missing_columns": paper_missing,
                         },
                         {
-                            "name": "all_papers_records",
+                            "name": "med_case",
                             "required_columns": list(self.RECORD_FULLTEXT_COLUMNS),
                             "indexed_columns": sorted(record_indexed),
                             "missing_columns": record_missing,
@@ -217,46 +345,30 @@ class GraphRepository:
         return SearchBackendMode.FULLTEXT if self._supports_fulltext(cursor) else SearchBackendMode.LIKE
 
     def _supports_fulltext(self, cursor) -> bool:
-        return self._has_fulltext_index(cursor, "paper", self.PAPER_FULLTEXT_COLUMNS) and self._has_fulltext_index(
-            cursor, "all_papers_records", self.RECORD_FULLTEXT_COLUMNS
+        return self._has_fulltext_index(cursor, self.PAPER_SEARCH_INDEX) and self._has_fulltext_index(
+            cursor, self.RECORD_SEARCH_INDEX
         )
 
-    def _fetch_fulltext_columns(self, cursor, table: str) -> set[str]:
-        sql = (
-            "SELECT DISTINCT COLUMN_NAME FROM information_schema.STATISTICS "
-            "WHERE TABLE_SCHEMA = %s AND TABLE_NAME = %s AND INDEX_TYPE = 'FULLTEXT'"
-        )
-        cursor.execute(sql, (self._db_config.database, table))
-        rows = cursor.fetchall() or []
-        return {str(row.get("COLUMN_NAME") or "") for row in rows if row.get("COLUMN_NAME")}
+    def _fetch_fulltext_columns(
+        self,
+        cursor,
+        index_name: str,
+        columns: tuple[str, ...],
+    ) -> set[str]:
+        if self._has_fulltext_index(cursor, index_name):
+            return set(columns)
+        return set()
 
-    def _paper_has_column(self, cursor, column_name: str) -> bool:
-        if column_name in self._paper_column_cache:
-            return self._paper_column_cache[column_name]
-
-        sql = (
-            "SELECT 1 FROM information_schema.COLUMNS "
-            "WHERE TABLE_SCHEMA = %s AND TABLE_NAME = 'paper' AND COLUMN_NAME = %s "
-            "LIMIT 1"
-        )
-        cursor.execute(sql, (self._db_config.database, column_name))
-        exists = cursor.fetchone() is not None
-        self._paper_column_cache[column_name] = exists
-        return exists
-
-    def _has_fulltext_index(self, cursor, table: str, columns: tuple[str, ...]) -> bool:
-        cache_key = (table, columns)
+    def _has_fulltext_index(self, cursor, index_name: str) -> bool:
+        cache_key = index_name
         if cache_key in self._fulltext_cache:
             return self._fulltext_cache[cache_key]
 
-        placeholders = ", ".join(["%s"] * len(columns))
         sql = (
-            "SELECT 1 FROM information_schema.STATISTICS "
-            "WHERE TABLE_SCHEMA = %s AND TABLE_NAME = %s "
-            "AND INDEX_TYPE = 'FULLTEXT' "
-            f"AND COLUMN_NAME IN ({placeholders}) LIMIT 1"
+            "SELECT 1 FROM pg_indexes "
+            "WHERE schemaname = current_schema() AND indexname = %s LIMIT 1"
         )
-        cursor.execute(sql, (self._db_config.database, table, *columns))
+        cursor.execute(sql, (index_name,))
         supported = cursor.fetchone() is not None
         self._fulltext_cache[cache_key] = supported
         return supported
@@ -268,37 +380,58 @@ class GraphRepository:
         limit: int,
         offset: int,
     ) -> tuple[list[dict[str, Any]], int]:
+        paper_title_expr = "COALESCE(lm_p.title, lm_p.matched_title, lm_p.cleaned_title, lm_p.original_name)"
+        record_title_expr = "COALESCE(lm_r.title, lm_r.matched_title, lm_r.cleaned_title, lm_r.original_name)"
+        paper_vector = (
+            "to_tsvector('simple', COALESCE(lm_p.title, '') || ' ' || "
+            "COALESCE(lm_p.keywords::text, '') || ' ' || COALESCE(lm_p.abstract, ''))"
+        )
+        record_vector = (
+            "to_tsvector('simple', COALESCE(mc.tcm_diagnosis, '') || ' ' || "
+            "COALESCE(mc.western_diagnosis, ''))"
+        )
+        paper_query = "plainto_tsquery('simple', %s)"
+        record_query = "plainto_tsquery('simple', %s)"
+        paper_completion = self._completion_rank_sql(paper_title_expr)
+        record_completion = self._completion_rank_sql(record_title_expr)
+
         data_sql = (
-            "SELECT * FROM ("
+            "SELECT source_type, node_id, title, authors, publish_year, "
+            "keywords, abstract, tcm_diagnosis, western_diagnosis, score "
+            "FROM ("
             "SELECT 'paper' AS source_type, "
-            "n.id AS node_id, p.title AS title, p.authors AS authors, p.pub_year AS publish_year, "
-            "p.keywords AS keywords, p.abstract AS abstract, "
+            f"n.id AS node_id, {paper_title_expr} AS title, lm_p.authors AS authors, "
+            "lm_p.pub_year AS publish_year, lm_p.keywords AS keywords, lm_p.abstract AS abstract, "
             "NULL AS tcm_diagnosis, NULL AS western_diagnosis, "
-            "MATCH(p.title, p.keywords, p.abstract) AGAINST (%s IN NATURAL LANGUAGE MODE) AS score "
-            "FROM paper p "
-            "LEFT JOIN nodes n ON n.title = p.title AND n.node_type = 'paper' "
-            "WHERE MATCH(p.title, p.keywords, p.abstract) AGAINST (%s IN NATURAL LANGUAGE MODE) "
+            f"{paper_completion} AS completed_rank, "
+            f"ts_rank_cd({paper_vector}, {paper_query}) AS score "
+            "FROM lit_metadata lm_p "
+            f"LEFT JOIN nodes n ON n.title = {paper_title_expr} AND n.node_type = 'paper' "
+            f"WHERE {paper_vector} @@ {paper_query} "
             "UNION ALL "
             "SELECT 'record' AS source_type, "
-            "n.id AS node_id, r.`论文名称` AS title, NULL AS authors, NULL AS publish_year, "
+            f"n.id AS node_id, {record_title_expr} AS title, NULL AS authors, NULL AS publish_year, "
             "NULL AS keywords, NULL AS abstract, "
-            "r.`中医证候诊断` AS tcm_diagnosis, r.`西医病名诊断` AS western_diagnosis, "
-            "MATCH(r.`论文名称`, r.`中医证候诊断`, r.`西医病名诊断`) AGAINST (%s IN NATURAL LANGUAGE MODE) AS score "
-            "FROM all_papers_records r "
-            "LEFT JOIN nodes n ON n.title = r.`论文名称` AND n.node_type = 'record' "
-            "WHERE MATCH(r.`论文名称`, r.`中医证候诊断`, r.`西医病名诊断`) AGAINST (%s IN NATURAL LANGUAGE MODE) "
+            "mc.tcm_diagnosis AS tcm_diagnosis, mc.western_diagnosis AS western_diagnosis, "
+            f"{record_completion} AS completed_rank, "
+            f"ts_rank_cd({record_vector}, {record_query}) AS score "
+            "FROM med_case mc "
+            "LEFT JOIN lit_metadata lm_r ON lm_r.file_uuid = mc.file_uuid "
+            f"LEFT JOIN nodes n ON n.title = {record_title_expr} AND n.node_type = 'record' "
+            f"WHERE {record_vector} @@ {record_query} "
             ") AS combined "
-            "ORDER BY score DESC, title ASC "
+            "ORDER BY completed_rank DESC, score DESC, title ASC "
             "LIMIT %s OFFSET %s"
         )
 
         count_sql = (
             "SELECT COUNT(*) AS total FROM ("
-            "SELECT 1 FROM paper p "
-            "WHERE MATCH(p.title, p.keywords, p.abstract) AGAINST (%s IN NATURAL LANGUAGE MODE) "
+            "SELECT 1 FROM lit_metadata lm_p "
+            f"WHERE {paper_vector} @@ {paper_query} "
             "UNION ALL "
-            "SELECT 1 FROM all_papers_records r "
-            "WHERE MATCH(r.`论文名称`, r.`中医证候诊断`, r.`西医病名诊断`) AGAINST (%s IN NATURAL LANGUAGE MODE) "
+            "SELECT 1 FROM med_case mc "
+            "LEFT JOIN lit_metadata lm_r ON lm_r.file_uuid = mc.file_uuid "
+            f"WHERE {record_vector} @@ {record_query} "
             ") AS combined"
         )
 
@@ -319,35 +452,47 @@ class GraphRepository:
         offset: int,
     ) -> tuple[list[dict[str, Any]], int]:
         like_pattern = f"%{keyword}%"
+        paper_title_expr = "COALESCE(lm_p.title, lm_p.matched_title, lm_p.cleaned_title, lm_p.original_name)"
+        record_title_expr = "COALESCE(lm_r.title, lm_r.matched_title, lm_r.cleaned_title, lm_r.original_name)"
+        paper_completion = self._completion_rank_sql(paper_title_expr)
+        record_completion = self._completion_rank_sql(record_title_expr)
         data_sql = (
-            "SELECT * FROM ("
+            "SELECT source_type, node_id, title, authors, publish_year, "
+            "keywords, abstract, tcm_diagnosis, western_diagnosis, score "
+            "FROM ("
             "SELECT 'paper' AS source_type, "
-            "n.id AS node_id, p.title AS title, p.authors AS authors, p.pub_year AS publish_year, "
-            "p.keywords AS keywords, p.abstract AS abstract, "
-            "NULL AS tcm_diagnosis, NULL AS western_diagnosis, 0 AS score "
-            "FROM paper p "
-            "LEFT JOIN nodes n ON n.title = p.title AND n.node_type = 'paper' "
-            "WHERE (p.title LIKE %s OR p.keywords LIKE %s OR p.abstract LIKE %s) "
+            f"n.id AS node_id, {paper_title_expr} AS title, lm_p.authors AS authors, "
+            "lm_p.pub_year AS publish_year, lm_p.keywords AS keywords, lm_p.abstract AS abstract, "
+            "NULL AS tcm_diagnosis, NULL AS western_diagnosis, "
+            f"{paper_completion} AS completed_rank, "
+            "0 AS score "
+            "FROM lit_metadata lm_p "
+            f"LEFT JOIN nodes n ON n.title = {paper_title_expr} AND n.node_type = 'paper' "
+            f"WHERE ({paper_title_expr} ILIKE %s OR lm_p.keywords::text ILIKE %s OR lm_p.abstract ILIKE %s) "
             "UNION ALL "
             "SELECT 'record' AS source_type, "
-            "n.id AS node_id, r.`论文名称` AS title, NULL AS authors, NULL AS publish_year, "
+            f"n.id AS node_id, {record_title_expr} AS title, NULL AS authors, NULL AS publish_year, "
             "NULL AS keywords, NULL AS abstract, "
-            "r.`中医证候诊断` AS tcm_diagnosis, r.`西医病名诊断` AS western_diagnosis, 0 AS score "
-            "FROM all_papers_records r "
-            "LEFT JOIN nodes n ON n.title = r.`论文名称` AND n.node_type = 'record' "
-            "WHERE (r.`论文名称` LIKE %s OR r.`中医证候诊断` LIKE %s OR r.`西医病名诊断` LIKE %s) "
+            "mc.tcm_diagnosis AS tcm_diagnosis, mc.western_diagnosis AS western_diagnosis, "
+            f"{record_completion} AS completed_rank, "
+            "0 AS score "
+            "FROM med_case mc "
+            "LEFT JOIN lit_metadata lm_r ON lm_r.file_uuid = mc.file_uuid "
+            f"LEFT JOIN nodes n ON n.title = {record_title_expr} AND n.node_type = 'record' "
+            f"WHERE ({record_title_expr} ILIKE %s OR mc.tcm_diagnosis ILIKE %s OR mc.western_diagnosis ILIKE %s) "
             ") AS combined "
-            "ORDER BY score DESC, title ASC "
+            "ORDER BY completed_rank DESC, score DESC, title ASC "
             "LIMIT %s OFFSET %s"
         )
 
         count_sql = (
             "SELECT COUNT(*) AS total FROM ("
-            "SELECT 1 FROM paper p "
-            "WHERE (p.title LIKE %s OR p.keywords LIKE %s OR p.abstract LIKE %s) "
+            "SELECT 1 FROM lit_metadata lm_p "
+            f"WHERE ({paper_title_expr} ILIKE %s OR lm_p.keywords::text ILIKE %s OR lm_p.abstract ILIKE %s) "
             "UNION ALL "
-            "SELECT 1 FROM all_papers_records r "
-            "WHERE (r.`论文名称` LIKE %s OR r.`中医证候诊断` LIKE %s OR r.`西医病名诊断` LIKE %s) "
+            "SELECT 1 FROM med_case mc "
+            "LEFT JOIN lit_metadata lm_r ON lm_r.file_uuid = mc.file_uuid "
+            f"WHERE ({record_title_expr} ILIKE %s OR mc.tcm_diagnosis ILIKE %s OR mc.western_diagnosis ILIKE %s) "
             ") AS combined"
         )
 

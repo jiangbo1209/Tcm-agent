@@ -21,6 +21,8 @@ from app.services.graph_service import GraphService
 logging.basicConfig(level=logging.INFO)
 
 ROOT_DIR = Path(__file__).resolve().parents[1]
+PROJECT_ROOT = Path(__file__).resolve().parents[2]
+load_dotenv(PROJECT_ROOT / ".env", override=False)
 load_dotenv(ROOT_DIR / ".env", override=False)
 
 app = FastAPI(title="TCM Graph API", version="1.0.0")

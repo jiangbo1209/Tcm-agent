@@ -4,14 +4,12 @@ from pathlib import Path
 from typing import Dict, List, Tuple
 import re
 
-import mysql.connector
-from mysql.connector import ProgrammingError
+import psycopg2
 from minio import Minio
 import urllib3
 
 ROOT = Path(__file__).resolve().parents[2]
 ENV_FILE = ROOT / ".env"
-SQL_FILE = ROOT / "configs" / "sql" / "002_literature_file_key.sql"
 
 
 def parse_env() -> Dict[str, str]:
@@ -43,39 +41,6 @@ def normalize_minio_endpoint(raw: str) -> Tuple[str, bool]:
     return endpoint, secure
 
 
-def execute_sql_script(conn: mysql.connector.MySQLConnection, sql_path: Path) -> None:
-    text = sql_path.read_text(encoding="utf-8")
-    statements = [s.strip() for s in text.split(";") if s.strip()]
-    cur = conn.cursor()
-    try:
-        for stmt in statements:
-            cur.execute(stmt)
-            if cur.with_rows:
-                cur.fetchall()
-
-            while cur.nextset():
-                if cur.with_rows:
-                    cur.fetchall()
-        conn.commit()
-    finally:
-        cur.close()
-
-
-def ensure_schema_compat(conn: mysql.connector.MySQLConnection, db_name: str) -> None:
-    cur = conn.cursor()
-    try:
-        cur.execute(
-            "SELECT COUNT(*) FROM information_schema.COLUMNS WHERE TABLE_SCHEMA=%s AND TABLE_NAME='paper' AND COLUMN_NAME='file_key'",
-            (db_name,),
-        )
-        has_file_key = cur.fetchone()[0] > 0
-        if not has_file_key:
-            cur.execute("ALTER TABLE paper ADD COLUMN file_key VARCHAR(512) NULL COMMENT 'MinIO object key' AFTER file_name")
-        conn.commit()
-    finally:
-        cur.close()
-
-
 def fetch_minio_objects(env: Dict[str, str]) -> List[str]:
     endpoint, secure = normalize_minio_endpoint(env.get("MINIO_ENDPOINT", "localhost:9000"))
     access_key = env.get("MINIO_ACCESS_KEY", "") or "minioadmin"
@@ -103,39 +68,42 @@ def fetch_minio_objects(env: Dict[str, str]) -> List[str]:
         return []
 
 
-def fill_file_key(conn: mysql.connector.MySQLConnection, object_names: List[str]) -> Tuple[int, int]:
+def fill_storage_path(conn, object_names: List[str]) -> Tuple[int, int]:
     if not object_names:
         return 0, 0
 
-    cur = conn.cursor(dictionary=True)
+    cur = conn.cursor()
     updates = 0
     fallback_updates = 0
     try:
-        cur.execute("SELECT file_name FROM paper WHERE file_key IS NULL OR TRIM(file_key) = ''")
+        cur.execute(
+            "SELECT file_uuid, original_name FROM core_file "
+            "WHERE storage_path IS NULL OR btrim(storage_path) = ''"
+        )
         rows = cur.fetchall() or []
 
         basename_map = {Path(obj).name: obj for obj in object_names}
 
         for row in rows:
-            file_name = str(row.get("file_name") or "").strip()
+            file_uuid, original_name = row
+            file_name = str(original_name or "").strip()
             if not file_name:
                 continue
             if file_name in basename_map:
-                cur.execute("UPDATE paper SET file_key=%s WHERE file_name=%s", (basename_map[file_name], file_name))
+                cur.execute(
+                    "UPDATE core_file SET storage_path=%s WHERE file_uuid=%s",
+                    (basename_map[file_name], file_uuid),
+                )
                 updates += 1
 
-        if updates == 0:
-            cur.execute(
-                "SELECT file_name FROM paper WHERE file_key IS NULL OR TRIM(file_key) = '' ORDER BY file_name LIMIT %s",
-                (min(50, len(object_names)),),
-            )
-            rows2 = cur.fetchall() or []
-            for idx, row in enumerate(rows2):
-                file_name = str(row.get("file_name") or "").strip()
-                if not file_name:
-                    continue
+        if updates == 0 and rows:
+            sample_rows = rows[: min(50, len(object_names))]
+            for idx, (file_uuid, _) in enumerate(sample_rows):
                 object_name = object_names[idx % len(object_names)]
-                cur.execute("UPDATE paper SET file_key=%s WHERE file_name=%s", (object_name, file_name))
+                cur.execute(
+                    "UPDATE core_file SET storage_path=%s WHERE file_uuid=%s",
+                    (object_name, file_uuid),
+                )
                 fallback_updates += 1
 
         conn.commit()
@@ -145,19 +113,32 @@ def fill_file_key(conn: mysql.connector.MySQLConnection, object_names: List[str]
     return updates, fallback_updates
 
 
-def report_db_status(conn: mysql.connector.MySQLConnection, db_name: str) -> None:
+def sync_lit_metadata_storage(conn) -> int:
     cur = conn.cursor()
     try:
         cur.execute(
-            "SELECT COUNT(*) FROM information_schema.COLUMNS WHERE TABLE_SCHEMA=%s AND TABLE_NAME='paper' AND COLUMN_NAME='file_key'",
-            (db_name,),
+            "UPDATE lit_metadata lm "
+            "SET storage_path = cf.storage_path "
+            "FROM core_file cf "
+            "WHERE lm.file_uuid = cf.file_uuid "
+            "AND (lm.storage_path IS NULL OR btrim(lm.storage_path) = '') "
+            "AND cf.storage_path IS NOT NULL AND btrim(cf.storage_path) <> ''"
         )
-        has_fk = cur.fetchone()[0]
-        filled = 0
-        if has_fk:
-            cur.execute("SELECT COUNT(*) FROM paper WHERE file_key IS NOT NULL AND TRIM(file_key) <> ''")
-            filled = cur.fetchone()[0]
-        print(f"[DB] has_file_key_col={has_fk}, file_key_filled_rows={filled}")
+        updated = cur.rowcount
+        conn.commit()
+        return updated
+    finally:
+        cur.close()
+
+
+def report_db_status(conn) -> None:
+    cur = conn.cursor()
+    try:
+        cur.execute("SELECT COUNT(*) FROM core_file WHERE storage_path IS NULL OR btrim(storage_path) = ''")
+        missing_core = cur.fetchone()[0]
+        cur.execute("SELECT COUNT(*) FROM lit_metadata WHERE storage_path IS NULL OR btrim(storage_path) = ''")
+        missing_lit = cur.fetchone()[0]
+        print(f"[DB] core_file_missing_storage_path={missing_core}, lit_metadata_missing_storage_path={missing_lit}")
     finally:
         cur.close()
 
@@ -165,42 +146,30 @@ def report_db_status(conn: mysql.connector.MySQLConnection, db_name: str) -> Non
 def main() -> None:
     env = parse_env()
 
-    db_host = env.get("DB_HOST", "127.0.0.1")
-    db_port = int(env.get("DB_PORT", "3306"))
-    db_user = env.get("DB_USER", "root")
-    db_password = env.get("DB_PASSWORD", "123456")
-    db_name = env.get("DB_NAME", "papers_records")
+    db_host = env.get("DB_HOST") or env.get("POSTGRES_HOST", "127.0.0.1")
+    db_port = int(env.get("DB_PORT") or env.get("POSTGRES_PORT", "5432"))
+    db_user = env.get("DB_USER") or env.get("POSTGRES_USER", "postgres")
+    db_password = env.get("DB_PASSWORD") or env.get("POSTGRES_PASSWORD", "")
+    db_name = env.get("DB_NAME") or env.get("POSTGRES_DB", "postgres")
 
-    print(f"[INFO] connecting mysql: {db_host}:{db_port}/{db_name}")
-    conn = mysql.connector.connect(
+    print(f"[INFO] connecting postgres: {db_host}:{db_port}/{db_name}")
+    conn = psycopg2.connect(
         host=db_host,
         port=db_port,
         user=db_user,
         password=db_password,
-        database=db_name,
-        charset="utf8mb4",
-        use_unicode=True,
+        dbname=db_name,
     )
 
     try:
-        if SQL_FILE.exists():
-            try:
-                execute_sql_script(conn, SQL_FILE)
-                print(f"[INFO] executed SQL migration: {SQL_FILE}")
-            except ProgrammingError as exc:
-                if exc.errno == 1064:
-                    print("[WARN] SQL migration syntax not supported by current MySQL; fallback to compatibility migration")
-                    ensure_schema_compat(conn, db_name)
-                else:
-                    raise
-        else:
-            print(f"[WARN] SQL file missing: {SQL_FILE}")
-
         object_names = fetch_minio_objects(env)
-        matched, fallback = fill_file_key(conn, object_names)
-        print(f"[INFO] file_key updates: matched={matched}, fallback={fallback}")
+        matched, fallback = fill_storage_path(conn, object_names)
+        print(f"[INFO] storage_path updates: matched={matched}, fallback={fallback}")
 
-        report_db_status(conn, db_name)
+        synced = sync_lit_metadata_storage(conn)
+        print(f"[INFO] lit_metadata storage_path synced: {synced}")
+
+        report_db_status(conn)
     finally:
         conn.close()
 

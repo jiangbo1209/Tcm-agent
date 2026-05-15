@@ -6,7 +6,7 @@ import logging
 
 from fastapi import APIRouter, HTTPException, Query, Request
 from minio.error import S3Error
-from mysql.connector import Error
+from psycopg2 import Error
 
 from app.schemas.graph import (
     FileUrlResponse,
