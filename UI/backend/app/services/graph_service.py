@@ -226,10 +226,15 @@ class GraphService:
         offset = (safe_page - 1) * safe_size
 
         items, total = self._repository.search_graph(normalized, safe_size, offset)
+        normalized_items = []
+        for item in items:
+            item["authors"] = self._format_list_field(item.get("authors"))
+            item["keywords"] = self._format_list_field(item.get("keywords"))
+            normalized_items.append(item)
         total_pages = int(math.ceil(total / safe_size)) if safe_size > 0 else 0
 
         return {
-            "items": items,
+            "items": normalized_items,
             "total": total,
             "total_pages": total_pages,
             "page": safe_page,

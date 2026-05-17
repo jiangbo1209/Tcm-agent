@@ -39,7 +39,7 @@ UI/
 
 主要入口与路由：
 
-- main.py：FastAPI 入口，挂载前端页面
+- main.py：FastAPI 入口（仅 API，不提供前端页面）
 - /api/graph/expand：图谱扩展
 - /api/graph/node-detail：节点详情
 - /api/graph/search：关键词搜索
@@ -53,10 +53,8 @@ UI/
 - index.html：图谱页（G6 可视化）
 - env.js：配置 API_BASE_URL
 
-后端托管页面路径：
-
-- /：搜索页
-- /graph-view：图谱页
+前后端严格分离时，前端通过静态服务器独立托管，后端只提供 API。
+前端通过 env.js 指定 API_BASE_URL，后端通过 CORS_ALLOW_ORIGINS 放行前端来源。
 
 ## 4. 配置说明（.env）
 
@@ -69,11 +67,15 @@ MinIO 相关配置：
 
 - MINIO_ENDPOINT / MINIO_ACCESS_KEY / MINIO_SECRET_KEY / MINIO_BUCKET_NAME
 
+前端跨域配置：
+
+- CORS_ALLOW_ORIGINS（逗号分隔的前端来源）
+
 ## 5. 本地启动（后端）
 
 ```bash
 cd UI/backend
-python -m venv .venv
+python3 -m venv .venv
 source .venv/bin/activate
 pip install -r requirements.txt
 uvicorn main:app --reload --host 0.0.0.0 --port 8000
@@ -88,17 +90,20 @@ uvicorn main:app --reload --host 0.0.0.0 --port 8000
 
 ```bash
 cd UI/frontend
-python -m http.server 5500
+python3 -m http.server 5500
 ```
 
 访问：
 
-- 搜索页：http://127.0.0.1:5500/search.html
-- 图谱页：http://127.0.0.1:5500/index.html
+-- 搜索页：http://127.0.0.1:5500/search.html
+-- 图谱页：http://127.0.0.1:5500/index.html
+
+说明：前端通过 env.js 指定后端地址（API_BASE_URL），请按部署环境修改。
+如果前端在 172.16.150.45:5500，后端在 172.16.150.45:8000，确保 CORS_ALLOW_ORIGINS 包含 http://172.16.150.45:5500。
 
 ## 7. Docker 启动
 
-在项目根目录执行：
+在项目根目录执行（仅后端与依赖服务）：
 
 ```bash
 docker compose up -d --build
@@ -106,9 +111,9 @@ docker compose up -d --build
 
 访问：
 
-- Backend API：http://127.0.0.1:8000/health
-- 搜索页：http://127.0.0.1:8000/
-- 图谱页：http://127.0.0.1:8000/graph-view
+-- Backend API：http://127.0.0.1:8000/health
+
+前端需自行用静态服务器托管（例如 UI/frontend）。
 
 ## 8. 索引与建图
 
@@ -121,13 +126,18 @@ psql -h 127.0.0.1 -U postgres -d papers_records -f UI/configs/sql/indexes/001_fu
 或使用容器：
 
 ```bash
-docker compose exec -T postgres psql -U postgres -d papers_records < UI/configs/sql/indexes/001_fulltext_search_indexes.sql
+docker compose exec -T postgresql psql -U postgres -d papers_records < UI/configs/sql/indexes/001_fulltext_search_indexes.sql
 ```
 
 ### 8.2 建图脚本（nodes/edges）
 
 ```bash
-python UI/backend/scripts/build_graph_from_tables.py --password <POSTGRES_PASSWORD>
+python3 UI/backend/scripts/build_graph_from_tables.py \
+	--host "$DB_HOST" \
+	--port "$DB_PORT" \
+	--user "$DB_USER" \
+	--password "$DB_PASSWORD" \
+	--database "$DB_NAME"
 ```
 
 默认使用 UI/configs/graph_nodes_edges.sql 建表。
