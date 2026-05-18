@@ -380,8 +380,14 @@ class GraphRepository:
         limit: int,
         offset: int,
     ) -> tuple[list[dict[str, Any]], int]:
-        paper_title_expr = "COALESCE(lm_p.title, lm_p.matched_title, lm_p.cleaned_title, lm_p.original_name)"
-        record_title_expr = "COALESCE(lm_r.title, lm_r.matched_title, lm_r.cleaned_title, lm_r.original_name)"
+        paper_title_expr = (
+            "COALESCE(lm_p.title, lm_p.matched_title, lm_p.cleaned_title, "
+            "lm_p.original_name, lm_p.file_uuid::text)"
+        )
+        record_title_expr = (
+            "COALESCE(lm_r.title, lm_r.matched_title, lm_r.cleaned_title, "
+            "lm_r.original_name, mc.file_uuid::text)"
+        )
         paper_vector = (
             "to_tsvector('simple', COALESCE(lm_p.title, '') || ' ' || "
             "COALESCE(lm_p.keywords::text, '') || ' ' || COALESCE(lm_p.abstract, ''))"
@@ -452,8 +458,14 @@ class GraphRepository:
         offset: int,
     ) -> tuple[list[dict[str, Any]], int]:
         like_pattern = f"%{keyword}%"
-        paper_title_expr = "COALESCE(lm_p.title, lm_p.matched_title, lm_p.cleaned_title, lm_p.original_name)"
-        record_title_expr = "COALESCE(lm_r.title, lm_r.matched_title, lm_r.cleaned_title, lm_r.original_name)"
+        paper_title_expr = (
+            "COALESCE(lm_p.title, lm_p.matched_title, lm_p.cleaned_title, "
+            "lm_p.original_name, lm_p.file_uuid::text)"
+        )
+        record_title_expr = (
+            "COALESCE(lm_r.title, lm_r.matched_title, lm_r.cleaned_title, "
+            "lm_r.original_name, mc.file_uuid::text)"
+        )
         paper_completion = self._completion_rank_sql(paper_title_expr)
         record_completion = self._completion_rank_sql(record_title_expr)
         data_sql = (

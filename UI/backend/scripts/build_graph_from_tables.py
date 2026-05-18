@@ -198,7 +198,7 @@ def stable_edge_id(edge_type: str, source_id: str, target_id: str) -> str:
 
 def build_nodes(cursor) -> tuple[list[Node], list[Node], dict[str, Node], dict[str, Node]]:
     cursor.execute(
-        "SELECT file_uuid, title, keywords, pub_year, original_name, cleaned_title, matched_title "
+        "SELECT file_uuid, title, keywords, abstract, pub_year, original_name, cleaned_title, matched_title "
         "FROM lit_metadata"
     )
     paper_rows = cursor.fetchall()
@@ -216,11 +216,20 @@ def build_nodes(cursor) -> tuple[list[Node], list[Node], dict[str, Node], dict[s
     papers: list[Node] = []
     paper_by_uuid: dict[str, Node] = {}
     for row in paper_rows:
-        file_uuid, title, keywords, pub_year, original_name, cleaned_title, matched_title = row
+        file_uuid, title, keywords, abstract, pub_year, original_name, cleaned_title, matched_title = row
         display_title = (title or matched_title or cleaned_title or original_name or str(file_uuid or "")).strip()
         node_id = stable_node_id("paper", str(file_uuid or display_title))
         keyword_list = normalize_list_value(keywords)
-        text_blob = " ".join(keyword_list)
+        text_blob = join_text(
+            [
+                title,
+                matched_title,
+                cleaned_title,
+                original_name,
+                abstract,
+                " ".join(keyword_list),
+            ]
+        )
         node = Node(
             node_id=node_id,
             node_type="paper",
@@ -435,7 +444,8 @@ def write_nodes(cursor, nodes: list[Node], top_k_map: dict[str, float], strategy
         "VALUES (%s, %s, %s, %s, %s) "
         "ON CONFLICT (id) DO UPDATE SET "
         "node_type=EXCLUDED.node_type, title=EXCLUDED.title, "
-        "metric_value=EXCLUDED.metric_value, top_k_value=EXCLUDED.top_k_value"
+        "metric_value=EXCLUDED.metric_value, top_k_value=EXCLUDED.top_k_value, "
+        "updated_at=NOW()"
     )
     sql = sql_insert if strategy == "truncate" else sql_upsert
 
@@ -463,7 +473,8 @@ def write_edges(cursor, edges: list[Edge], strategy: str) -> int:
         "VALUES (%s, %s, %s, %s, %s, %s) "
         "ON CONFLICT (id) DO UPDATE SET "
         "similarity_score=EXCLUDED.similarity_score, raw_score=EXCLUDED.raw_score, "
-        "source_id=EXCLUDED.source_id, target_id=EXCLUDED.target_id"
+        "source_id=EXCLUDED.source_id, target_id=EXCLUDED.target_id, "
+        "updated_at=NOW()"
     )
     sql = sql_insert if strategy == "truncate" else sql_upsert
 

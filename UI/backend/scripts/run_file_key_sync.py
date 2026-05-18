@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import argparse
+import csv
 from pathlib import Path
 from typing import Dict, List, Tuple
 import re
@@ -68,13 +70,19 @@ def fetch_minio_objects(env: Dict[str, str]) -> List[str]:
         return []
 
 
-def fill_storage_path(conn, object_names: List[str]) -> Tuple[int, int]:
+def fill_storage_path(
+    conn,
+    object_names: List[str],
+    allow_fallback: bool,
+    dry_run: bool,
+) -> Tuple[int, int, List[Tuple[str, str]]]:
     if not object_names:
-        return 0, 0
+        return 0, 0, []
 
     cur = conn.cursor()
     updates = 0
     fallback_updates = 0
+    unmatched: List[Tuple[str, str]] = []
     try:
         cur.execute(
             "SELECT file_uuid, original_name FROM core_file "
@@ -88,15 +96,19 @@ def fill_storage_path(conn, object_names: List[str]) -> Tuple[int, int]:
             file_uuid, original_name = row
             file_name = str(original_name or "").strip()
             if not file_name:
+                unmatched.append((str(file_uuid), str(original_name or "")))
                 continue
             if file_name in basename_map:
-                cur.execute(
-                    "UPDATE core_file SET storage_path=%s WHERE file_uuid=%s",
-                    (basename_map[file_name], file_uuid),
-                )
+                if not dry_run:
+                    cur.execute(
+                        "UPDATE core_file SET storage_path=%s WHERE file_uuid=%s",
+                        (basename_map[file_name], file_uuid),
+                    )
                 updates += 1
+            else:
+                unmatched.append((str(file_uuid), str(original_name or "")))
 
-        if updates == 0 and rows:
+        if allow_fallback and not dry_run and updates == 0 and rows:
             sample_rows = rows[: min(50, len(object_names))]
             for idx, (file_uuid, _) in enumerate(sample_rows):
                 object_name = object_names[idx % len(object_names)]
@@ -106,11 +118,25 @@ def fill_storage_path(conn, object_names: List[str]) -> Tuple[int, int]:
                 )
                 fallback_updates += 1
 
-        conn.commit()
+        if dry_run:
+            conn.rollback()
+        else:
+            conn.commit()
     finally:
         cur.close()
 
-    return updates, fallback_updates
+    return updates, fallback_updates, unmatched
+
+
+def write_unmatched_list(unmatched: List[Tuple[str, str]], output_path: Path) -> None:
+    if not unmatched:
+        return
+
+    output_path.parent.mkdir(parents=True, exist_ok=True)
+    with output_path.open("w", newline="", encoding="utf-8") as handle:
+        writer = csv.writer(handle)
+        writer.writerow(["file_uuid", "original_name"])
+        writer.writerows(unmatched)
 
 
 def sync_lit_metadata_storage(conn) -> int:
@@ -143,7 +169,29 @@ def report_db_status(conn) -> None:
         cur.close()
 
 
+def build_arg_parser() -> argparse.ArgumentParser:
+    parser = argparse.ArgumentParser(description="Sync core_file storage_path from MinIO object list")
+    parser.add_argument(
+        "--allow-fallback",
+        action="store_true",
+        help="Enable legacy fallback mapping when no filename matches (unsafe, default off)",
+    )
+    parser.add_argument(
+        "--dry-run",
+        action="store_true",
+        help="Compute matches but do not write any database updates",
+    )
+    parser.add_argument(
+        "--unmatched-out",
+        default=str(ROOT / "storage_path_unmatched.csv"),
+        help="Path to write unmatched file_uuid/original_name list",
+    )
+    return parser
+
+
 def main() -> None:
+    parser = build_arg_parser()
+    args = parser.parse_args()
     env = parse_env()
 
     db_host = env.get("DB_HOST") or env.get("POSTGRES_HOST", "127.0.0.1")
@@ -163,11 +211,28 @@ def main() -> None:
 
     try:
         object_names = fetch_minio_objects(env)
-        matched, fallback = fill_storage_path(conn, object_names)
-        print(f"[INFO] storage_path updates: matched={matched}, fallback={fallback}")
+        matched, fallback, unmatched = fill_storage_path(
+            conn,
+            object_names,
+            allow_fallback=args.allow_fallback,
+            dry_run=args.dry_run,
+        )
+        print(
+            f"[INFO] storage_path updates: matched={matched}, fallback={fallback}, "
+            f"dry_run={args.dry_run}"
+        )
+        if unmatched:
+            unmatched_path = Path(args.unmatched_out)
+            write_unmatched_list(unmatched, unmatched_path)
+            print(f"[WARN] unmatched storage_path rows: {len(unmatched)} -> {unmatched_path}")
+        else:
+            print("[INFO] unmatched storage_path rows: 0")
 
-        synced = sync_lit_metadata_storage(conn)
-        print(f"[INFO] lit_metadata storage_path synced: {synced}")
+        if args.dry_run:
+            print("[INFO] dry-run enabled: skip lit_metadata storage_path sync")
+        else:
+            synced = sync_lit_metadata_storage(conn)
+            print(f"[INFO] lit_metadata storage_path synced: {synced}")
 
         report_db_status(conn)
     finally:
