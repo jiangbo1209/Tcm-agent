@@ -186,3 +186,33 @@ curl "http://127.0.0.1:8000/api/graph/node-detail?node_id=<NODE_ID>"
 - 建议补充 lint + test + CI/CD 流程
 - ETL 参数化与日志化（top_k、min_score、耗时等）
 - 观测与告警（健康检查、耗时、错误率）
+
+## 12. 前后端代码文件说明
+
+### 12.1 backend（Python）
+
+- UI/backend/main.py：FastAPI 入口，加载 .env，初始化 CORS、依赖对象、路由与健康检查
+- UI/backend/app/config.py：读取环境变量并生成 Database/MinIO/Search 配置
+- UI/backend/app/api/routes_graph.py：图谱 API 路由定义（expand、node-detail、search、index-status、file-url）
+- UI/backend/app/services/graph_service.py：业务层，负责 BFS 扩展、详情聚合、搜索分页、MinIO 文件链接生成
+- UI/backend/app/repositories/graph_repository.py：数据库访问层，封装 nodes/edges 与 lit_metadata/med_case 查询
+- UI/backend/app/core/minio_utils.py：MinIO SDK 封装（桶检查、预签名 URL）
+- UI/backend/app/search/settings.py：搜索策略配置枚举与默认值
+- UI/backend/app/models/entities.py：数据库表实体模型与字段列表常量
+- UI/backend/app/schemas/graph.py：Pydantic 请求/响应结构
+- UI/backend/scripts/build_graph_from_tables.py：离线建图脚本，抽取特征、计算相似度、写入 nodes/edges**//将其工程化提供入口，移动到data_process//**
+- UI/backend/scripts/run_file_key_sync.py：从 MinIO 对象列表补全 core_file.storage_path 并同步到 lit_metadata**//这个删除//**
+
+
+### 12.2 frontend（HTML/CSS/JS）
+
+- UI/frontend/search.html：搜索入口页面结构（表单、结果列表、示例卡片）
+- UI/frontend/index.html：图谱页面结构（搜索栏、图谱画布、详情面板）
+- UI/frontend/env.js：前端环境配置（API_BASE_URL）
+- UI/frontend/src/search.js：搜索页逻辑（请求搜索、分页、跳转图谱）
+- UI/frontend/src/main.js：图谱页主逻辑（扩展、搜索联想、节点详情、状态管理）
+- UI/frontend/src/components/graphView.js：G6 图谱渲染与交互（节点/边映射、布局、缩放）
+- UI/frontend/src/components/detailPanel.js：详情面板渲染与下载/预览按钮逻辑
+- UI/frontend/src/store/graphStore.js：前端图谱数据存储（节点/边 Map 与状态）
+- UI/frontend/src/search.css：搜索页样式
+- UI/frontend/src/styles.css：图谱页样式
