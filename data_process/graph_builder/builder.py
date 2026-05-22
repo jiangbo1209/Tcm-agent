@@ -4,10 +4,10 @@ from __future__ import annotations
 
 from .database import (
     Error,
-    apply_schema,
     build_nodes,
     chunked,
     connect_postgres,
+    create_graph_schema,
     split_sql_statements,
     write_edges,
     write_nodes,
@@ -41,8 +41,8 @@ __all__ = [
     "BuildGraphOptions",
     "Error",
     "connect_postgres",
+    "create_graph_schema",
     "split_sql_statements",
-    "apply_schema",
     "normalize_title",
     "extract_age",
     "extract_year",

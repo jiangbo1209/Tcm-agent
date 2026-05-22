@@ -81,8 +81,7 @@ graph TD
 │       └── src
 ├── agent                           # agent
 ├── configs
-│   ├── nginx
-│   └── sql
+│   └── nginx                        # Nginx 配置模板
 ├── data_process                    # 数据处理
 │   ├── case_metadata               # 病案元数据提取
 │   ├── graph_builder               # nodes/edges 离线建图

@@ -32,7 +32,6 @@ class BuildGraphOptions:
     user: str
     password: str
     database: str
-    schema_sql: str
     strategy: str
     paper_top_k: int
     record_top_k: int
