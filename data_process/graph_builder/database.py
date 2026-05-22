@@ -4,24 +4,11 @@ from __future__ import annotations
 
 from typing import Iterable
 
-from sqlalchemy import (
-    CheckConstraint,
-    Column,
-    DateTime,
-    ForeignKey,
-    Index,
-    Integer,
-    MetaData,
-    Numeric,
-    String,
-    Table,
-    create_engine,
-    text,
-)
+from sqlalchemy import create_engine, text
 from sqlalchemy.engine import Connection, Engine, URL
 from sqlalchemy.exc import SQLAlchemyError
 
-from .models import Edge, Node
+from .models import Edge, Node, _METADATA
 from .processor import (
     extract_age,
     extract_year,
@@ -32,60 +19,6 @@ from .processor import (
 )
 
 Error = SQLAlchemyError
-
-_METADATA = MetaData()
-
-_NODES_TABLE = Table(
-    "nodes",
-    _METADATA,
-    Column("id", String(128), primary_key=True),
-    Column("node_type", String(32), nullable=False),
-    Column("title", String(512), nullable=False),
-    Column("metric_value", Integer, nullable=True),
-    Column("top_k_value", Numeric(10, 4), nullable=False, server_default=text("1.0000")),
-    Column("created_at", DateTime(timezone=True), nullable=False, server_default=text("NOW()")),
-    Column("updated_at", DateTime(timezone=True), nullable=False, server_default=text("NOW()")),
-)
-
-Index("idx_nodes_type", _NODES_TABLE.c.node_type)
-Index("idx_nodes_metric", _NODES_TABLE.c.metric_value)
-
-_EDGES_TABLE = Table(
-    "edges",
-    _METADATA,
-    Column("id", String(40), primary_key=True),
-    Column(
-        "source_id",
-        String(128),
-        ForeignKey("nodes.id", ondelete="CASCADE"),
-        nullable=False,
-    ),
-    Column(
-        "target_id",
-        String(128),
-        ForeignKey("nodes.id", ondelete="CASCADE"),
-        nullable=False,
-    ),
-    Column("edge_type", String(32), nullable=False),
-    Column("similarity_score", Numeric(6, 4), nullable=False),
-    Column("raw_score", Numeric(12, 8), nullable=True),
-    Column("created_at", DateTime(timezone=True), nullable=False, server_default=text("NOW()")),
-    Column("updated_at", DateTime(timezone=True), nullable=False, server_default=text("NOW()")),
-    CheckConstraint(
-        "similarity_score >= 0.0000 AND similarity_score <= 1.0000",
-        name="chk_edges_score_range",
-    ),
-    CheckConstraint(
-        "edge_type IN ('paper-paper', 'record-record', 'ref')",
-        name="chk_edges_type",
-    ),
-)
-
-Index("uk_edges_type_pair", _EDGES_TABLE.c.edge_type, _EDGES_TABLE.c.source_id, _EDGES_TABLE.c.target_id, unique=True)
-Index("idx_edges_source_score", _EDGES_TABLE.c.source_id, _EDGES_TABLE.c.similarity_score)
-Index("idx_edges_target_score", _EDGES_TABLE.c.target_id, _EDGES_TABLE.c.similarity_score)
-Index("idx_edges_seed_expand", _EDGES_TABLE.c.source_id, _EDGES_TABLE.c.target_id)
-
 
 def connect_postgres(host: str, port: int, user: str, password: str, database: str) -> Engine:
     url = URL.create(
@@ -101,24 +34,6 @@ def connect_postgres(host: str, port: int, user: str, password: str, database: s
 
 def create_graph_schema(conn: Connection) -> None:
     _METADATA.create_all(conn)
-
-
-def split_sql_statements(sql_text: str) -> list[str]:
-    statements: list[str] = []
-    current: list[str] = []
-    for line in sql_text.splitlines():
-        if line.strip().startswith("--"):
-            continue
-        current.append(line)
-        candidate = "\n".join(current).strip()
-        if candidate.endswith(";"):
-            statements.append(candidate[:-1].strip())
-            current = []
-    tail = "\n".join(current).strip()
-    if tail:
-        statements.append(tail)
-    return [s for s in statements if s]
-
 
 def build_nodes(conn: Connection) -> tuple[list[Node], list[Node], dict[str, Node], dict[str, Node]]:
     paper_sql = (

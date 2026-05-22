@@ -5,7 +5,7 @@ from __future__ import annotations
 import sys
 
 from .builder import BuildGraphOptions, run
-from .settings import GraphBuilderSettings
+from .config import GraphBuilderSettings
 
 
 def options_from_settings(settings: GraphBuilderSettings) -> BuildGraphOptions:
@@ -24,13 +24,6 @@ def options_from_settings(settings: GraphBuilderSettings) -> BuildGraphOptions:
 
 
 def main() -> int:
-    if len(sys.argv) > 1:
-        print(
-            "This command reads .env only; CLI arguments are not supported.",
-            file=sys.stderr,
-        )
-        print("Usage: python -m data_process.graph_builder", file=sys.stderr)
-        return 2
 
     settings = GraphBuilderSettings()
 

@@ -9,7 +9,6 @@
 - [data_process/graph_builder/database.py](data_process/graph_builder/database.py)：数据库连接、Schema 创建、源表读取、分批写入。
 - [data_process/graph_builder/engine.py](data_process/graph_builder/engine.py)：建图流程编排。
 - [data_process/graph_builder/cli.py](data_process/graph_builder/cli.py)：命令行入口与 `.env` 读取。
-- [data_process/graph_builder/__main__.py](data_process/graph_builder/__main__.py)：`python -m` 入口。
 - [data_process/graph_builder/builder.py](data_process/graph_builder/builder.py)：兼容导出层，保留旧 import 路径。
 
 ## 流程概览
@@ -80,7 +79,7 @@
 从项目根目录运行：
 
 ```bash
-python -m data_process.graph_builder
+python main.py
 ```
 
 默认读取项目根目录 `.env`，并按 `DB_*` 优先、`POSTGRES_*` 兜底的顺序读取数据库配置。
@@ -90,9 +89,3 @@ python -m data_process.graph_builder
 - `GRAPH_BUILDER_STRATEGY`：写入策略，支持 `truncate` / `upsert`
 - `GRAPH_BUILDER_PAPER_TOP_K` / `GRAPH_BUILDER_RECORD_TOP_K`
 - `GRAPH_BUILDER_PAPER_MIN_SCORE` / `GRAPH_BUILDER_RECORD_MIN_SCORE`
-
-## 验证
-
-```bash
-python -m unittest discover -s data_process/graph_builder/tests
-```
