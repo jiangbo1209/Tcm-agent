@@ -103,6 +103,12 @@ python3 -m http.server 5500
 
 ## 索引与离线建图
 
+### 初始化数据库表结构
+
+```bash
+python -m data_process.db_init
+```
+
 ### 创建全文索引（GIN/tsvector）
 
 ```bash
@@ -123,7 +129,7 @@ docker compose exec -T postgresql psql -U postgres -d papers_records < UI/config
 python3 -m data_process.graph_builder
 ```
 
-默认使用 [UI/configs/graph_nodes_edges.sql](UI/configs/graph_nodes_edges.sql) 建表。
+`nodes` / `edges` 表由 SQLAlchemy `create_all` 创建，无需 SQL 文件。
 
 ## 文件说明
 

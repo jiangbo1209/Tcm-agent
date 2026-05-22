@@ -1,20 +1,14 @@
-"""Database IO helpers for graph building."""
+"""Database IO helpers for graph building (SQLAlchemy based)."""
 
 from __future__ import annotations
 
-import sys
-import time
-from pathlib import Path
 from typing import Iterable
 
-try:
-    import psycopg2
-    from psycopg2 import Error
-except Exception:  # pragma: no cover
-    psycopg2 = None
-    Error = Exception
+from sqlalchemy import create_engine, text
+from sqlalchemy.engine import Connection, Engine, URL
+from sqlalchemy.exc import SQLAlchemyError
 
-from .models import Edge, Node
+from .models import Edge, Node, _METADATA
 from .processor import (
     extract_age,
     extract_year,
@@ -24,58 +18,31 @@ from .processor import (
     tokenize_text,
 )
 
+Error = SQLAlchemyError
 
-def connect_postgres(host: str, port: int, user: str, password: str, database: str):
-    if psycopg2 is None:  # pragma: no cover
-        raise RuntimeError("Missing dependency: psycopg2-binary")
-
-    for attempt in range(1, 4):
-        try:
-            return psycopg2.connect(
-                host=host,
-                port=port,
-                user=user,
-                password=password,
-                dbname=database,
-            )
-        except Error as exc:
-            if attempt == 3:
-                raise
-            time.sleep(float(attempt))
-            print(f"Retrying PostgreSQL connect after error: {exc}", file=sys.stderr)
+def connect_postgres(host: str, port: int, user: str, password: str, database: str) -> Engine:
+    url = URL.create(
+        "postgresql+psycopg2",
+        username=user,
+        password=password,
+        host=host,
+        port=port,
+        database=database,
+    )
+    return create_engine(url, pool_pre_ping=True)
 
 
-def split_sql_statements(sql_text: str) -> list[str]:
-    statements: list[str] = []
-    current: list[str] = []
-    for line in sql_text.splitlines():
-        if line.strip().startswith("--"):
-            continue
-        current.append(line)
-        candidate = "\n".join(current).strip()
-        if candidate.endswith(";"):
-            statements.append(candidate[:-1].strip())
-            current = []
-    tail = "\n".join(current).strip()
-    if tail:
-        statements.append(tail)
-    return [s for s in statements if s]
+def create_graph_schema(conn: Connection) -> None:
+    _METADATA.create_all(conn)
 
-
-def apply_schema(cursor, sql_file: Path) -> None:
-    sql_text = sql_file.read_text(encoding="utf-8")
-    for statement in split_sql_statements(sql_text):
-        cursor.execute(statement)
-
-
-def build_nodes(cursor) -> tuple[list[Node], list[Node], dict[str, Node], dict[str, Node]]:
-    cursor.execute(
+def build_nodes(conn: Connection) -> tuple[list[Node], list[Node], dict[str, Node], dict[str, Node]]:
+    paper_sql = (
         "SELECT file_uuid, title, keywords, abstract, pub_year, original_name, cleaned_title, matched_title "
         "FROM lit_metadata"
     )
-    paper_rows = cursor.fetchall()
+    paper_rows = conn.execute(text(paper_sql)).fetchall()
 
-    cursor.execute(
+    record_sql = (
         "SELECT mc.file_uuid, mc.age, mc.western_diagnosis, mc.tcm_diagnosis, "
         "mc.treatment_principle, mc.prescription, mc.present_symptoms, mc.medical_history, "
         "mc.lab_tests, mc.ultrasound, mc.followup, mc.commentary, "
@@ -83,7 +50,7 @@ def build_nodes(cursor) -> tuple[list[Node], list[Node], dict[str, Node], dict[s
         "FROM med_case mc "
         "LEFT JOIN lit_metadata lm ON lm.file_uuid = mc.file_uuid"
     )
-    record_rows = cursor.fetchall()
+    record_rows = conn.execute(text(record_sql)).fetchall()
 
     papers: list[Node] = []
     paper_by_uuid: dict[str, Node] = {}
@@ -187,13 +154,13 @@ def chunked(data: Iterable, size: int):
         yield batch
 
 
-def write_nodes(cursor, nodes: list[Node], top_k_map: dict[str, float], strategy: str) -> int:
+def write_nodes(conn: Connection, nodes: list[Node], top_k_map: dict[str, float], strategy: str) -> int:
     if not nodes:
         return 0
 
     if strategy == "truncate":
-        cursor.execute("DELETE FROM edges")
-        cursor.execute("DELETE FROM nodes")
+        conn.exec_driver_sql("DELETE FROM edges")
+        conn.exec_driver_sql("DELETE FROM nodes")
 
     sql_insert = (
         "INSERT INTO nodes (id, node_type, title, metric_value, top_k_value) "
@@ -215,12 +182,12 @@ def write_nodes(cursor, nodes: list[Node], top_k_map: dict[str, float], strategy
     ]
 
     for batch in chunked(values, 500):
-        cursor.executemany(sql, batch)
+        conn.exec_driver_sql(sql, batch)
 
     return len(values)
 
 
-def write_edges(cursor, edges: list[Edge], strategy: str) -> int:
+def write_edges(conn: Connection, edges: list[Edge], strategy: str) -> int:
     if not edges:
         return 0
 
@@ -251,6 +218,6 @@ def write_edges(cursor, edges: list[Edge], strategy: str) -> int:
     ]
 
     for batch in chunked(values, 500):
-        cursor.executemany(sql, batch)
+        conn.exec_driver_sql(sql, batch)
 
     return len(values)

@@ -81,8 +81,7 @@ graph TD
 │       └── src
 ├── agent                           # agent
 ├── configs
-│   ├── nginx
-│   └── sql
+│   └── nginx                        # Nginx 配置模板
 ├── data_process                    # 数据处理
 │   ├── case_metadata               # 病案元数据提取
 │   ├── graph_builder               # nodes/edges 离线建图
@@ -93,6 +92,12 @@ graph TD
 ```
 
 ### 数据处理入口
+
+首次初始化数据库表结构：
+
+```bash
+python -m data_process.db_init
+```
 
 离线生成图谱底表 `nodes` / `edges`：
 

@@ -6,10 +6,9 @@
 
 - [data_process/graph_builder/models.py](data_process/graph_builder/models.py)：`Node`、`Edge`、`BuildGraphOptions` 数据类。
 - [data_process/graph_builder/processor.py](data_process/graph_builder/processor.py)：文本清洗、分词、Jaccard 相似度、边生成、`top_k_value` 计算。
-- [data_process/graph_builder/database.py](data_process/graph_builder/database.py)：数据库连接、Schema 应用、源表读取、分批写入。
+- [data_process/graph_builder/database.py](data_process/graph_builder/database.py)：数据库连接、Schema 创建、源表读取、分批写入。
 - [data_process/graph_builder/engine.py](data_process/graph_builder/engine.py)：建图流程编排。
 - [data_process/graph_builder/cli.py](data_process/graph_builder/cli.py)：命令行入口与 `.env` 读取。
-- [data_process/graph_builder/__main__.py](data_process/graph_builder/__main__.py)：`python -m` 入口。
 - [data_process/graph_builder/builder.py](data_process/graph_builder/builder.py)：兼容导出层，保留旧 import 路径。
 
 ## 流程概览
@@ -70,7 +69,7 @@
 
 ## 写入策略
 
-- Schema 默认路径： [UI/configs/graph_nodes_edges.sql](UI/configs/graph_nodes_edges.sql)
+- 使用 SQLAlchemy `create_all` 创建 `nodes` / `edges` 表，无需 SQL 文件。
 - `truncate`：先清空 `edges`、`nodes`，再批量写入。
 - `upsert`：`id` 冲突时更新字段并刷新 `updated_at`。
 - 分批写入大小：500。
@@ -80,32 +79,13 @@
 从项目根目录运行：
 
 ```bash
-python -m data_process.graph_builder
-```
-
-也可以显式传入数据库连接：
-
-```bash
-python -m data_process.graph_builder \
-  --host "$DB_HOST" \
-  --port "$DB_PORT" \
-  --user "$DB_USER" \
-  --password "$DB_PASSWORD" \
-  --database "$DB_NAME"
+python main.py
 ```
 
 默认读取项目根目录 `.env`，并按 `DB_*` 优先、`POSTGRES_*` 兜底的顺序读取数据库配置。
 
 ## 参数
 
-- `--schema-sql`：DDL 文件路径，默认 `UI/configs/graph_nodes_edges.sql`
-- `--strategy`：写入策略，支持 `truncate` / `upsert`，默认 `truncate`
-- `--paper-top-k` / `--record-top-k`：同类节点相似边的 Top K
-- `--paper-min-score` / `--record-min-score`：同类节点相似边的最低分
-
-## 验证
-
-```bash
-python -m data_process.graph_builder --help
-python -m unittest discover -s data_process/graph_builder/tests
-```
+- `GRAPH_BUILDER_STRATEGY`：写入策略，支持 `truncate` / `upsert`
+- `GRAPH_BUILDER_PAPER_TOP_K` / `GRAPH_BUILDER_RECORD_TOP_K`
+- `GRAPH_BUILDER_PAPER_MIN_SCORE` / `GRAPH_BUILDER_RECORD_MIN_SCORE`
