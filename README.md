@@ -93,6 +93,12 @@ graph TD
 
 ### 数据处理入口
 
+首次初始化数据库表结构：
+
+```bash
+python -m data_process.db_init
+```
+
 离线生成图谱底表 `nodes` / `edges`：
 
 ```bash

@@ -103,6 +103,12 @@ python3 -m http.server 5500
 
 ## 索引与离线建图
 
+### 初始化数据库表结构
+
+```bash
+python -m data_process.db_init
+```
+
 ### 创建全文索引（GIN/tsvector）
 
 ```bash
