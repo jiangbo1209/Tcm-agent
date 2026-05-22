@@ -76,8 +76,7 @@ graph TD
 .
 ├── UI                              # 用户界面
 │   ├── backend                     # 后端
-│   │   ├── app
-│   │   └── scripts
+│   │   └── app
 │   └── frontend                    # 前端
 │       └── src
 ├── agent                           # agent
@@ -86,10 +85,19 @@ graph TD
 │   └── sql
 ├── data_process                    # 数据处理
 │   ├── case_metadata               # 病案元数据提取
+│   ├── graph_builder               # nodes/edges 离线建图
 │   ├── lit_metadata                # 文献元数据提取
 │   └── pdf_upload                  # 文件上传建立数据库
 └── docker                          # docker配置文件
 
+```
+
+### 数据处理入口
+
+离线生成图谱底表 `nodes` / `edges`：
+
+```bash
+python -m data_process.graph_builder
 ```
 
 ### Git 协作与分支规范
