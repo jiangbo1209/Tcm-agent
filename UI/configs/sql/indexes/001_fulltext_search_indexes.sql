@@ -1,14 +1,22 @@
 -- Reserved index migration for search scalability (10w+ records)
--- Apply manually after backup.
+-- PostgreSQL 16+ (GIN / tsvector)
 
 -- 1) Fulltext index for literature search.
-ALTER TABLE paper
-  ADD FULLTEXT INDEX ft_paper_search (title, keywords, abstract);
+CREATE INDEX IF NOT EXISTS idx_lit_metadata_search
+  ON lit_metadata
+  USING GIN (to_tsvector('simple',
+    COALESCE(title, '') || ' ' ||
+    COALESCE(keywords::text, '') || ' ' ||
+    COALESCE(abstract, '')
+  ));
 
 -- 2) Fulltext index for case search.
-ALTER TABLE all_papers_records
-  ADD FULLTEXT INDEX ft_record_search (`论文名称`, `中医证候诊断`, `西医病名诊断`);
+CREATE INDEX IF NOT EXISTS idx_med_case_search
+  ON med_case
+  USING GIN (to_tsvector('simple',
+    COALESCE(tcm_diagnosis, '') || ' ' ||
+    COALESCE(western_diagnosis, '')
+  ));
 
 -- Optional: prefix index for title sorting or LIKE fallback acceleration.
--- ALTER TABLE paper ADD INDEX idx_paper_title_prefix (title(191));
--- ALTER TABLE all_papers_records ADD INDEX idx_record_title_prefix (`论文名称`(191));
+-- CREATE INDEX IF NOT EXISTS idx_lit_metadata_title_prefix ON lit_metadata (title);

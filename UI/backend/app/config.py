@@ -36,17 +36,17 @@ def parse_int_env(name: str, default: int) -> int:
 
 
 def get_database_config() -> DatabaseConfig:
-    db_host = os.getenv("DB_HOST") or os.getenv("MYSQL_HOST", "127.0.0.1")
-    db_port_raw = os.getenv("DB_PORT") or os.getenv("MYSQL_PORT")
-    db_port_default = int(db_port_raw) if db_port_raw and db_port_raw.isdigit() else 3306
+    db_host = os.getenv("DB_HOST") or os.getenv("POSTGRES_HOST", "127.0.0.1")
+    db_port_raw = os.getenv("DB_PORT") or os.getenv("POSTGRES_PORT")
+    db_port_default = int(db_port_raw) if db_port_raw and db_port_raw.isdigit() else 5432
     db_port = parse_int_env("DB_PORT", db_port_default)
 
-    db_user = os.getenv("DB_USER") or os.getenv("MYSQL_USER", "root")
+    db_user = os.getenv("DB_USER") or os.getenv("POSTGRES_USER", "postgres")
     db_password = os.getenv("DB_PASSWORD")
     if db_password is None:
-        db_password = os.getenv("MYSQL_PASSWORD", "123456")
+        db_password = os.getenv("POSTGRES_PASSWORD", "")
 
-    db_name = os.getenv("DB_NAME") or os.getenv("MYSQL_DATABASE", "papers_records")
+    db_name = os.getenv("DB_NAME") or os.getenv("POSTGRES_DB", "postgres")
     return DatabaseConfig(
         host=db_host,
         port=db_port,

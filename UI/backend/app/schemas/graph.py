@@ -73,11 +73,19 @@ class RecordField(BaseModel):
     value: Any
 
 
+class RecordSummary(BaseModel):
+    diagnosis: str | None = None
+    syndrome: str | None = None
+    treatment_principle: str | None = None
+    prescription: str | None = None
+
+
 class NodeDetailResponse(BaseModel):
     node: GraphNode
     detail_type: str
     paper: dict[str, Any] | None = None
     record_fields: list[RecordField] | None = None
+    record: RecordSummary | None = None
 
 
 class FileUrlResponse(BaseModel):

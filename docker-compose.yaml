@@ -1,9 +1,9 @@
 version: "3.9"
 
 services:
-  postgres:
+  postgresql:
     image: pgvector/pgvector:pg16
-    container_name: tcm-postgres
+    container_name: tcm-postgresql
     ports:
       - "5432:5432"
     env_file:
@@ -34,22 +34,20 @@ services:
     networks:
       - app-network
 
-  kg-backend:
+  ui-backend:
     build:
-      context: ./knowledge_graph/TCM-code/backend
-    depends_on:
-      - postgres
+      context: ./UI/backend
     ports:
       - "8000:8000"
-    networks:
-      - app-network
-
-  kg-frontend:
-    image: nginx:latest
+    env_file:
+      - .env
+    environment:
+      POSTGRES_HOST: postgresql
     volumes:
-      - ./knowledge_graph/TCM-code/frontend:/usr/share/nginx/html:ro
-    ports:
-      - "8080:80"
+      - ./UI/frontend:/frontend:ro
+    depends_on:
+      - postgresql
+      - minio
     networks:
       - app-network
 
@@ -62,10 +60,10 @@ services:
     env_file:
       - .env
     environment:
-      POSTGRES_HOST: postgres
+      POSTGRES_HOST: postgresql
       MINIO_ENDPOINT: minio:9000
     depends_on:
-      - postgres
+      - postgresql
       - minio
     networks:
       - app-network
@@ -75,7 +73,7 @@ services:
       context: ./agent
     command: tail -f /dev/null
     depends_on:
-      - postgres
+      - postgresql
       - minio
     networks:
       - app-network

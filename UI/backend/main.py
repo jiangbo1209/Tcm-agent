@@ -8,8 +8,7 @@ from pathlib import Path
 
 from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import FileResponse, JSONResponse
-from fastapi.staticfiles import StaticFiles
+from fastapi.responses import JSONResponse
 from dotenv import load_dotenv
 
 from app.api.routes_graph import router as graph_router
@@ -21,6 +20,8 @@ from app.services.graph_service import GraphService
 logging.basicConfig(level=logging.INFO)
 
 ROOT_DIR = Path(__file__).resolve().parents[1]
+PROJECT_ROOT = Path(__file__).resolve().parents[2]
+load_dotenv(PROJECT_ROOT / ".env", override=False)
 load_dotenv(ROOT_DIR / ".env", override=False)
 
 app = FastAPI(title="TCM Graph API", version="1.0.0")
@@ -56,48 +57,14 @@ app.state.graph_service = GraphService(repository, _build_minio_client())
 
 app.include_router(graph_router)
 
-FRONTEND_DIR = Path(__file__).resolve().parents[1] / "frontend"
-
-
 @app.exception_handler(HTTPException)
 async def http_exception_handler(_, exc: HTTPException):
     return JSONResponse(status_code=exc.status_code, content={"error": exc.detail})
 
 
-@app.get("/", include_in_schema=False)
-def search_page():
-    page = FRONTEND_DIR / "search.html"
-    if not page.exists():
-        raise HTTPException(status_code=404, detail="search page not found")
-    return FileResponse(page)
-
-
-@app.get("/search.html", include_in_schema=False)
-def search_page_alias():
-    return search_page()
-
-
-@app.get("/graph-view", include_in_schema=False)
-def graph_view_page():
-    page = FRONTEND_DIR / "index.html"
-    if not page.exists():
-        raise HTTPException(status_code=404, detail="graph page not found")
-    return FileResponse(page)
-
-
-@app.get("/index.html", include_in_schema=False)
-def graph_view_page_alias():
-    return graph_view_page()
-
-
 @app.get("/health", include_in_schema=False)
 def health_check():
     return {"status": "ok"}
-
-
-if FRONTEND_DIR.exists():
-    app.mount("/frontend", StaticFiles(directory=FRONTEND_DIR), name="frontend")
-    app.mount("/static", StaticFiles(directory=FRONTEND_DIR), name="frontend_static")
 
 
 if __name__ == "__main__":
