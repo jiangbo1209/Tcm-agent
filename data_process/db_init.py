@@ -6,7 +6,7 @@ import sys
 
 from data_process.case_metadata import models as _case_models  # noqa: F401
 from data_process.graph_builder.database import connect_postgres, create_graph_schema
-from data_process.graph_builder.settings import GraphBuilderSettings
+from data_process.graph_builder.config import GraphBuilderSettings
 from data_process.lit_metadata.app.models.orm import Base as LitMetadataBase
 from data_process.pdf_upload.models import Base as UploadBase
 

@@ -19,42 +19,42 @@ class GraphBuilderSettings(BaseSettings):
 
     host: str = Field(
         default="127.0.0.1",
-        validation_alias=AliasChoices("DB_HOST", "POSTGRES_HOST"),
+        validation_alias=AliasChoices("POSTGRES_HOST"),
     )
     port: int = Field(
         default=5432,
-        validation_alias=AliasChoices("DB_PORT", "POSTGRES_PORT"),
+        validation_alias=AliasChoices("POSTGRES_PORT"),
     )
     user: str = Field(
         default="postgres",
-        validation_alias=AliasChoices("DB_USER", "POSTGRES_USER"),
+        validation_alias=AliasChoices("POSTGRES_USER"),
     )
     password: str = Field(
         default="",
-        validation_alias=AliasChoices("DB_PASSWORD", "POSTGRES_PASSWORD"),
+        validation_alias=AliasChoices("POSTGRES_PASSWORD"),
     )
     database: str = Field(
         default="postgres",
-        validation_alias=AliasChoices("DB_NAME", "POSTGRES_DB"),
+        validation_alias=AliasChoices("POSTGRES_DB"),
     )
 
     strategy: str = Field(
         default="truncate",
-        validation_alias=AliasChoices("GRAPH_BUILDER_STRATEGY", "GRAPH_STRATEGY"),
+        validation_alias=AliasChoices("GRAPH_BUILDER_STRATEGY"),
     )
     paper_top_k: int = Field(
         default=3,
-        validation_alias=AliasChoices("GRAPH_BUILDER_PAPER_TOP_K", "GRAPH_PAPER_TOP_K"),
+        validation_alias=AliasChoices("GRAPH_BUILDER_PAPER_TOP_K"),
     )
     record_top_k: int = Field(
         default=2,
-        validation_alias=AliasChoices("GRAPH_BUILDER_RECORD_TOP_K", "GRAPH_RECORD_TOP_K"),
+        validation_alias=AliasChoices("GRAPH_BUILDER_RECORD_TOP_K"),
     )
     paper_min_score: float = Field(
         default=0.02,
-        validation_alias=AliasChoices("GRAPH_BUILDER_PAPER_MIN_SCORE", "GRAPH_PAPER_MIN_SCORE"),
+        validation_alias=AliasChoices("GRAPH_BUILDER_PAPER_MIN_SCORE"),
     )
     record_min_score: float = Field(
         default=0.02,
-        validation_alias=AliasChoices("GRAPH_BUILDER_RECORD_MIN_SCORE", "GRAPH_RECORD_MIN_SCORE"),
+        validation_alias=AliasChoices("GRAPH_BUILDER_RECORD_MIN_SCORE"),
     )

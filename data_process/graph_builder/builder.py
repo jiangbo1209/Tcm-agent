@@ -8,7 +8,6 @@ from .database import (
     chunked,
     connect_postgres,
     create_graph_schema,
-    split_sql_statements,
     write_edges,
     write_nodes,
 )
@@ -42,7 +41,6 @@ __all__ = [
     "Error",
     "connect_postgres",
     "create_graph_schema",
-    "split_sql_statements",
     "normalize_title",
     "extract_age",
     "extract_year",
