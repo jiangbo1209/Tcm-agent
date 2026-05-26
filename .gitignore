@@ -25,3 +25,4 @@ data/
 .claude
 .vscode
 .pytest_cache
+.codex
