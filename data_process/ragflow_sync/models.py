@@ -73,4 +73,4 @@ class SyncResult:
     action: str
     document_id: str | None = None
     message: str | None = None
-
+    stage: str | None = None

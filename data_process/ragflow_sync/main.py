@@ -18,8 +18,17 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--limit", type=int, default=None, help="Maximum records per selected source.")
     parser.add_argument("--dry-run", action="store_true", help="Preview records without uploading.")
     parser.add_argument("--force", action="store_true", help="Upload even when a parsed status exists.")
+    parser.add_argument("--only-failed", action="store_true", help="Retry only items whose last sync status is failed.")
     parser.add_argument("--no-parse", action="store_true", help="Upload and update metadata without triggering parse.")
     return parser
+
+
+def summarize_results(results) -> dict[str, int]:
+    summary = {"uploaded": 0, "parsed": 0, "skipped": 0, "failed": 0}
+    for result in results:
+        if result.action in summary:
+            summary[result.action] += 1
+    return summary
 
 
 def main(argv: list[str] | None = None) -> int:
@@ -52,20 +61,33 @@ def main(argv: list[str] | None = None) -> int:
     )
 
     try:
-        results = service.sync(args.source, limit=args.limit, dry_run=args.dry_run, force=args.force)
+        results = service.sync(
+            args.source,
+            limit=args.limit,
+            dry_run=args.dry_run,
+            force=args.force,
+            only_failed=args.only_failed,
+        )
     finally:
         repository.close()
 
     for result in results:
         doc = f" document_id={result.document_id}" if result.document_id else ""
+        stage = f" stage={result.stage}" if result.stage else ""
         msg = f" message={result.message}" if result.message else ""
-        print(f"{result.source_type} {result.file_uuid}: {result.action}{doc}{msg}")
+        print(f"{result.source_type} {result.file_uuid}: {result.action}{stage}{doc}{msg}")
 
-    failed = sum(1 for result in results if result.action == "failed")
-    print(f"Finished: total={len(results)} failed={failed}")
-    return 1 if failed else 0
+    summary = summarize_results(results)
+    print(
+        "Summary: "
+        f"uploaded={summary['uploaded']} "
+        f"parsed={summary['parsed']} "
+        f"skipped={summary['skipped']} "
+        f"failed={summary['failed']} "
+        f"total={len(results)}"
+    )
+    return 1 if summary["failed"] else 0
 
 
 if __name__ == "__main__":
     raise SystemExit(main())
-

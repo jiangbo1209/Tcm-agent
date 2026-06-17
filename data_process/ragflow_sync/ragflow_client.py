@@ -45,6 +45,9 @@ class RagflowClient:
         return payload
 
     def upload_document(self, filename: str, content: bytes, content_type: str) -> str:
+        if not content:
+            raise RagflowApiError(f"{filename}: refusing to upload empty content")
+
         url = self._url(f"/api/v1/datasets/{self.dataset_id}/documents")
         files = {"file": (filename, content, content_type)}
         response = requests.post(url, headers=self._headers, files=files, timeout=self.timeout)
