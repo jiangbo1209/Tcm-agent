@@ -36,7 +36,7 @@ import { expandGraph } from "../api/graph";
 const YEAR_DOMAIN = [1963, 2024];
 const AGE_DOMAIN = [18, 75];
 const SIZE_DOMAIN = [0.8, 3.0];
-const DISTANCE_RANGE = [90, 320];
+const DISTANCE_RANGE = [60, 180];
 const DEFAULT_NODE_STROKE = "#aeb7c2";
 const SEED_NODE_STROKE = "#7e3af2";
 const HOVER_NODE_STROKE = "#4f46e5";
@@ -202,15 +202,25 @@ onMounted(() => {
     layout: {
       type: "gForce",
       preventOverlap: true,
-      minMovement: 0.05,
-      damping: 0.85,
-      maxSpeed: 300,
-      gravity: 1.0,
+      minMovement: 0.01,
+      damping: 0.8,
+      maxSpeed: 200,
+      gravity: 2.0,
       linkDistance: (edge) => mapDistance(edge.similarity_score),
     },
   });
   graph.data({ nodes: [], edges: [] });
   graph.render();
+
+  graph.on("node:dragstart", () => {
+    if (graph.getLayouts?.()?.length) {
+      graph.updateLayout({ type: "gForce", enabled: false });
+    }
+  });
+  graph.on("node:dragend", () => {
+    graph.updateLayout({ type: "gForce", enabled: true });
+    graph.layout();
+  });
 
   graph.on("node:click", async (ev) => {
     const model = ev.item.getModel();
