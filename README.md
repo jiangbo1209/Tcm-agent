@@ -10,9 +10,18 @@
 
 ### 环境准备
 
+项目需要 **Python 3.10+**。当前推荐使用 `Tcm-agent` conda 环境，避免系统 `python3` 仍指向 Python 3.8。
+
 ```bash
+# 如环境不存在，先创建
+conda env create -f environment.yml
+conda activate Tcm-agent
+
 # 后端依赖
-pip install -r UI/backend/requirements.txt
+python -m pip install -r UI/backend/requirements.txt
+
+# 数据处理/建图依赖
+python -m pip install -r data_process/graph_builder/requirements.txt
 
 # 前端依赖
 cd UI/frontend && npm install
@@ -22,7 +31,7 @@ cd UI/frontend && npm install
 
 ```bash
 cd UI/backend
-uvicorn main:app --reload --host 0.0.0.0 --port 8011
+conda run -n Tcm-agent uvicorn main:app --reload --host 0.0.0.0 --port 8011
 ```
 
 ### 启动前端
@@ -40,7 +49,7 @@ npm run dev
 
 ```bash
 cd UI/backend
-python create_professional_user.py
+conda run -n Tcm-agent python create_professional_user.py
 # 默认账号: admin / admin123
 ```
 
@@ -134,13 +143,13 @@ graph TD
 首次初始化数据库表结构：
 
 ```bash
-python -m data_process.db_init
+conda run -n Tcm-agent python -m data_process.db_init
 ```
 
 离线生成图谱底表 `nodes` / `edges`：
 
 ```bash
-python -m data_process.graph_builder
+conda run -n Tcm-agent python -m data_process.graph_builder
 ```
 
 ### Git 协作与分支规范

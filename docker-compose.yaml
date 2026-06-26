@@ -31,50 +31,6 @@ services:
     networks:
       - app-network
 
-  ui-backend:
-    build:
-      context: ./UI/backend
-    ports:
-      - "8000:8000"
-    env_file:
-      - .env
-    environment:
-      POSTGRES_HOST: postgresql
-    volumes:
-      - ./UI/frontend:/frontend:ro
-    depends_on:
-      - postgresql
-      - minio
-    networks:
-      - app-network
-
-  data-process:
-    build:
-      context: ./data_process
-    container_name: tcm-data-process
-    ports:
-      - "8001:8001"
-    env_file:
-      - .env
-    environment:
-      POSTGRES_HOST: postgresql
-      MINIO_ENDPOINT: minio:9000
-    depends_on:
-      - postgresql
-      - minio
-    networks:
-      - app-network
-
-  agent-worker:
-    build:
-      context: ./agent
-    command: tail -f /dev/null
-    depends_on:
-      - postgresql
-      - minio
-    networks:
-      - app-network
-
   ragflow-mysql:
     image: mysql:8.0.39
     container_name: ragflow-mysql

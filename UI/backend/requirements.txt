@@ -7,4 +7,5 @@ minio>=7.2,<8.0
 sqlalchemy>=2.0,<3.0
 python-jose[cryptography]>=3.3,<4.0
 passlib[bcrypt]>=1.7,<2.0
+bcrypt>=4.0.1,<4.1
 python-multipart>=0.0.9
