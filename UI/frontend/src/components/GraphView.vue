@@ -140,7 +140,6 @@ function mergeGraph(payload) {
   inE.forEach(e => edgeMap.set(e.id, e));
   newN.forEach(n => graph.addItem("node", n));
   newE.forEach(e => graph.addItem("edge", e));
-  if (newN.length || newE.length) graph.layout();
   nodeCount.value = nodeMap.size;
   return { addedNodes: newN.length, addedEdges: newE.length };
 }
@@ -155,28 +154,35 @@ async function fetchAndExpand(seedId) {
     const centerX = graphRef.value?.clientWidth / 2 || 400;
     const centerY = graphRef.value?.clientHeight / 2 || 300;
 
+    // 给新节点设置初始位置（围绕种子节点散开）
+    const existingCount = nodeMap.size;
+    const inN = Array.isArray(data.nodes) ? data.nodes : [];
+    inN.forEach((raw, i) => {
+      if (!nodeMap.has(String(raw.id))) {
+        const angle = (2 * Math.PI * (existingCount + i)) / Math.max(inN.length, 6);
+        const radius = 80 + Math.random() * 60;
+        raw.x = centerX + radius * Math.cos(angle);
+        raw.y = centerY + radius * Math.sin(angle);
+      }
+    });
+
     mergeGraph(data);
 
+    // 种子节点放中心
     const seedNode = nodeMap.get(seedId);
     if (seedNode) {
       seedNode.x = centerX;
       seedNode.y = centerY;
-      seedNode.fx = centerX;
-      seedNode.fy = centerY;
     }
-
     const item = graph.findById(seedId);
-    if (item) {
-      graph.updateItem(item, { x: centerX, y: centerY });
-    }
+    if (item) graph.updateItem(item, { x: centerX, y: centerY });
+
+    // 运行一次性布局
     graph.layout();
     markSeed(seedId);
 
-    setTimeout(() => {
-      const seedItem = graph.findById(seedId);
-      if (seedItem) graph.updateItem(seedItem, { fx: null, fy: null });
-      graph.fitView(40);
-    }, 600);
+    // 布局完成后适配视图
+    setTimeout(() => graph.fitView(40), 500);
   } finally {
     inFlightSeeds.delete(seedId);
     loading.value = false;
@@ -200,27 +206,18 @@ onMounted(() => {
     defaultNode: { type: "circle", size: 26, style: { lineWidth: 1, stroke: DEFAULT_NODE_STROKE, fill: "#e6edf5" } },
     defaultEdge: { style: { stroke: EDGE_BASE_COLOR, opacity: 0.5 } },
     layout: {
-      type: "gForce",
+      type: "force",
       preventOverlap: true,
-      minMovement: 0.01,
-      damping: 0.8,
-      maxSpeed: 200,
-      gravity: 2.0,
       linkDistance: (edge) => mapDistance(edge.similarity_score),
+      nodeStrength: -80,
+      edgeStrength: 0.6,
+      collideStrength: 0.8,
+      alphaDecay: 0.05,
+      alphaMin: 0.01,
     },
   });
   graph.data({ nodes: [], edges: [] });
   graph.render();
-
-  graph.on("node:dragstart", () => {
-    if (graph.getLayouts?.()?.length) {
-      graph.updateLayout({ type: "gForce", enabled: false });
-    }
-  });
-  graph.on("node:dragend", () => {
-    graph.updateLayout({ type: "gForce", enabled: true });
-    graph.layout();
-  });
 
   graph.on("node:click", async (ev) => {
     const model = ev.item.getModel();
