@@ -36,6 +36,12 @@ const routes = [
         component: () => import("../views/SearchResults.vue"),
         meta: { requiresProfessional: true },
       },
+      {
+        path: "graph",
+        name: "Graph",
+        component: () => import("../views/Graph.vue"),
+        meta: { requiresProfessional: true },
+      },
     ],
   },
 ];

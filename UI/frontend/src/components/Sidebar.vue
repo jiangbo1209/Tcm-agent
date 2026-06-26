@@ -34,6 +34,26 @@
         </svg>
         智能搜索
       </router-link>
+
+      <router-link
+        v-if="authStore.isProfessional"
+        to="/graph"
+        class="nav-item"
+        :class="{ active: $route.path.startsWith('/graph') }"
+      >
+        <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+          <circle cx="12" cy="12" r="2"></circle>
+          <circle cx="5" cy="6" r="2"></circle>
+          <circle cx="19" cy="6" r="2"></circle>
+          <circle cx="5" cy="18" r="2"></circle>
+          <circle cx="19" cy="18" r="2"></circle>
+          <line x1="7" y1="6" x2="10" y2="10"></line>
+          <line x1="17" y1="6" x2="14" y2="10"></line>
+          <line x1="7" y1="18" x2="10" y2="14"></line>
+          <line x1="17" y1="18" x2="14" y2="14"></line>
+        </svg>
+        知识图谱
+      </router-link>
     </nav>
 
     <div class="sidebar-history">
