@@ -44,6 +44,7 @@ const EDGE_BASE_COLOR = "#aeb7c2";
 const LABEL_MAX_CHARS = 16;
 
 const emit = defineEmits(["nodeClick", "nodeHover"]);
+const props = defineProps({ maxExpansions: { type: Number, default: 3 } });
 const containerRef = ref(null);
 const graphRef = ref(null);
 const loading = ref(false);
@@ -54,6 +55,7 @@ let activeSeedNodeId = null;
 const nodeMap = new Map();
 const edgeMap = new Map();
 const inFlightSeeds = new Set();
+const expansionHistory = [];
 
 function clamp(v, min, max) { return Math.max(min, Math.min(max, v)); }
 function normalize(v, d) { const s = Number.isFinite(v) ? v : d[0]; return d[0] === d[1] ? 0.5 : (clamp(s, d[0], d[1]) - d[0]) / (d[1] - d[0]); }
@@ -141,7 +143,45 @@ function mergeGraph(payload) {
   newN.forEach(n => graph.addItem("node", n));
   newE.forEach(e => graph.addItem("edge", e));
   nodeCount.value = nodeMap.size;
-  return { addedNodes: newN.length, addedEdges: newE.length };
+  return { newNodes: newN.map(n => n.id), newEdges: newE.map(e => e.id) };
+}
+
+function trimExpansions() {
+  const limit = props.maxExpansions;
+  if (limit <= 0 || expansionHistory.length <= limit) return;
+
+  const toRemove = expansionHistory.splice(0, expansionHistory.length - limit);
+
+  // 收集剩余扩展中仍被引用的节点
+  const keptNodeIds = new Set();
+  const keptEdgeIds = new Set();
+  for (const exp of expansionHistory) {
+    exp.nodeIds.forEach(id => keptNodeIds.add(id));
+    exp.edgeIds.forEach(id => keptEdgeIds.add(id));
+  }
+
+  // 先删边（只删不再被任何保留扩展引用的边）
+  for (const exp of toRemove) {
+    for (const eid of exp.edgeIds) {
+      if (!keptEdgeIds.has(eid) && edgeMap.has(eid)) {
+        try { graph.removeItem(eid); } catch {}
+        edgeMap.delete(eid);
+      }
+    }
+  }
+
+  // 再删孤立节点（不再被任何保留扩展引用，且没有剩余边连接）
+  for (const exp of toRemove) {
+    for (const nid of exp.nodeIds) {
+      if (!keptNodeIds.has(nid) && nodeMap.has(nid)) {
+        try { graph.removeItem(nid); } catch {}
+        nodeMap.delete(nid);
+      }
+    }
+  }
+
+  nodeCount.value = nodeMap.size;
+  graph.layout();
 }
 
 async function fetchAndExpand(seedId) {
@@ -166,7 +206,10 @@ async function fetchAndExpand(seedId) {
       }
     });
 
-    mergeGraph(data);
+    const { newNodes, newEdges } = mergeGraph(data);
+
+    // 记录本次扩展
+    expansionHistory.push({ seedId, nodeIds: new Set(newNodes), edgeIds: new Set(newEdges) });
 
     // 种子节点放中心
     const seedNode = nodeMap.get(seedId);
@@ -183,6 +226,9 @@ async function fetchAndExpand(seedId) {
 
     // 布局完成后适配视图
     setTimeout(() => graph.fitView(40), 500);
+
+    // 裁剪超出限制的旧扩展
+    trimExpansions();
   } finally {
     inFlightSeeds.delete(seedId);
     loading.value = false;
@@ -193,7 +239,9 @@ function zoomIn() { graph?.zoom(1.12); }
 function zoomOut() { graph?.zoom(0.9); }
 function fitView() { graph?.fitView(20); }
 function focusNode(id) { const item = graph?.findById(id); if (item && graph.focusItem) graph.focusItem(item, true, { easing: "easeCubic", duration: 400 }); }
-function clearGraph() { activeSeedNodeId = null; nodeMap.clear(); edgeMap.clear(); inFlightSeeds.clear(); nodeCount.value = 0; graph?.changeData({ nodes: [], edges: [] }); }
+function clearGraph() { activeSeedNodeId = null; nodeMap.clear(); edgeMap.clear(); inFlightSeeds.clear(); expansionHistory.length = 0; nodeCount.value = 0; graph?.changeData({ nodes: [], edges: [] }); }
+
+function applyMaxExpansions() { trimExpansions(); }
 
 onMounted(() => {
   const container = graphRef.value;
@@ -234,7 +282,7 @@ onMounted(() => {
 
 onBeforeUnmount(() => { graph?.destroy(); graph = null; });
 
-defineExpose({ fetchAndExpand, focusNode, clearGraph, setSeedNode: markSeed });
+defineExpose({ fetchAndExpand, focusNode, clearGraph, setSeedNode: markSeed, applyMaxExpansions });
 </script>
 
 <style scoped>

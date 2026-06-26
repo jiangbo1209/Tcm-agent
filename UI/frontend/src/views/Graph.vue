@@ -23,9 +23,17 @@
       </div>
     </aside>
     <section class="graph-main">
-      <GraphView ref="graphRef" @nodeClick="handleNodeClick" @nodeHover="handleNodeHover" />
+      <GraphView ref="graphRef" :maxExpansions="maxExpansions" @nodeClick="handleNodeClick" @nodeHover="handleNodeHover" />
     </section>
     <aside class="graph-detail-panel">
+      <div class="detail-controls">
+        <label class="control-label">
+          <span>保留扩展层数</span>
+          <span class="control-value">{{ maxExpansions }}</span>
+        </label>
+        <input type="range" v-model.number="maxExpansions" min="0" max="10" step="1" class="slider" @input="onMaxExpansionsChange" />
+        <div class="slider-labels"><span>0</span><span>5</span><span>10</span></div>
+      </div>
       <NodeDetail :nodeId="selectedNodeId" />
     </aside>
   </div>
@@ -43,6 +51,7 @@ const graphRef = ref(null);
 const searchQuery = ref("");
 const suggestItems = ref([]);
 const selectedNodeId = ref("");
+const maxExpansions = ref(3);
 let suggestTimer = null;
 
 const nodeList = computed(() => {
@@ -107,6 +116,10 @@ function onSearchInput() {
   scheduleSuggest();
 }
 
+function onMaxExpansionsChange() {
+  if (graphRef.value) graphRef.value.applyMaxExpansions();
+}
+
 // Watch searchQuery for suggest
 watch(searchQuery, () => onSearchInput());
 
@@ -150,5 +163,12 @@ watch(() => route.query.seed, (seed) => {
 .node-title { flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .node-empty { padding: 20px; text-align: center; font-size: 13px; color: var(--ink-500); }
 .graph-main { flex: 1; min-width: 0; }
-.graph-detail-panel { width: 320px; min-width: 320px; background: var(--panel); border-left: 1px solid var(--border); }
+.graph-detail-panel { width: 320px; min-width: 320px; background: var(--panel); border-left: 1px solid var(--border); display: flex; flex-direction: column; }
+.detail-controls { padding: 14px 16px; border-bottom: 1px solid var(--border); }
+.control-label { display: flex; justify-content: space-between; align-items: center; font-size: 13px; color: var(--ink-700); font-weight: 500; margin-bottom: 8px; }
+.control-value { font-weight: 600; color: var(--teal); }
+.slider { width: 100%; height: 6px; -webkit-appearance: none; appearance: none; background: var(--border); border-radius: 999px; outline: none; cursor: pointer; }
+.slider::-webkit-slider-thumb { -webkit-appearance: none; width: 18px; height: 18px; border-radius: 50%; background: var(--teal); cursor: pointer; box-shadow: 0 2px 6px rgba(0,121,107,0.3); }
+.slider::-moz-range-thumb { width: 18px; height: 18px; border-radius: 50%; background: var(--teal); cursor: pointer; border: none; }
+.slider-labels { display: flex; justify-content: space-between; font-size: 11px; color: var(--ink-500); margin-top: 4px; }
 </style>
