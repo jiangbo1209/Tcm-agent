@@ -151,8 +151,32 @@ async function fetchAndExpand(seedId) {
     inFlightSeeds.add(seedId);
     loading.value = true;
     const { data } = await expandGraph(seedId);
+
+    const centerX = graphRef.value?.clientWidth / 2 || 400;
+    const centerY = graphRef.value?.clientHeight / 2 || 300;
+
     mergeGraph(data);
+
+    const seedNode = nodeMap.get(seedId);
+    if (seedNode) {
+      seedNode.x = centerX;
+      seedNode.y = centerY;
+      seedNode.fx = centerX;
+      seedNode.fy = centerY;
+    }
+
+    const item = graph.findById(seedId);
+    if (item) {
+      graph.updateItem(item, { x: centerX, y: centerY });
+    }
+    graph.layout();
     markSeed(seedId);
+
+    setTimeout(() => {
+      const seedItem = graph.findById(seedId);
+      if (seedItem) graph.updateItem(seedItem, { fx: null, fy: null });
+      graph.fitView(40);
+    }, 600);
   } finally {
     inFlightSeeds.delete(seedId);
     loading.value = false;
@@ -175,7 +199,15 @@ onMounted(() => {
     modes: { default: ["drag-canvas", "zoom-canvas", "drag-node"] },
     defaultNode: { type: "circle", size: 26, style: { lineWidth: 1, stroke: DEFAULT_NODE_STROKE, fill: "#e6edf5" } },
     defaultEdge: { style: { stroke: EDGE_BASE_COLOR, opacity: 0.5 } },
-    layout: { type: "gForce", preventOverlap: true, minMovement: 0.2, damping: 0.92, maxSpeed: 220, center: [container.clientWidth / 2, container.clientHeight / 2], linkDistance: (edge) => mapDistance(edge.similarity_score) },
+    layout: {
+      type: "gForce",
+      preventOverlap: true,
+      minMovement: 0.05,
+      damping: 0.85,
+      maxSpeed: 300,
+      gravity: 1.0,
+      linkDistance: (edge) => mapDistance(edge.similarity_score),
+    },
   });
   graph.data({ nodes: [], edges: [] });
   graph.render();
