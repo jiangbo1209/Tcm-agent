@@ -42,6 +42,12 @@ const routes = [
         component: () => import("../views/Graph.vue"),
         meta: { requiresProfessional: true },
       },
+      {
+        path: "detail/:nodeId",
+        name: "Detail",
+        component: () => import("../views/Detail.vue"),
+        meta: { requiresProfessional: true },
+      },
     ],
   },
 ];

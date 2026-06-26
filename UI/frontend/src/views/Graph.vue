@@ -32,11 +32,13 @@
 </template>
 
 <script setup>
-import { ref, computed } from "vue";
+import { ref, computed, onMounted, watch } from "vue";
+import { useRoute } from "vue-router";
 import GraphView from "../components/GraphView.vue";
 import NodeDetail from "../components/NodeDetail.vue";
 import { searchGraph } from "../api/graph";
 
+const route = useRoute();
 const graphRef = ref(null);
 const searchQuery = ref("");
 const suggestItems = ref([]);
@@ -106,8 +108,23 @@ function onSearchInput() {
 }
 
 // Watch searchQuery for suggest
-import { watch } from "vue";
 watch(searchQuery, () => onSearchInput());
+
+// Auto-expand from route query seed
+onMounted(() => {
+  const seed = route.query.seed;
+  if (seed && graphRef.value) {
+    selectedNodeId.value = seed;
+    graphRef.value.fetchAndExpand(seed);
+  }
+});
+
+watch(() => route.query.seed, (seed) => {
+  if (seed && graphRef.value) {
+    selectedNodeId.value = seed;
+    graphRef.value.fetchAndExpand(seed);
+  }
+});
 </script>
 
 <style scoped>
