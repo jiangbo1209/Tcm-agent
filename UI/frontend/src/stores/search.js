@@ -10,9 +10,11 @@ export const useSearchStore = defineStore("search", () => {
   const loading = ref(false);
   const searchType = ref("both");
   const history = ref([]);
+  const error = ref("");
 
   async function search(query, type = "both", pageNum = 1, size = 10) {
     loading.value = true;
+    error.value = "";
     searchType.value = type;
     page.value = pageNum;
     try {
@@ -21,15 +23,24 @@ export const useSearchStore = defineStore("search", () => {
       total.value = data.total || 0;
       totalPages.value = data.total_pages || 0;
       page.value = data.page || 1;
+    } catch (err) {
+      results.value = [];
+      total.value = 0;
+      totalPages.value = 0;
+      error.value = err.response?.data?.error || err.response?.data?.detail || "搜索失败，请稍后重试";
     } finally {
       loading.value = false;
     }
   }
 
   async function fetchHistory() {
-    const { data } = await getSearchHistory();
-    history.value = data.items || [];
+    try {
+      const { data } = await getSearchHistory();
+      history.value = data.items || [];
+    } catch {
+      history.value = [];
+    }
   }
 
-  return { results, total, totalPages, page, loading, searchType, history, search, fetchHistory };
+  return { results, total, totalPages, page, loading, searchType, history, error, search, fetchHistory };
 });

@@ -73,8 +73,7 @@ async function handleSearch() {
   if (!query.value.trim()) return;
   loading.value = true;
   try {
-    await searchStore.search(query.value, searchType.value);
-    router.push({
+    await router.push({
       path: "/search/results",
       query: { q: query.value, type: searchType.value },
     });

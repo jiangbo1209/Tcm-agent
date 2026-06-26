@@ -5,6 +5,7 @@ from __future__ import annotations
 import math
 
 from fastapi import APIRouter, Depends, HTTPException, Query
+from sqlalchemy import func
 from sqlalchemy.orm import Session
 
 from app.auth.dependencies import get_current_user, require_professional
@@ -20,6 +21,15 @@ from app.schemas.search import (
 )
 
 router = APIRouter(prefix="/api/search", tags=["search"])
+
+
+def _format_list_text(value) -> str | None:
+    if value is None:
+        return None
+    if isinstance(value, (list, tuple, set)):
+        return "、".join(str(item).strip() for item in value if str(item).strip())
+    text = str(value).strip()
+    return text or None
 
 
 def _get_graph_repo() -> GraphRepository:
@@ -46,12 +56,13 @@ def smart_search(
     size = max(1, min(50, body.size))
     offset = (page - 1) * size
 
-    items, total = repo.search_graph(query, size, offset)
-
+    source_type = None
     if body.search_type == "literature":
-        items = [i for i in items if i.get("source_type") == "paper"]
+        source_type = "paper"
     elif body.search_type == "case":
-        items = [i for i in items if i.get("source_type") == "record"]
+        source_type = "record"
+
+    items, total = repo.search_graph(query, size, offset, source_type=source_type)
 
     result_items = []
     for item in items:
@@ -60,9 +71,9 @@ def smart_search(
                 source_type=item.get("source_type", ""),
                 node_id=item.get("node_id"),
                 title=item.get("title"),
-                authors=item.get("authors"),
+                authors=_format_list_text(item.get("authors")),
                 publish_year=item.get("publish_year"),
-                keywords=item.get("keywords"),
+                keywords=_format_list_text(item.get("keywords")),
                 abstract=item.get("abstract"),
                 tcm_diagnosis=item.get("tcm_diagnosis"),
                 western_diagnosis=item.get("western_diagnosis"),
@@ -70,21 +81,36 @@ def smart_search(
             )
         )
 
-    total_filtered = len(result_items)
-    total_pages = math.ceil(total_filtered / size) if size > 0 else 0
+    total_pages = math.ceil(total / size) if size > 0 else 0
 
-    history = SearchHistory(
-        user_id=current_user.id,
-        query=query,
-        search_type=body.search_type,
-        result_count=total_filtered,
+    normalized_history_query = query.lower()
+    history = (
+        db.query(SearchHistory)
+        .filter(
+            SearchHistory.user_id == current_user.id,
+            func.lower(SearchHistory.query) == normalized_history_query,
+        )
+        .order_by(SearchHistory.created_at.desc())
+        .first()
     )
-    db.add(history)
+    if history:
+        history.query = query
+        history.search_type = body.search_type
+        history.result_count = total
+        history.created_at = func.now()
+    else:
+        history = SearchHistory(
+            user_id=current_user.id,
+            query=query,
+            search_type=body.search_type,
+            result_count=total,
+        )
+        db.add(history)
     db.commit()
 
     return SearchResponse(
         items=result_items,
-        total=total_filtered,
+        total=total,
         total_pages=total_pages,
         page=page,
         size=size,
@@ -103,6 +129,16 @@ def get_search_history(
         .filter(SearchHistory.user_id == current_user.id)
         .order_by(SearchHistory.created_at.desc())
     )
-    total = query_obj.count()
-    items = query_obj.offset((page - 1) * size).limit(size).all()
-    return SearchHistoryResponse(items=items, total=total)
+    deduped = []
+    seen_queries = set()
+    for item in query_obj.all():
+        key = item.query.strip().lower()
+        if key in seen_queries:
+            continue
+        seen_queries.add(key)
+        deduped.append(item)
+
+    total = len(deduped)
+    start = (page - 1) * size
+    end = start + size
+    return SearchHistoryResponse(items=deduped[start:end], total=total)

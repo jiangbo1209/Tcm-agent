@@ -230,17 +230,23 @@ class GraphRepository:
             )
             return self._record_to_dict(row) if row else None
 
-    def search_graph(self, keyword: str, limit: int, offset: int) -> tuple[list[dict[str, Any]], int]:
+    def search_graph(
+        self,
+        keyword: str,
+        limit: int,
+        offset: int,
+        source_type: str | None = None,
+    ) -> tuple[list[dict[str, Any]], int]:
         with self._get_session() as session:
             backend = self._resolve_search_backend(session)
 
             if backend == SearchBackendMode.FULLTEXT:
                 try:
-                    return self._search_with_fulltext(session, keyword, limit, offset)
+                    return self._search_with_fulltext(session, keyword, limit, offset, source_type)
                 except Exception:
-                    return self._search_with_like(session, keyword, limit, offset)
+                    return self._search_with_like(session, keyword, limit, offset, source_type)
 
-            return self._search_with_like(session, keyword, limit, offset)
+            return self._search_with_like(session, keyword, limit, offset, source_type)
 
     def get_search_index_status(self) -> dict[str, Any]:
         with self._get_session() as session:
@@ -317,7 +323,12 @@ class GraphRepository:
         return supported
 
     def _search_with_fulltext(
-        self, session: Session, keyword: str, limit: int, offset: int
+        self,
+        session: Session,
+        keyword: str,
+        limit: int,
+        offset: int,
+        source_type: str | None = None,
     ) -> tuple[list[dict[str, Any]], int]:
         paper_title = func.coalesce(
             LitMetadata.title, LitMetadata.matched_title,
@@ -378,29 +389,37 @@ class GraphRepository:
                 LEFT JOIN nodes n ON n.title = COALESCE(lm_r.title, lm_r.matched_title, lm_r.cleaned_title, lm_r.original_name) AND n.node_type = 'record'
                 WHERE to_tsvector('simple', COALESCE(mc.tcm_diagnosis, '') || ' ' || COALESCE(mc.western_diagnosis, '')) @@ plainto_tsquery('simple', :keyword)
             ) AS combined
+            WHERE (:source_type IS NULL OR source_type = :source_type)
             ORDER BY score DESC, title ASC
             LIMIT :limit OFFSET :offset
         """)
 
         count_sql = text("""
             SELECT COUNT(*) AS total FROM (
-                SELECT 1 FROM lit_metadata lm_p
+                SELECT 'paper' AS source_type FROM lit_metadata lm_p
                 WHERE to_tsvector('simple', COALESCE(lm_p.title, '') || ' ' || COALESCE(lm_p.keywords::text, '') || ' ' || COALESCE(lm_p.abstract, '')) @@ plainto_tsquery('simple', :keyword)
                 UNION ALL
-                SELECT 1 FROM med_case mc
+                SELECT 'record' AS source_type FROM med_case mc
                 LEFT JOIN lit_metadata lm_r ON lm_r.file_uuid = mc.file_uuid
                 WHERE to_tsvector('simple', COALESCE(mc.tcm_diagnosis, '') || ' ' || COALESCE(mc.western_diagnosis, '')) @@ plainto_tsquery('simple', :keyword)
             ) AS combined
+            WHERE (:source_type IS NULL OR source_type = :source_type)
         """)
 
-        items = session.execute(sql, {"keyword": keyword, "limit": limit, "offset": offset}).mappings().all()
-        total_row = session.execute(count_sql, {"keyword": keyword}).mappings().first()
+        params = {"keyword": keyword, "limit": limit, "offset": offset, "source_type": source_type}
+        items = session.execute(sql, params).mappings().all()
+        total_row = session.execute(count_sql, {"keyword": keyword, "source_type": source_type}).mappings().first()
         total = int(total_row["total"]) if total_row else 0
 
         return [dict(r) for r in items], total
 
     def _search_with_like(
-        self, session: Session, keyword: str, limit: int, offset: int
+        self,
+        session: Session,
+        keyword: str,
+        limit: int,
+        offset: int,
+        source_type: str | None = None,
     ) -> tuple[list[dict[str, Any]], int]:
         like_pattern = f"%{keyword}%"
 
@@ -437,29 +456,31 @@ class GraphRepository:
                        OR mc.tcm_diagnosis ILIKE :like
                        OR mc.western_diagnosis ILIKE :like)
             ) AS combined
+            WHERE (:source_type IS NULL OR source_type = :source_type)
             ORDER BY score DESC, title ASC
             LIMIT :limit OFFSET :offset
         """)
 
         count_sql = text("""
             SELECT COUNT(*) AS total FROM (
-                SELECT 1 FROM lit_metadata lm_p
+                SELECT 'paper' AS source_type FROM lit_metadata lm_p
                 WHERE (COALESCE(lm_p.title, lm_p.matched_title, lm_p.cleaned_title, lm_p.original_name) ILIKE :like
                        OR lm_p.keywords::text ILIKE :like
                        OR lm_p.abstract ILIKE :like)
                 UNION ALL
-                SELECT 1 FROM med_case mc
+                SELECT 'record' AS source_type FROM med_case mc
                 LEFT JOIN lit_metadata lm_r ON lm_r.file_uuid = mc.file_uuid
                 WHERE (COALESCE(lm_r.title, lm_r.matched_title, lm_r.cleaned_title, lm_r.original_name) ILIKE :like
                        OR mc.tcm_diagnosis ILIKE :like
                        OR mc.western_diagnosis ILIKE :like)
             ) AS combined
+            WHERE (:source_type IS NULL OR source_type = :source_type)
         """)
 
-        params = {"like": like_pattern, "limit": limit, "offset": offset}
+        params = {"like": like_pattern, "limit": limit, "offset": offset, "source_type": source_type}
         items = session.execute(sql, params).mappings().all()
 
-        count_params = {"like": like_pattern}
+        count_params = {"like": like_pattern, "source_type": source_type}
         total_row = session.execute(count_sql, count_params).mappings().first()
         total = int(total_row["total"]) if total_row else 0
 
