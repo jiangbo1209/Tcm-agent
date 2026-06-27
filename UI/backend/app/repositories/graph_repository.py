@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+from collections import Counter
 from typing import Any
 
 from sqlalchemy import String, case, func, or_, text
@@ -236,17 +237,167 @@ class GraphRepository:
         limit: int,
         offset: int,
         source_type: str | None = None,
+        filters: dict[str, list[str]] | None = None,
     ) -> tuple[list[dict[str, Any]], int]:
         with self._get_session() as session:
             backend = self._resolve_search_backend(session)
 
             if backend == SearchBackendMode.FULLTEXT:
                 try:
-                    return self._search_with_fulltext(session, keyword, limit, offset, source_type)
+                    return self._search_with_fulltext(session, keyword, limit, offset, source_type, filters)
                 except Exception:
-                    return self._search_with_like(session, keyword, limit, offset, source_type)
+                    return self._search_with_like(session, keyword, limit, offset, source_type, filters)
 
-            return self._search_with_like(session, keyword, limit, offset, source_type)
+            return self._search_with_like(session, keyword, limit, offset, source_type, filters)
+
+    def search_graph_facets(
+        self,
+        keyword: str,
+        source_type: str | None = None,
+        filters: dict[str, list[str]] | None = None,
+    ) -> dict[str, list[dict[str, int | str]]]:
+        with self._get_session() as session:
+            backend = self._resolve_search_backend(session)
+
+            if backend == SearchBackendMode.FULLTEXT:
+                try:
+                    rows = self._search_facet_rows_with_fulltext(session, keyword, source_type, filters)
+                except Exception:
+                    rows = self._search_facet_rows_with_like(session, keyword, source_type, filters)
+            else:
+                rows = self._search_facet_rows_with_like(session, keyword, source_type, filters)
+
+        counters = {
+            "source_types": Counter(),
+            "topics": Counter(),
+            "years": Counter(),
+            "journals": Counter(),
+        }
+
+        for row in rows:
+            source = self._clean_facet_value(row.get("source_type"))
+            year = self._clean_facet_value(row.get("publish_year"))
+            journal = self._clean_facet_value(row.get("journal"))
+            if source:
+                counters["source_types"][source] += 1
+            if year:
+                counters["years"][year] += 1
+            if journal:
+                counters["journals"][journal] += 1
+
+            for topic in self._split_listish_facet(row.get("keywords_text")):
+                counters["topics"][topic] += 1
+
+        facets = {
+            key: [
+                {"value": value, "label": value, "count": count}
+                for value, count in counter.most_common(12)
+            ]
+            for key, counter in counters.items()
+            if key != "years"
+        }
+        facets["years"] = [
+            {"value": value, "label": value, "count": counters["years"][value]}
+            for value in sorted(counters["years"], key=self._year_sort_key)
+        ]
+        return facets
+
+    @staticmethod
+    def _clean_facet_value(value: Any) -> str | None:
+        if value is None:
+            return None
+        text_value = str(value).strip()
+        return text_value or None
+
+    @staticmethod
+    def _year_sort_key(value: str) -> tuple[int, str]:
+        text_value = str(value).strip()
+        if len(text_value) >= 4 and text_value[:4].isdigit():
+            return (int(text_value[:4]), text_value)
+        return (9999, text_value)
+
+    @classmethod
+    def _split_listish_facet(cls, value: Any) -> list[str]:
+        if value is None:
+            return []
+        if isinstance(value, list):
+            return [item for item in (cls._clean_facet_value(v) for v in value) if item]
+
+        raw = str(value).strip()
+        if not raw:
+            return []
+        try:
+            parsed = json.loads(raw)
+        except json.JSONDecodeError:
+            parsed = None
+        if isinstance(parsed, list):
+            return [item for item in (cls._clean_facet_value(v) for v in parsed) if item]
+
+        cleaned = raw.strip("[](){}")
+        parts = cleaned.replace("；", ";").replace("，", ",").replace("、", ",").replace(";", ",").split(",")
+        return [item for item in (cls._clean_facet_value(part.strip(" '\"")) for part in parts) if item]
+
+    @staticmethod
+    def _normalize_filter_values(values: Any) -> list[str]:
+        if not values:
+            return []
+        if not isinstance(values, list):
+            values = [values]
+        seen = set()
+        normalized = []
+        for value in values:
+            text_value = str(value).strip()
+            if text_value and text_value not in seen:
+                seen.add(text_value)
+                normalized.append(text_value)
+        return normalized[:20]
+
+    def _build_search_filter_sql(
+        self,
+        source_type: str | None,
+        filters: dict[str, list[str]] | None,
+    ) -> tuple[str, dict[str, Any]]:
+        clauses = []
+        params: dict[str, Any] = {}
+        filters = filters or {}
+
+        if source_type:
+            clauses.append("source_type = :source_type")
+            params["source_type"] = source_type
+
+        exact_filters = {
+            "source_types": "source_type",
+            "years": "publish_year",
+            "journals": "journal",
+        }
+        for key, column in exact_filters.items():
+            values = self._normalize_filter_values(filters.get(key))
+            if not values:
+                continue
+            placeholders = []
+            for index, value in enumerate(values):
+                param_name = f"{key}_{index}"
+                params[param_name] = value
+                placeholders.append(f":{param_name}")
+            clauses.append(f"{column} IN ({', '.join(placeholders)})")
+
+        contains_filters = {
+            "topics": "topic_text",
+        }
+        for key, column in contains_filters.items():
+            values = self._normalize_filter_values(filters.get(key))
+            if not values:
+                continue
+            subclauses = []
+            for index, value in enumerate(values):
+                param_name = f"{key}_{index}"
+                params[param_name] = f"%{value}%"
+                subclauses.append(f"COALESCE({column}, '') ILIKE :{param_name}")
+            clauses.append(f"({' OR '.join(subclauses)})")
+
+        if not clauses:
+            return "", params
+        return "WHERE " + " AND ".join(clauses), params
 
     def get_search_index_status(self) -> dict[str, Any]:
         with self._get_session() as session:
@@ -329,32 +480,11 @@ class GraphRepository:
         limit: int,
         offset: int,
         source_type: str | None = None,
+        filters: dict[str, list[str]] | None = None,
     ) -> tuple[list[dict[str, Any]], int]:
-        paper_title = func.coalesce(
-            LitMetadata.title, LitMetadata.matched_title,
-            LitMetadata.cleaned_title, LitMetadata.original_name,
-            LitMetadata.file_uuid.cast(String),
-        )
-        record_title = func.coalesce(
-            LitMetadata.title, LitMetadata.matched_title,
-            LitMetadata.cleaned_title, LitMetadata.original_name,
-            MedCase.file_uuid.cast(String),
-        )
+        filter_sql, filter_params = self._build_search_filter_sql(source_type, filters)
 
-        paper_vector = func.to_tsvector(
-            "simple",
-            func.coalesce(LitMetadata.title, "") + " " +
-            func.coalesce(LitMetadata.keywords.cast(String), "") + " " +
-            func.coalesce(LitMetadata.abstract, ""),
-        )
-        record_vector = func.to_tsvector(
-            "simple",
-            func.coalesce(MedCase.tcm_diagnosis, "") + " " +
-            func.coalesce(MedCase.western_diagnosis, ""),
-        )
-        ts_query = func.plainto_tsquery("simple", keyword)
-
-        sql = text("""
+        sql = text(f"""
             SELECT source_type, node_id, title, authors, publish_year,
                    keywords, abstract, tcm_diagnosis, western_diagnosis, score
             FROM (
@@ -365,6 +495,9 @@ class GraphRepository:
                     lm_p.pub_year AS publish_year,
                     lm_p.keywords AS keywords,
                     lm_p.abstract AS abstract,
+                    lm_p.journal AS journal,
+                    lm_p.keywords::text AS keywords_text,
+                    COALESCE(lm_p.title, '') || ' ' || COALESCE(lm_p.keywords::text, '') || ' ' || COALESCE(lm_p.abstract, '') AS topic_text,
                     NULL AS tcm_diagnosis, NULL AS western_diagnosis,
                     ts_rank_cd(
                         to_tsvector('simple', COALESCE(lm_p.title, '') || ' ' || COALESCE(lm_p.keywords::text, '') || ' ' || COALESCE(lm_p.abstract, '')),
@@ -377,8 +510,11 @@ class GraphRepository:
                 SELECT 'record' AS source_type,
                     n.id AS node_id,
                     COALESCE(lm_r.title, lm_r.matched_title, lm_r.cleaned_title, lm_r.original_name) AS title,
-                    NULL AS authors, NULL AS publish_year,
+                    NULL AS authors, lm_r.pub_year AS publish_year,
                     NULL AS keywords, NULL AS abstract,
+                    lm_r.journal AS journal,
+                    lm_r.keywords::text AS keywords_text,
+                    COALESCE(lm_r.title, '') || ' ' || COALESCE(lm_r.keywords::text, '') || ' ' || COALESCE(mc.tcm_diagnosis, '') || ' ' || COALESCE(mc.western_diagnosis, '') AS topic_text,
                     mc.tcm_diagnosis AS tcm_diagnosis, mc.western_diagnosis AS western_diagnosis,
                     ts_rank_cd(
                         to_tsvector('simple', COALESCE(mc.tcm_diagnosis, '') || ' ' || COALESCE(mc.western_diagnosis, '')),
@@ -389,26 +525,36 @@ class GraphRepository:
                 LEFT JOIN nodes n ON n.title = COALESCE(lm_r.title, lm_r.matched_title, lm_r.cleaned_title, lm_r.original_name) AND n.node_type = 'record'
                 WHERE to_tsvector('simple', COALESCE(mc.tcm_diagnosis, '') || ' ' || COALESCE(mc.western_diagnosis, '')) @@ plainto_tsquery('simple', :keyword)
             ) AS combined
-            WHERE (:source_type IS NULL OR source_type = :source_type)
+            {filter_sql}
             ORDER BY score DESC, title ASC
             LIMIT :limit OFFSET :offset
         """)
 
-        count_sql = text("""
+        count_sql = text(f"""
             SELECT COUNT(*) AS total FROM (
-                SELECT 'paper' AS source_type FROM lit_metadata lm_p
+                SELECT 'paper' AS source_type,
+                    lm_p.pub_year AS publish_year,
+                    lm_p.journal AS journal,
+                    lm_p.keywords::text AS keywords_text,
+                    COALESCE(lm_p.title, '') || ' ' || COALESCE(lm_p.keywords::text, '') || ' ' || COALESCE(lm_p.abstract, '') AS topic_text
+                FROM lit_metadata lm_p
                 WHERE to_tsvector('simple', COALESCE(lm_p.title, '') || ' ' || COALESCE(lm_p.keywords::text, '') || ' ' || COALESCE(lm_p.abstract, '')) @@ plainto_tsquery('simple', :keyword)
                 UNION ALL
-                SELECT 'record' AS source_type FROM med_case mc
+                SELECT 'record' AS source_type,
+                    lm_r.pub_year AS publish_year,
+                    lm_r.journal AS journal,
+                    lm_r.keywords::text AS keywords_text,
+                    COALESCE(lm_r.title, '') || ' ' || COALESCE(lm_r.keywords::text, '') || ' ' || COALESCE(mc.tcm_diagnosis, '') || ' ' || COALESCE(mc.western_diagnosis, '') AS topic_text
+                FROM med_case mc
                 LEFT JOIN lit_metadata lm_r ON lm_r.file_uuid = mc.file_uuid
                 WHERE to_tsvector('simple', COALESCE(mc.tcm_diagnosis, '') || ' ' || COALESCE(mc.western_diagnosis, '')) @@ plainto_tsquery('simple', :keyword)
             ) AS combined
-            WHERE (:source_type IS NULL OR source_type = :source_type)
+            {filter_sql}
         """)
 
-        params = {"keyword": keyword, "limit": limit, "offset": offset, "source_type": source_type}
+        params = {"keyword": keyword, "limit": limit, "offset": offset, **filter_params}
         items = session.execute(sql, params).mappings().all()
-        total_row = session.execute(count_sql, {"keyword": keyword, "source_type": source_type}).mappings().first()
+        total_row = session.execute(count_sql, {"keyword": keyword, **filter_params}).mappings().first()
         total = int(total_row["total"]) if total_row else 0
 
         return [dict(r) for r in items], total
@@ -420,10 +566,12 @@ class GraphRepository:
         limit: int,
         offset: int,
         source_type: str | None = None,
+        filters: dict[str, list[str]] | None = None,
     ) -> tuple[list[dict[str, Any]], int]:
         like_pattern = f"%{keyword}%"
+        filter_sql, filter_params = self._build_search_filter_sql(source_type, filters)
 
-        sql = text("""
+        sql = text(f"""
             SELECT source_type, node_id, title, authors, publish_year,
                    keywords, abstract, tcm_diagnosis, western_diagnosis, score
             FROM (
@@ -434,6 +582,9 @@ class GraphRepository:
                     lm_p.pub_year AS publish_year,
                     lm_p.keywords AS keywords,
                     lm_p.abstract AS abstract,
+                    lm_p.journal AS journal,
+                    lm_p.keywords::text AS keywords_text,
+                    COALESCE(lm_p.title, '') || ' ' || COALESCE(lm_p.keywords::text, '') || ' ' || COALESCE(lm_p.abstract, '') AS topic_text,
                     NULL AS tcm_diagnosis, NULL AS western_diagnosis,
                     0 AS score
                 FROM lit_metadata lm_p
@@ -445,8 +596,11 @@ class GraphRepository:
                 SELECT 'record' AS source_type,
                     n.id AS node_id,
                     COALESCE(lm_r.title, lm_r.matched_title, lm_r.cleaned_title, lm_r.original_name) AS title,
-                    NULL AS authors, NULL AS publish_year,
+                    NULL AS authors, lm_r.pub_year AS publish_year,
                     NULL AS keywords, NULL AS abstract,
+                    lm_r.journal AS journal,
+                    lm_r.keywords::text AS keywords_text,
+                    COALESCE(lm_r.title, '') || ' ' || COALESCE(lm_r.keywords::text, '') || ' ' || COALESCE(mc.tcm_diagnosis, '') || ' ' || COALESCE(mc.western_diagnosis, '') AS topic_text,
                     mc.tcm_diagnosis AS tcm_diagnosis, mc.western_diagnosis AS western_diagnosis,
                     0 AS score
                 FROM med_case mc
@@ -456,35 +610,116 @@ class GraphRepository:
                        OR mc.tcm_diagnosis ILIKE :like
                        OR mc.western_diagnosis ILIKE :like)
             ) AS combined
-            WHERE (:source_type IS NULL OR source_type = :source_type)
+            {filter_sql}
             ORDER BY score DESC, title ASC
             LIMIT :limit OFFSET :offset
         """)
 
-        count_sql = text("""
+        count_sql = text(f"""
             SELECT COUNT(*) AS total FROM (
-                SELECT 'paper' AS source_type FROM lit_metadata lm_p
+                SELECT 'paper' AS source_type,
+                    lm_p.pub_year AS publish_year,
+                    lm_p.journal AS journal,
+                    lm_p.keywords::text AS keywords_text,
+                    COALESCE(lm_p.title, '') || ' ' || COALESCE(lm_p.keywords::text, '') || ' ' || COALESCE(lm_p.abstract, '') AS topic_text
+                FROM lit_metadata lm_p
                 WHERE (COALESCE(lm_p.title, lm_p.matched_title, lm_p.cleaned_title, lm_p.original_name) ILIKE :like
                        OR lm_p.keywords::text ILIKE :like
                        OR lm_p.abstract ILIKE :like)
                 UNION ALL
-                SELECT 'record' AS source_type FROM med_case mc
+                SELECT 'record' AS source_type,
+                    lm_r.pub_year AS publish_year,
+                    lm_r.journal AS journal,
+                    lm_r.keywords::text AS keywords_text,
+                    COALESCE(lm_r.title, '') || ' ' || COALESCE(lm_r.keywords::text, '') || ' ' || COALESCE(mc.tcm_diagnosis, '') || ' ' || COALESCE(mc.western_diagnosis, '') AS topic_text
+                FROM med_case mc
                 LEFT JOIN lit_metadata lm_r ON lm_r.file_uuid = mc.file_uuid
                 WHERE (COALESCE(lm_r.title, lm_r.matched_title, lm_r.cleaned_title, lm_r.original_name) ILIKE :like
                        OR mc.tcm_diagnosis ILIKE :like
                        OR mc.western_diagnosis ILIKE :like)
             ) AS combined
-            WHERE (:source_type IS NULL OR source_type = :source_type)
+            {filter_sql}
         """)
 
-        params = {"like": like_pattern, "limit": limit, "offset": offset, "source_type": source_type}
+        params = {"like": like_pattern, "limit": limit, "offset": offset, **filter_params}
         items = session.execute(sql, params).mappings().all()
 
-        count_params = {"like": like_pattern, "source_type": source_type}
+        count_params = {"like": like_pattern, **filter_params}
         total_row = session.execute(count_sql, count_params).mappings().first()
         total = int(total_row["total"]) if total_row else 0
 
         return [dict(r) for r in items], total
+
+    def _search_facet_rows_with_fulltext(
+        self,
+        session: Session,
+        keyword: str,
+        source_type: str | None = None,
+        filters: dict[str, list[str]] | None = None,
+    ) -> list[dict[str, Any]]:
+        filter_sql, filter_params = self._build_search_filter_sql(source_type, filters)
+        sql = text(f"""
+            SELECT source_type, publish_year, journal, keywords_text
+            FROM (
+                SELECT 'paper' AS source_type,
+                    lm_p.pub_year AS publish_year,
+                    lm_p.journal AS journal,
+                    lm_p.keywords::text AS keywords_text,
+                    COALESCE(lm_p.title, '') || ' ' || COALESCE(lm_p.keywords::text, '') || ' ' || COALESCE(lm_p.abstract, '') AS topic_text
+                FROM lit_metadata lm_p
+                WHERE to_tsvector('simple', COALESCE(lm_p.title, '') || ' ' || COALESCE(lm_p.keywords::text, '') || ' ' || COALESCE(lm_p.abstract, '')) @@ plainto_tsquery('simple', :keyword)
+                UNION ALL
+                SELECT 'record' AS source_type,
+                    lm_r.pub_year AS publish_year,
+                    lm_r.journal AS journal,
+                    lm_r.keywords::text AS keywords_text,
+                    COALESCE(lm_r.title, '') || ' ' || COALESCE(lm_r.keywords::text, '') || ' ' || COALESCE(mc.tcm_diagnosis, '') || ' ' || COALESCE(mc.western_diagnosis, '') AS topic_text
+                FROM med_case mc
+                LEFT JOIN lit_metadata lm_r ON lm_r.file_uuid = mc.file_uuid
+                WHERE to_tsvector('simple', COALESCE(mc.tcm_diagnosis, '') || ' ' || COALESCE(mc.western_diagnosis, '')) @@ plainto_tsquery('simple', :keyword)
+            ) AS combined
+            {filter_sql}
+        """)
+        rows = session.execute(sql, {"keyword": keyword, **filter_params}).mappings().all()
+        return [dict(row) for row in rows]
+
+    def _search_facet_rows_with_like(
+        self,
+        session: Session,
+        keyword: str,
+        source_type: str | None = None,
+        filters: dict[str, list[str]] | None = None,
+    ) -> list[dict[str, Any]]:
+        like_pattern = f"%{keyword}%"
+        filter_sql, filter_params = self._build_search_filter_sql(source_type, filters)
+        sql = text(f"""
+            SELECT source_type, publish_year, journal, keywords_text
+            FROM (
+                SELECT 'paper' AS source_type,
+                    lm_p.pub_year AS publish_year,
+                    lm_p.journal AS journal,
+                    lm_p.keywords::text AS keywords_text,
+                    COALESCE(lm_p.title, '') || ' ' || COALESCE(lm_p.keywords::text, '') || ' ' || COALESCE(lm_p.abstract, '') AS topic_text
+                FROM lit_metadata lm_p
+                WHERE (COALESCE(lm_p.title, lm_p.matched_title, lm_p.cleaned_title, lm_p.original_name) ILIKE :like
+                       OR lm_p.keywords::text ILIKE :like
+                       OR lm_p.abstract ILIKE :like)
+                UNION ALL
+                SELECT 'record' AS source_type,
+                    lm_r.pub_year AS publish_year,
+                    lm_r.journal AS journal,
+                    lm_r.keywords::text AS keywords_text,
+                    COALESCE(lm_r.title, '') || ' ' || COALESCE(lm_r.keywords::text, '') || ' ' || COALESCE(mc.tcm_diagnosis, '') || ' ' || COALESCE(mc.western_diagnosis, '') AS topic_text
+                FROM med_case mc
+                LEFT JOIN lit_metadata lm_r ON lm_r.file_uuid = mc.file_uuid
+                WHERE (COALESCE(lm_r.title, lm_r.matched_title, lm_r.cleaned_title, lm_r.original_name) ILIKE :like
+                       OR mc.tcm_diagnosis ILIKE :like
+                       OR mc.western_diagnosis ILIKE :like)
+            ) AS combined
+            {filter_sql}
+        """)
+        rows = session.execute(sql, {"like": like_pattern, **filter_params}).mappings().all()
+        return [dict(row) for row in rows]
 
     @staticmethod
     def _lit_to_dict(row: LitMetadata) -> dict[str, Any]:

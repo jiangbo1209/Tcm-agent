@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import math
+import json
 
 from fastapi import APIRouter, Depends, HTTPException, Query
 from sqlalchemy import func
@@ -29,7 +30,23 @@ def _format_list_text(value) -> str | None:
     if isinstance(value, (list, tuple, set)):
         return "、".join(str(item).strip() for item in value if str(item).strip())
     text = str(value).strip()
+    if text.startswith("[") and text.endswith("]"):
+        try:
+            parsed = json.loads(text)
+        except json.JSONDecodeError:
+            parsed = None
+        if isinstance(parsed, list):
+            return "、".join(str(item).strip() for item in parsed if str(item).strip()) or None
     return text or None
+
+
+def _parse_year(value) -> int | None:
+    if value is None:
+        return None
+    text = str(value).strip()
+    if len(text) >= 4 and text[:4].isdigit():
+        return int(text[:4])
+    return None
 
 
 def _get_graph_repo() -> GraphRepository:
@@ -62,7 +79,9 @@ def smart_search(
     elif body.search_type == "case":
         source_type = "record"
 
-    items, total = repo.search_graph(query, size, offset, source_type=source_type)
+    filters = body.filters.model_dump()
+    items, total = repo.search_graph(query, size, offset, source_type=source_type, filters=filters)
+    facets = repo.search_graph_facets(query, source_type=source_type, filters=filters)
 
     result_items = []
     for item in items:
@@ -72,7 +91,7 @@ def smart_search(
                 node_id=item.get("node_id"),
                 title=item.get("title"),
                 authors=_format_list_text(item.get("authors")),
-                publish_year=item.get("publish_year"),
+                publish_year=_parse_year(item.get("publish_year")),
                 keywords=_format_list_text(item.get("keywords")),
                 abstract=item.get("abstract"),
                 tcm_diagnosis=item.get("tcm_diagnosis"),
@@ -114,6 +133,7 @@ def smart_search(
         total_pages=total_pages,
         page=page,
         size=size,
+        facets=facets,
     )
 
 

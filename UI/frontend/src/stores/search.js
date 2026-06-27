@@ -11,22 +11,25 @@ export const useSearchStore = defineStore("search", () => {
   const searchType = ref("both");
   const history = ref([]);
   const error = ref("");
+  const facets = ref({});
 
-  async function search(query, type = "both", pageNum = 1, size = 10) {
+  async function search(query, type = "both", pageNum = 1, size = 10, filters = {}) {
     loading.value = true;
     error.value = "";
     searchType.value = type;
     page.value = pageNum;
     try {
-      const { data } = await smartSearch(query, type, pageNum, size);
+      const { data } = await smartSearch(query, type, pageNum, size, filters);
       results.value = data.items || [];
       total.value = data.total || 0;
       totalPages.value = data.total_pages || 0;
       page.value = data.page || 1;
+      facets.value = data.facets || {};
     } catch (err) {
       results.value = [];
       total.value = 0;
       totalPages.value = 0;
+      facets.value = {};
       error.value = err.response?.data?.error || err.response?.data?.detail || "搜索失败，请稍后重试";
     } finally {
       loading.value = false;
@@ -42,5 +45,5 @@ export const useSearchStore = defineStore("search", () => {
     }
   }
 
-  return { results, total, totalPages, page, loading, searchType, history, error, search, fetchHistory };
+  return { results, total, totalPages, page, loading, searchType, history, error, facets, search, fetchHistory };
 });

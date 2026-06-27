@@ -1,6 +1,6 @@
 <template>
   <div class="graph-page">
-    <aside class="graph-sidebar">
+    <aside class="graph-sidebar" :style="{ width: `${nodeSidebarWidth}px`, minWidth: `${nodeSidebarWidth}px` }">
       <div class="graph-sidebar-header">
         <h2>节点列表</h2>
         <p class="graph-sidebar-sub">{{ graphRef?.nodeCount || 0 }} 个节点</p>
@@ -21,6 +21,7 @@
         </div>
         <div v-if="nodeList.length === 0" class="node-empty">暂无节点</div>
       </div>
+      <div class="graph-sidebar-resizer" @pointerdown="startNodeSidebarResize"></div>
     </aside>
     <section class="graph-main">
       <GraphView ref="graphRef" :maxExpansions="maxExpansions" @nodeClick="handleNodeClick" @nodeHover="handleNodeHover" />
@@ -40,7 +41,7 @@
 </template>
 
 <script setup>
-import { ref, computed, onMounted, watch } from "vue";
+import { ref, computed, onMounted, onBeforeUnmount, watch } from "vue";
 import { useRoute } from "vue-router";
 import GraphView from "../components/GraphView.vue";
 import NodeDetail from "../components/NodeDetail.vue";
@@ -52,7 +53,10 @@ const searchQuery = ref("");
 const suggestItems = ref([]);
 const selectedNodeId = ref("");
 const maxExpansions = ref(3);
+const nodeSidebarWidth = ref(240);
 let suggestTimer = null;
+let resizeStartX = 0;
+let resizeStartWidth = 240;
 
 const nodeList = computed(() => {
   if (!graphRef.value) return [];
@@ -122,6 +126,35 @@ function onMaxExpansionsChange() {
   if (graphRef.value) graphRef.value.applyMaxExpansions();
 }
 
+function clampWidth(value) {
+  return Math.max(180, Math.min(420, value));
+}
+
+function refreshGraphSize() {
+  requestAnimationFrame(() => window.dispatchEvent(new Event("resize")));
+}
+
+function onNodeSidebarResize(event) {
+  nodeSidebarWidth.value = clampWidth(resizeStartWidth + event.clientX - resizeStartX);
+  refreshGraphSize();
+}
+
+function stopNodeSidebarResize() {
+  window.removeEventListener("pointermove", onNodeSidebarResize);
+  window.removeEventListener("pointerup", stopNodeSidebarResize);
+  document.body.style.cursor = "";
+  document.body.style.userSelect = "";
+}
+
+function startNodeSidebarResize(event) {
+  resizeStartX = event.clientX;
+  resizeStartWidth = nodeSidebarWidth.value;
+  document.body.style.cursor = "col-resize";
+  document.body.style.userSelect = "none";
+  window.addEventListener("pointermove", onNodeSidebarResize);
+  window.addEventListener("pointerup", stopNodeSidebarResize);
+}
+
 // Watch searchQuery for suggest
 watch(searchQuery, () => onSearchInput());
 
@@ -140,11 +173,18 @@ watch(() => route.query.seed, (seed) => {
     graphRef.value.fetchAndExpand(seed);
   }
 });
+
+onBeforeUnmount(() => {
+  clearTimeout(suggestTimer);
+  stopNodeSidebarResize();
+});
 </script>
 
 <style scoped>
 .graph-page { display: flex; height: 100%; overflow: hidden; }
-.graph-sidebar { width: 240px; min-width: 240px; background: var(--panel); border-right: 1px solid var(--border); display: flex; flex-direction: column; }
+.graph-sidebar { position: relative; background: var(--panel); border-right: 1px solid var(--border); display: flex; flex-direction: column; }
+.graph-sidebar-resizer { position: absolute; top: 0; right: -4px; width: 8px; height: 100%; cursor: col-resize; z-index: 10; }
+.graph-sidebar-resizer:hover { background: rgba(0,121,107,0.12); }
 .graph-sidebar-header { padding: 14px 16px; border-bottom: 1px solid var(--border); }
 .graph-sidebar-header h2 { margin: 0; font-size: 14px; color: var(--ink-900); }
 .graph-sidebar-sub { margin: 4px 0 0; font-size: 12px; color: var(--ink-500); }

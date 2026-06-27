@@ -4,7 +4,14 @@ from __future__ import annotations
 
 from datetime import datetime
 
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
+
+
+class SearchFilters(BaseModel):
+    source_types: list[str] = Field(default_factory=list)
+    topics: list[str] = Field(default_factory=list)
+    years: list[str] = Field(default_factory=list)
+    journals: list[str] = Field(default_factory=list)
 
 
 class SearchRequest(BaseModel):
@@ -12,6 +19,7 @@ class SearchRequest(BaseModel):
     search_type: str = "both"  # 'literature' | 'case' | 'both'
     page: int = 1
     size: int = 10
+    filters: SearchFilters = Field(default_factory=SearchFilters)
 
 
 class SearchResultItem(BaseModel):
@@ -33,6 +41,7 @@ class SearchResponse(BaseModel):
     total_pages: int
     page: int
     size: int
+    facets: dict[str, list[dict[str, int | str]]] = Field(default_factory=dict)
 
 
 class SearchHistoryItem(BaseModel):
