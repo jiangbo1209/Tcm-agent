@@ -8,7 +8,12 @@
         </svg>
         返回
       </button>
-      <button class="btn-primary" @click="openGraph" :disabled="!nodeId">
+      <router-link
+        class="btn-primary"
+        :class="{ disabled: !nodeId }"
+        :to="graphRoute"
+        :aria-disabled="!nodeId"
+      >
         <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
           <circle cx="12" cy="12" r="2"></circle>
           <circle cx="5" cy="6" r="2"></circle>
@@ -21,7 +26,7 @@
           <line x1="17" y1="18" x2="14" y2="14"></line>
         </svg>
         查看知识图谱
-      </button>
+      </router-link>
     </div>
 
     <div v-if="loading" class="detail-state">加载中...</div>
@@ -82,17 +87,17 @@
 
 <script setup>
 import { ref, computed, onMounted, watch } from "vue";
-import { useRoute, useRouter } from "vue-router";
+import { useRoute } from "vue-router";
 import { getNodeDetail, getFileUrl } from "../api/graph";
 
 const route = useRoute();
-const router = useRouter();
 
 const loading = ref(false);
 const error = ref("");
 const detail = ref(null);
 
 const nodeId = computed(() => route.params.nodeId);
+const graphRoute = computed(() => nodeId.value ? { name: "Graph", query: { seed: nodeId.value } } : { name: "Search" });
 
 const metaText = computed(() => {
   if (!detail.value) return "";
@@ -153,10 +158,6 @@ async function loadDetail(id) {
   }
 }
 
-function openGraph() {
-  router.push({ path: "/graph", query: { seed: nodeId.value } });
-}
-
 async function viewFile() {
   try {
     const { data } = await getFileUrl(nodeId.value, "view");
@@ -204,7 +205,7 @@ watch(nodeId, (id) => loadDetail(id));
 .field-item { border: 1px solid rgba(27,42,47,0.08); border-radius: 10px; padding: 12px 14px; background: var(--panel); }
 .field-name { font-size: 12px; color: var(--ink-500); margin-bottom: 4px; }
 .field-value { font-size: 14px; color: var(--ink-900); line-height: 1.6; white-space: pre-wrap; word-break: break-word; }
-.btn-primary { display: inline-flex; align-items: center; gap: 8px; padding: 10px 20px; border: none; border-radius: var(--radius); background: linear-gradient(150deg, var(--teal), var(--teal-deep)); color: #fff; font-size: 14px; font-weight: 600; cursor: pointer; transition: transform 0.16s, box-shadow 0.16s; }
+.btn-primary { display: inline-flex; align-items: center; gap: 8px; padding: 10px 20px; border: none; border-radius: var(--radius); background: linear-gradient(150deg, var(--teal), var(--teal-deep)); color: #fff; font-size: 14px; font-weight: 600; text-decoration: none; cursor: pointer; transition: transform 0.16s, box-shadow 0.16s; }
 .btn-primary:hover { transform: translateY(-1px); box-shadow: 0 8px 20px rgba(0,121,107,0.3); }
-.btn-primary:disabled { opacity: 0.5; cursor: not-allowed; transform: none; box-shadow: none; }
+.btn-primary.disabled { opacity: 0.5; cursor: not-allowed; transform: none; box-shadow: none; pointer-events: none; }
 </style>

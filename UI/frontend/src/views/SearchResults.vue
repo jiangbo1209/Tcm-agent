@@ -31,16 +31,15 @@
     <div v-if="searchStore.loading" class="results-loading">搜索中...</div>
 
     <div v-else class="results-list">
-      <div
+      <component
+        :is="item.node_id ? 'a' : 'div'"
         v-for="item in searchStore.results"
         :key="`${item.source_type}-${item.node_id || item.title}`"
+        :href="item.node_id ? detailHref(item) : undefined"
+        :target="item.node_id ? '_blank' : undefined"
+        :rel="item.node_id ? 'noopener noreferrer' : undefined"
         class="result-card"
         :class="{ disabled: !item.node_id }"
-        role="button"
-        tabindex="0"
-        @click="openDetail(item)"
-        @keydown.enter.prevent="openDetail(item)"
-        @keydown.space.prevent="openDetail(item)"
       >
         <div class="result-type-badge" :class="item.source_type">
           {{ item.source_type === "record" ? "病案" : "文献" }}
@@ -59,7 +58,7 @@
         <div v-if="item.keywords" class="result-keywords">
           <span v-for="kw in splitKeywords(item.keywords)" :key="kw" class="keyword-tag">{{ kw }}</span>
         </div>
-      </div>
+      </component>
 
       <div v-if="searchStore.error" class="results-empty error">
         {{ searchStore.error }}
@@ -122,9 +121,9 @@ async function changePage(page) {
   await searchStore.search(route.query.q, searchType.value, page);
 }
 
-function openDetail(item) {
-  if (!item.node_id) return;
-  router.push({ name: "Detail", params: { nodeId: item.node_id } });
+function detailHref(item) {
+  if (!item.node_id) return "";
+  return router.resolve({ name: "Detail", params: { nodeId: item.node_id } }).href;
 }
 </script>
 
@@ -140,7 +139,7 @@ function openDetail(item) {
 .filter-chip.active { background: var(--teal); border-color: var(--teal); color: #fff; }
 .results-loading { text-align: center; padding: 40px; color: var(--ink-500); }
 .results-list { display: flex; flex-direction: column; gap: 12px; }
-.result-card { padding: 16px 20px; background: var(--panel); border: 1px solid var(--border); border-radius: var(--radius-lg); cursor: pointer; transition: border-color 0.2s ease, box-shadow 0.2s ease, transform 0.2s ease; }
+.result-card { display: block; padding: 16px 20px; background: var(--panel); border: 1px solid var(--border); border-radius: var(--radius-lg); color: inherit; text-decoration: none; cursor: pointer; transition: border-color 0.2s ease, box-shadow 0.2s ease, transform 0.2s ease; }
 .result-card:hover { border-color: rgba(0, 121, 107, 0.35); box-shadow: var(--shadow); transform: translateY(-1px); }
 .result-card.disabled { cursor: default; opacity: 0.72; }
 .result-card.disabled:hover { border-color: var(--border); box-shadow: none; transform: none; }
