@@ -56,6 +56,8 @@ let suggestTimer = null;
 
 const nodeList = computed(() => {
   if (!graphRef.value) return [];
+  const count = graphRef.value.nodeCount || 0;
+  if (count === 0) return [];
   const map = graphRef.value.nodeMap || new Map();
   return Array.from(map.values()).sort((a, b) => {
     if (a.node_type !== b.node_type) return a.node_type.localeCompare(b.node_type);
