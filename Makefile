@@ -1,7 +1,9 @@
-.PHONY: help backend frontend server all dev stop logs database db-up db-down db-logs db-shell
+.PHONY: help backend frontend server all dev stop logs database db-up db-down db-logs db-shell db-init graph-build
 
 # 环境变量
 CONDA_ENV := Tcm-agent
+PYTHON_MIN_VERSION := 3.10
+PYTHON := conda run -n $(CONDA_ENV) python
 BACKEND_DIR := UI/backend
 FRONTEND_DIR := UI/frontend
 BACKEND_PORT := 8011
@@ -19,6 +21,8 @@ help:
 	@echo ""
 	@echo "=== 数据库 & 存储 (Docker Compose) ==="
 	@echo "  make db-up              - 启动数据库 + MinIO"
+	@echo "  make db-init            - 初始化 PostgreSQL 表结构"
+	@echo "  make graph-build        - 生成 nodes/edges 图谱底表"
 	@echo "  make db-down            - 停止数据库 + MinIO"
 	@echo "  make db-logs            - 查看数据库日志"
 	@echo "  make db-shell           - 进入数据库容器 psql shell"
@@ -36,7 +40,8 @@ help:
 # 检查conda环境
 check-env:
 	@echo "检查 Conda 环境: $(CONDA_ENV)"
-	@conda run -n $(CONDA_ENV) python --version || (echo "环境 $(CONDA_ENV) 不存在!" && exit 1)
+	@$(PYTHON) --version || (echo "环境 $(CONDA_ENV) 不存在!" && exit 1)
+	@$(PYTHON) -c "import sys; raise SystemExit(0 if sys.version_info >= (3, 10) else 'Python >= $(PYTHON_MIN_VERSION) is required')"
 
 # 启动后端服务
 start-backend: check-env
@@ -128,7 +133,7 @@ clean:
 # 安装后端依赖
 install-backend: check-env
 	@echo "安装后端依赖..."
-	@cd $(BACKEND_DIR) && conda run -n $(CONDA_ENV) pip install -r requirements.txt
+	@cd $(BACKEND_DIR) && $(PYTHON) -m pip install -r requirements.txt
 	@echo "✓ 后端依赖安装完成"
 
 # 显示状态
@@ -161,6 +166,18 @@ db-up:
 	@echo "  MinIO S3:   localhost:9000"
 	@echo "  MinIO Web:  http://localhost:9001"
 	@docker-compose logs -n 20 postgresql minio
+
+# 初始化 PostgreSQL 表结构
+db-init: check-env
+	@echo "初始化 PostgreSQL 表结构..."
+	@$(PYTHON) -m data_process.db_init
+	@echo "✓ 数据库表结构初始化完成"
+
+# 生成 nodes/edges 图谱底表
+graph-build: check-env
+	@echo "生成图谱底表 nodes/edges..."
+	@$(PYTHON) -m data_process.graph_builder
+	@echo "✓ 图谱底表生成完成"
 
 # 停止数据库 + MinIO
 db-down:

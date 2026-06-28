@@ -79,7 +79,7 @@
 从项目根目录运行：
 
 ```bash
-python main.py
+python -m data_process.graph_builder
 ```
 
 默认读取项目根目录 `.env`，并按 `DB_*` 优先、`POSTGRES_*` 兜底的顺序读取数据库配置。

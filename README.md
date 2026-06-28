@@ -4,7 +4,54 @@
 
 **核心业务痛点**：将海量非结构化的中医文献与临床病案自动化提炼为结构化医疗实体，通过知识图谱进行可视化串联，并最终由 Agent 对话系统为医生/科研人员提供智能问答与辅助诊疗。
 
-**技术栈**：Python、FastAPI、AntV G6、PostgreSQL、MinIO、Docker、LLM（大模型）。
+**技术栈**：Python、FastAPI、SQLAlchemy、Vue 3、Vite、AntV G6、PostgreSQL、SQLite、MinIO、LLM（大模型）。
+
+## 快速启动
+
+### 环境准备
+
+项目需要 **Python 3.10+**。当前推荐使用 `Tcm-agent` conda 环境，避免系统 `python3` 仍指向 Python 3.8。
+
+```bash
+# 如环境不存在，先创建
+conda env create -f environment.yml
+conda activate Tcm-agent
+
+# 后端依赖
+python -m pip install -r UI/backend/requirements.txt
+
+# 数据处理/建图依赖
+python -m pip install -r data_process/graph_builder/requirements.txt
+
+# 前端依赖
+cd UI/frontend && npm install
+```
+
+### 启动后端
+
+```bash
+cd UI/backend
+conda run -n Tcm-agent uvicorn main:app --reload --host 0.0.0.0 --port 8011
+```
+
+### 启动前端
+
+```bash
+cd UI/frontend
+npm run dev
+```
+
+访问 http://localhost:5500，注册账号后即可使用。
+
+### 测试账号
+
+创建专业用户（可访问智能搜索）：
+
+```bash
+cd UI/backend
+conda run -n Tcm-agent python create_professional_user.py
+# 默认账号: admin / admin123
+```
 
 ## 核心业务数据流（Data Workflow）
 
@@ -96,13 +143,13 @@ graph TD
 首次初始化数据库表结构：
 
 ```bash
-python -m data_process.db_init
+conda run -n Tcm-agent python -m data_process.db_init
 ```
 
 离线生成图谱底表 `nodes` / `edges`：
 
 ```bash
-python -m data_process.graph_builder
+conda run -n Tcm-agent python -m data_process.graph_builder
 ```
 
 ### Git 协作与分支规范
