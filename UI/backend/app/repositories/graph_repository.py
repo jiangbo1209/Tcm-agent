@@ -9,9 +9,8 @@ from typing import Any
 from sqlalchemy import String, case, func, or_, text
 from sqlalchemy.orm import Session
 
-from app.config import DatabaseConfig, SearchConfig
-from app.models.graph import CoreFile, Edge, LitMetadata, MedCase, Node
-from app.search.settings import SearchBackendMode
+from app.config import PostgresSettings, SearchSettings
+from app.models.search_history import SearchBackendMode
 
 
 class GraphRepository:
@@ -20,13 +19,13 @@ class GraphRepository:
     PAPER_SEARCH_INDEX = "idx_lit_metadata_search"
     RECORD_SEARCH_INDEX = "idx_med_case_search"
 
-    def __init__(self, db_config: DatabaseConfig, search_config: SearchConfig | None = None) -> None:
+    def __init__(self, db_config: PostgresSettings, search_config: SearchSettings | None = None) -> None:
         self._db_config = db_config
-        self._search_config = search_config or SearchConfig()
+        self._search_config = search_config or SearchSettings()
         self._fulltext_cache: dict[str, bool] = {}
 
     def _get_session(self) -> Session:
-        from app.database_pg import PgSession
+        from UI.backend.app.core.database_pg import PgSession
         return PgSession()
 
     def _title_coalesce(self, model):

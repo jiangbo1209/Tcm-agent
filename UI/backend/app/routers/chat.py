@@ -10,7 +10,7 @@ from fastapi.responses import StreamingResponse
 from sqlalchemy.orm import Session
 
 from app.auth.dependencies import get_current_user
-from app.database import get_db
+from UI.backend.app.core.database import get_db
 from app.models.conversation import Conversation
 from app.models.message import Message
 from app.models.user import User

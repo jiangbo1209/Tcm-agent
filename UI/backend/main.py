@@ -3,41 +3,33 @@
 from __future__ import annotations
 
 import logging
-from pathlib import Path
 
-from dotenv import load_dotenv
 from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 
 logging.basicConfig(level=logging.INFO)
 
-ROOT_DIR = Path(__file__).resolve().parents[1]
-PROJECT_ROOT = Path(__file__).resolve().parents[2]
-load_dotenv(PROJECT_ROOT / ".env", override=False)
-load_dotenv(ROOT_DIR / ".env", override=False)
-
 from app.auth.router import router as auth_router
-from app.database import engine
+from app.config import get_database_config, get_minio_config, get_search_config
+from app.core.minio_utils import MinioClient
+from UI.backend.app.core.database import engine
 from app.models.base import Base
+from app.repositories.graph_repository import GraphRepository
 from app.routers.chat import router as chat_router
 from app.routers.graph import router as graph_router
 from app.routers.history import router as history_router
 from app.routers.search import router as search_router
+from app.services.graph_service import GraphService
 
 Base.metadata.create_all(bind=engine)
-
-from app.config import get_database_config, get_minio_config, get_search_config
-from app.core.minio_utils import MinioClient
-from app.repositories.graph_repository import GraphRepository
-from app.services.graph_service import GraphService
 
 app = FastAPI(title="TCM Agent API", version="2.0.0")
 
 
 def _build_minio_client() -> MinioClient | None:
     config = get_minio_config()
-    if not config.access_key or not config.secret_key:
+    if not config.root_user or not config.root_password:
         logging.warning("MinIO credentials are missing; file URL APIs will be unavailable")
         return None
     try:
