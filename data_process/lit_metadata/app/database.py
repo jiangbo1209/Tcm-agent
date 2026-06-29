@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import json
 from collections.abc import AsyncIterator
 
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_async_engine
@@ -13,6 +14,7 @@ engine = create_async_engine(
     echo=False,
     future=True,
     pool_pre_ping=True,
+    json_serializer=lambda value: json.dumps(value, ensure_ascii=False),
 )
 
 AsyncSessionLocal = async_sessionmaker(

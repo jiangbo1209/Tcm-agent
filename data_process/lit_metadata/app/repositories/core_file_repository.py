@@ -7,6 +7,8 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.core.exceptions import DatabaseError
 from app.models.orm import CoreFile
 
+SUPPORTED_DOCUMENT_TYPES = (0, 1, 2)
+
 
 class CoreFileRepository:
     """Database operations for source records in core_file."""
@@ -20,6 +22,7 @@ class CoreFileRepository:
                 select(CoreFile)
                 .where(
                     CoreFile.status_metadata.is_(False),
+                    CoreFile.document_type.in_(SUPPORTED_DOCUMENT_TYPES),
                     func.lower(CoreFile.file_type) == "pdf",
                 )
                 .order_by(CoreFile.upload_time.asc(), CoreFile.file_uuid.asc())

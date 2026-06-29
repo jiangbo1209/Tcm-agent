@@ -1,4 +1,4 @@
-"""SQLAlchemy ORM model for the med_case table."""
+"""SQLAlchemy ORM model for the case_metadata table."""
 
 from __future__ import annotations
 
@@ -11,7 +11,7 @@ from data_process.pdf_upload.models import Base
 
 
 class MedCase(Base):
-    __tablename__ = "med_case"
+    __tablename__ = "case_metadata"
 
     id: Mapped[int] = mapped_column(primary_key=True, autoincrement=True)
     file_uuid: Mapped[str] = mapped_column(
@@ -45,6 +45,6 @@ class MedCase(Base):
     )
 
     __table_args__ = (
-        Index("idx_med_case_file_uuid", "file_uuid"),
-        Index("idx_med_case_created_at", created_at.desc()),
+        Index("idx_case_metadata_file_uuid", "file_uuid"),
+        Index("idx_case_metadata_created_at", created_at.desc()),
     )

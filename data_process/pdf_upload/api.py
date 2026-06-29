@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import logging
 
-from fastapi import APIRouter, Depends, HTTPException, UploadFile, File, Query
+from fastapi import APIRouter, Depends, HTTPException, UploadFile, File, Form, Query
 from minio.error import S3Error
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -49,6 +49,12 @@ def _get_service(session: AsyncSession = Depends(get_session)) -> UploadService:
 @router.post("/upload", response_model=UploadResponse)
 async def upload_pdf(
     file: UploadFile = File(...),
+    document_type: int = Form(
+        0,
+        ge=0,
+        le=2,
+        description="Document type: 0=literature, 1=case, 2=guideline",
+    ),
     service: UploadService = Depends(_get_service),
 ):
     # Validate file extension using configured allowed_extensions
@@ -68,7 +74,7 @@ async def upload_pdf(
         )
 
     try:
-        result = await service.upload(filename, content)
+        result = await service.upload(filename, content, document_type=document_type)
     except ValueError as exc:
         # Duplicate filename
         raise HTTPException(status_code=409, detail=str(exc)) from exc
@@ -87,6 +93,12 @@ async def upload_pdf(
 @router.post("/batch-upload", response_model=BatchUploadResponse)
 async def batch_upload_pdf(
     files: list[UploadFile] = File(...),
+    document_type: int = Form(
+        0,
+        ge=0,
+        le=2,
+        description="Document type for all uploaded files: 0=literature, 1=case, 2=guideline",
+    ),
     service: UploadService = Depends(_get_service),
 ):
     results: list[BatchUploadItem] = []
@@ -136,7 +148,7 @@ async def batch_upload_pdf(
 
         # Upload, skip on duplicate
         try:
-            result = await service.upload(filename, content)
+            result = await service.upload(filename, content, document_type=document_type)
             results.append(BatchUploadItem(
                 file_uuid=result["file_uuid"],
                 original_name=filename,
@@ -166,6 +178,7 @@ async def batch_upload_pdf(
         total=len(results),
         uploaded=uploaded,
         skipped=skipped,
+        failed=failed,
     )
 
 

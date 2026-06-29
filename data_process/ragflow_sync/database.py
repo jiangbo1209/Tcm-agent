@@ -8,11 +8,11 @@ from sqlalchemy import Engine, and_, create_engine, exists, func, or_, select
 from sqlalchemy.orm import Session, sessionmaker
 
 from data_process.case_metadata.models import MedCase
-from data_process.lit_metadata.app.models.orm import LitMetadata
+from data_process.lit_metadata.app.models.orm import GuidelineMetadata, LitMetadata
 from data_process.pdf_upload.models import CoreFile
 
 from .config import RagflowSyncSettings
-from .models import CaseSource, LiteratureSource, SourceType, SyncStatus
+from .models import CaseSource, GuidelineSource, LiteratureSource, SourceType, SyncStatus
 from .orm import RagflowSyncStatus
 
 
@@ -40,6 +40,7 @@ class RagflowSyncRepository:
                 select(CoreFile, LitMetadata)
                 .join(LitMetadata, LitMetadata.file_uuid == CoreFile.file_uuid)
                 .where(func.lower(func.coalesce(CoreFile.file_type, "pdf")) == "pdf")
+                .where(CoreFile.document_type == 0)
                 .where(CoreFile.status_metadata.is_(True))
                 .where(func.coalesce(CoreFile.storage_path, LitMetadata.storage_path, "") != "")
                 .order_by(LitMetadata.updated_at.desc().nulls_last(), LitMetadata.id.desc())
@@ -75,6 +76,7 @@ class RagflowSyncRepository:
                 .outerjoin(LitMetadata, LitMetadata.file_uuid == MedCase.file_uuid)
                 .outerjoin(CoreFile, CoreFile.file_uuid == MedCase.file_uuid)
                 .where(or_(CoreFile.file_uuid.is_(None), CoreFile.status_case.is_(True)))
+                .where(or_(CoreFile.file_uuid.is_(None), CoreFile.document_type == 1))
                 .order_by(MedCase.updated_at.desc().nulls_last(), MedCase.id.desc())
             )
             if only_failed:
@@ -94,6 +96,41 @@ class RagflowSyncRepository:
             rows = session.execute(stmt).all()
 
         return [self._map_case(med_case, lit_metadata, core_file) for med_case, lit_metadata, core_file in rows]
+
+    def fetch_guidelines(
+        self,
+        limit: int | None = None,
+        *,
+        only_failed: bool = False,
+        dataset_id: str | None = None,
+    ) -> list[GuidelineSource]:
+        with self._session_factory() as session:
+            stmt = (
+                select(CoreFile, GuidelineMetadata)
+                .join(GuidelineMetadata, GuidelineMetadata.file_uuid == CoreFile.file_uuid)
+                .where(func.lower(func.coalesce(CoreFile.file_type, "pdf")) == "pdf")
+                .where(CoreFile.document_type == 2)
+                .where(CoreFile.status_guidelinemeta.is_(True))
+                .where(func.coalesce(CoreFile.storage_path, GuidelineMetadata.storage_path, "") != "")
+                .order_by(GuidelineMetadata.updated_at.desc().nulls_last(), GuidelineMetadata.id.desc())
+            )
+            if only_failed:
+                if not dataset_id:
+                    raise ValueError("dataset_id is required when only_failed=True")
+                stmt = stmt.where(
+                    exists().where(
+                        RagflowSyncStatus.source_type == "guideline",
+                        RagflowSyncStatus.file_uuid == CoreFile.file_uuid,
+                        RagflowSyncStatus.dataset_id == dataset_id,
+                        RagflowSyncStatus.sync_status == "failed",
+                    )
+                )
+            if limit:
+                stmt = stmt.limit(limit)
+
+            rows = session.execute(stmt).all()
+
+        return [self._map_guideline(core_file, guideline_metadata) for core_file, guideline_metadata in rows]
 
     def get_status(self, source_type: SourceType, file_uuid: str, dataset_id: str) -> SyncStatus | None:
         with self._session_factory() as session:
@@ -168,6 +205,25 @@ class RagflowSyncRepository:
         )
 
     @staticmethod
+    def _map_guideline(core_file: CoreFile, guideline_metadata: GuidelineMetadata) -> GuidelineSource:
+        return GuidelineSource(
+            file_uuid=core_file.file_uuid,
+            original_name=core_file.original_name,
+            storage_path=core_file.storage_path or guideline_metadata.storage_path,
+            title=guideline_metadata.title,
+            authors=guideline_metadata.authors,
+            abstract=guideline_metadata.abstract,
+            keywords=guideline_metadata.keywords,
+            paper_type=guideline_metadata.paper_type,
+            source_site=guideline_metadata.source_site,
+            source_url=guideline_metadata.source_url,
+            journal=guideline_metadata.journal,
+            pub_year=guideline_metadata.pub_year,
+            matched_title=guideline_metadata.matched_title,
+            crawl_status=guideline_metadata.crawl_status,
+        )
+
+    @staticmethod
     def _map_case(med_case: MedCase, lit_metadata: LitMetadata | None, core_file: CoreFile | None) -> CaseSource:
         return CaseSource(
             file_uuid=med_case.file_uuid,
@@ -216,9 +272,11 @@ class InMemorySyncRepository:
         self,
         literature: Iterable[LiteratureSource] = (),
         cases: Iterable[CaseSource] = (),
+        guidelines: Iterable[GuidelineSource] = (),
     ) -> None:
         self.literature = list(literature)
         self.cases = list(cases)
+        self.guidelines = list(guidelines)
         self.statuses: dict[tuple[str, str, str], SyncStatus] = {}
 
     def ensure_schema(self) -> None:
@@ -257,6 +315,24 @@ class InMemorySyncRepository:
                 if dataset_id
                 and self.statuses.get(("case", item.file_uuid, dataset_id)) is not None
                 and self.statuses[("case", item.file_uuid, dataset_id)].sync_status == "failed"
+            ]
+        return items[:limit] if limit else items
+
+    def fetch_guidelines(
+        self,
+        limit: int | None = None,
+        *,
+        only_failed: bool = False,
+        dataset_id: str | None = None,
+    ) -> list[GuidelineSource]:
+        items = list(self.guidelines)
+        if only_failed:
+            items = [
+                item
+                for item in items
+                if dataset_id
+                and self.statuses.get(("guideline", item.file_uuid, dataset_id)) is not None
+                and self.statuses[("guideline", item.file_uuid, dataset_id)].sync_status == "failed"
             ]
         return items[:limit] if limit else items
 

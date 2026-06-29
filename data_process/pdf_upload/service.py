@@ -12,6 +12,12 @@ from .repository import CoreFileRepository
 
 LOGGER = logging.getLogger("pdf_upload")
 
+DOCUMENT_TYPE_PREFIX = {
+    0: "literature",
+    1: "case",
+    2: "guideline",
+}
+
 
 class UploadService:
     def __init__(
@@ -27,13 +33,16 @@ class UploadService:
         self.max_file_size_bytes = max_file_size_mb * 1024 * 1024
         self.allowed_extensions = allowed_extensions
 
-    async def upload(self, original_name: str, content: bytes) -> dict:
+    async def upload(self, original_name: str, content: bytes, document_type: int = 0) -> dict:
+        if document_type not in DOCUMENT_TYPE_PREFIX:
+            raise ValueError("Invalid document_type, expected 0, 1, or 2")
+
         # Reject duplicate filename
-        if await self._repository.exists_by_original_name(original_name):
+        if await self._repository.exists_by_original_name(original_name, document_type):
             raise ValueError(f"File already exists: {original_name}")
 
         file_uuid = str(uuid.uuid4())
-        storage_path = original_name
+        storage_path = f"{DOCUMENT_TYPE_PREFIX[document_type]}/{file_uuid}/{original_name}"
 
         # 1. Upload to MinIO first (more reliable; DB failure can be retried)
         self._minio.put_object(
@@ -51,6 +60,8 @@ class UploadService:
             upload_time=datetime.now(timezone.utc),
             status_metadata=False,
             status_case=False,
+            document_type=document_type,
+            status_guidelinemeta=False,
         )
         saved = await self._repository.insert(core_file)
         return self._to_response(saved)
@@ -158,4 +169,6 @@ class UploadService:
             "upload_time": core_file.upload_time,
             "status_metadata": core_file.status_metadata,
             "status_case": core_file.status_case,
+            "document_type": core_file.document_type,
+            "status_guidelinemeta": core_file.status_guidelinemeta,
         }

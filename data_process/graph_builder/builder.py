@@ -1,4 +1,4 @@
-"""Build graph service-layer tables (nodes, edges) from lit_metadata and med_case."""
+"""Build graph service-layer tables (nodes, edges) from lit_metadata and case_metadata."""
 
 from __future__ import annotations
 

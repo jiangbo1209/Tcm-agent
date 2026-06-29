@@ -15,6 +15,8 @@ class UploadResponse(BaseModel):
     upload_time: datetime
     status_metadata: bool
     status_case: bool
+    document_type: int = Field(..., ge=0, le=2, description="0=literature, 1=case, 2=guideline")
+    status_guidelinemeta: bool
 
 
 class FileListResponse(BaseModel):
@@ -49,6 +51,7 @@ class BatchUploadResponse(BaseModel):
     total: int = Field(..., description="Total files in batch")
     uploaded: int = Field(..., description="Successfully uploaded count")
     skipped: int = Field(..., description="Skipped count")
+    failed: int = Field(..., description="Failed count")
 
 
 class BatchDeleteRequest(BaseModel):

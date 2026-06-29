@@ -1,5 +1,5 @@
 from data_process.ragflow_sync.database import InMemorySyncRepository
-from data_process.ragflow_sync.models import CaseSource, LiteratureSource
+from data_process.ragflow_sync.models import CaseSource, GuidelineSource, LiteratureSource
 from data_process.ragflow_sync.service import RagflowSyncService
 
 
@@ -37,11 +37,20 @@ class FakeRagflowClient:
 
 
 def make_service(repository, ragflow=None, object_store=None):
+    selected_client = ragflow or FakeRagflowClient()
     return RagflowSyncService(
         repository=repository,
         object_store=object_store or FakeObjectStore(),
-        ragflow_client=ragflow or FakeRagflowClient(),
-        dataset_id="dataset-1",
+        ragflow_clients={
+            "literature": selected_client,
+            "case": selected_client,
+            "guideline": selected_client,
+        },
+        dataset_ids={
+            "literature": "literature-dataset",
+            "case": "case-dataset",
+            "guideline": "guideline-dataset",
+        },
         domain="DOR infertility",
         parse_after_upload=True,
     )
@@ -146,7 +155,7 @@ def test_only_failed_filters_candidates():
     repository.upsert_status(
         source_type="literature",
         file_uuid="u1",
-        dataset_id="dataset-1",
+        dataset_id="literature-dataset",
         document_id="doc-x",
         content_hash="hash-x",
         sync_status="failed",
@@ -155,7 +164,7 @@ def test_only_failed_filters_candidates():
     repository.upsert_status(
         source_type="literature",
         file_uuid="u2",
-        dataset_id="dataset-1",
+        dataset_id="literature-dataset",
         document_id="doc-y",
         content_hash="hash-y",
         sync_status="parsed",
@@ -184,7 +193,7 @@ def test_parse_failed_retry_reuses_existing_document():
     repository.upsert_status(
         source_type="literature",
         file_uuid="u1",
-        dataset_id="dataset-1",
+        dataset_id="literature-dataset",
         document_id="existing-doc",
         content_hash=None,
         sync_status="failed",
@@ -226,3 +235,29 @@ def test_empty_pdf_is_rejected_before_upload():
     assert results[0].stage == "upload"
     assert "MinIO object is empty" in results[0].message
     assert ragflow.uploads == []
+
+
+def test_sync_guideline_uploads_to_guideline_source():
+    repository = InMemorySyncRepository(
+        guidelines=[
+            GuidelineSource(
+                file_uuid="g1",
+                original_name="guideline.pdf",
+                storage_path="guidelines/g1.pdf",
+                title="DOR guideline",
+            )
+        ]
+    )
+    ragflow = FakeRagflowClient()
+    service = make_service(
+        repository,
+        ragflow,
+        object_store=FakeObjectStore({"guidelines/g1.pdf": b"%PDF-1.4 guideline"}),
+    )
+
+    results = service.sync("guideline")
+
+    assert results[0].action == "parsed"
+    assert ragflow.uploads[0]["filename"].startswith("guideline_")
+    assert ragflow.metadata_updates[0][1]["source_type"] == "guideline"
+    assert ragflow.metadata_updates[0][1]["knowledge_role"] == "medical_guideline_validation"

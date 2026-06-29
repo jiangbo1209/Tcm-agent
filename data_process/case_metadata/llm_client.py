@@ -1,7 +1,4 @@
-"""Gemini SSE streaming client for PDF case extraction.
-
-Adapted from D:\\SleepPause\\Program\\python\\ML\\scripts\\extract_single_paper.py
-"""
+"""Qwen multimodal client for PDF case extraction."""
 
 from __future__ import annotations
 
@@ -21,18 +18,21 @@ LOGGER = logging.getLogger("case_metadata")
 
 # ==================== Config ====================
 
-RELAY_BASE_URL = os.getenv(
-    "RELAY_BASE_URL",
-    "https://x666.me/v1beta/models/{model}:streamGenerateContent?alt=sse",
-)
-RELAY_API_KEY = os.getenv("RELAY_API_KEY", "")
-GEMINI_MODEL = os.getenv("GEMINI_MODEL", "gemini-3-flash-preview")
+LLM_BASE_URL = os.getenv(
+    "LLM_BASE_URL",
+    os.getenv("RELAY_BASE_URL", "https://dashscope.aliyuncs.com/compatible-mode/v1"),
+).rstrip("/")
+LLM_API_KEY = os.getenv("LLM_API_KEY") or os.getenv("DASHSCOPE_API_KEY") or os.getenv("RELAY_API_KEY", "")
+LLM_MODEL = os.getenv("LLM_MODEL") or os.getenv("QWEN_MODEL", "qwen-vl-plus")
 
 CONNECT_TIMEOUT = 100
 READ_TIMEOUT = 180
 TOTAL_TIMEOUT = 300
 FIRST_TOKEN_TIMEOUT = 150
 TEMPERATURE = 0.0
+
+PDF_MAX_PAGES = int(os.getenv("QWEN_PDF_MAX_PAGES", "8"))
+PDF_RENDER_SCALE = float(os.getenv("QWEN_PDF_RENDER_SCALE", "1.5"))
 
 MAX_RETRIES = 3
 RETRY_DELAY = 10
@@ -42,31 +42,6 @@ RETRY_DELAY = 10
 
 def load_json_file(path: Path) -> dict[str, Any]:
     return json.loads(path.read_text(encoding="utf-8"))
-
-
-def jsonschema_to_gemini_schema(node: Any) -> Any:
-    """Convert local JSON Schema to Gemini responseSchema format."""
-    if isinstance(node, dict):
-        converted: dict[str, Any] = {}
-        for key, value in node.items():
-            if key in {"$schema", "additionalProperties"}:
-                continue
-            if key == "type" and isinstance(value, list):
-                non_null_types = [t for t in value if t != "null"]
-                if len(non_null_types) == 1:
-                    converted["type"] = non_null_types[0]
-                    converted["nullable"] = True
-                elif len(non_null_types) > 1:
-                    converted["type"] = non_null_types[0]
-                else:
-                    converted["type"] = "string"
-                    converted["nullable"] = True
-            else:
-                converted[key] = jsonschema_to_gemini_schema(value)
-        return converted
-    if isinstance(node, list):
-        return [jsonschema_to_gemini_schema(item) for item in node]
-    return node
 
 
 # ==================== Prompt builder ====================
@@ -81,8 +56,8 @@ def build_final_prompt(base_prompt: str, field_names: list[str]) -> str:
         "1. 输出必须是一个且仅一个 JSON 对象。\n"
         "2. JSON 键必须且仅能来自以下字段，不得新增或修改：\n"
         f"{field_list}\n"
-        "3. 若信息无法从 PDF 确认，字段值必须为 JSON 原生 null。\n"
-        "4. 禁止编造，必须基于当前上传 PDF 的证据。\n"
+        "3. 若信息无法从 PDF 页面图像中确认，字段值必须为 JSON 原生 null。\n"
+        "4. 禁止编造，必须基于当前 PDF 页面图像中的证据。\n"
         "5. 严禁输出 markdown 代码块和任何解释文字。\n"
         "6. 输出前请确保 20 个字段全部出现。\n\n"
         "【JSON 结构模板】\n"
@@ -91,42 +66,71 @@ def build_final_prompt(base_prompt: str, field_names: list[str]) -> str:
     return base_prompt.rstrip() + appended
 
 
-# ==================== Payload builder ====================
+# ==================== PDF image payload builder ====================
 
-def build_payload(final_prompt: str, pdf_bytes: bytes, gemini_schema: dict[str, Any]) -> dict[str, Any]:
-    pdf_b64 = base64.b64encode(pdf_bytes).decode("ascii")
+def pdf_to_image_data_urls(pdf_bytes: bytes) -> list[str]:
+    """Render PDF pages to JPEG data URLs for Qwen-VL."""
+    try:
+        import fitz
+    except ImportError as exc:
+        raise RuntimeError("PyMuPDF is required for Qwen-VL PDF rendering. Run: pip install PyMuPDF") from exc
+
+    data_urls: list[str] = []
+    with fitz.open(stream=pdf_bytes, filetype="pdf") as document:
+        page_count = min(len(document), PDF_MAX_PAGES)
+        matrix = fitz.Matrix(PDF_RENDER_SCALE, PDF_RENDER_SCALE)
+
+        for page_index in range(page_count):
+            page = document.load_page(page_index)
+            pixmap = page.get_pixmap(matrix=matrix, alpha=False)
+            image_bytes = pixmap.tobytes("jpeg")
+            image_b64 = base64.b64encode(image_bytes).decode("ascii")
+            data_urls.append(f"data:image/jpeg;base64,{image_b64}")
+
+        if len(document) > page_count:
+            LOGGER.warning(
+                "PDF has %d pages; only first %d pages are sent to Qwen-VL. Set QWEN_PDF_MAX_PAGES to change this.",
+                len(document),
+                page_count,
+            )
+
+    if not data_urls:
+        raise RuntimeError("PDF contains no renderable pages")
+    return data_urls
+
+
+def build_payload(final_prompt: str, pdf_bytes: bytes) -> dict[str, Any]:
+    image_urls = pdf_to_image_data_urls(pdf_bytes)
+    content: list[dict[str, Any]] = [
+        {
+            "type": "text",
+            "text": (
+                f"{final_prompt}\n\n"
+                f"下面是同一份病例 PDF 渲染得到的前 {len(image_urls)} 页图片。"
+                "请只基于这些页面内容抽取结构化病案信息。"
+            ),
+        }
+    ]
+    content.extend({"type": "image_url", "image_url": {"url": url}} for url in image_urls)
+
     return {
-        "contents": [
-            {
-                "parts": [
-                    {"text": final_prompt},
-                    {
-                        "inlineData": {
-                            "mimeType": "application/pdf",
-                            "data": pdf_b64,
-                        }
-                    },
-                ]
-            }
-        ],
-        "generationConfig": {
-            "temperature": TEMPERATURE,
-            "responseMimeType": "application/json",
-            "responseSchema": gemini_schema,
-        },
+        "model": LLM_MODEL,
+        "messages": [{"role": "user", "content": content}],
+        "temperature": TEMPERATURE,
+        "stream": True,
     }
 
 
-# ==================== SSE streaming call ====================
+# ==================== OpenAI-compatible streaming call ====================
 
-def call_gemini_stream(payload: dict[str, Any]) -> str:
-    if not RELAY_API_KEY:
-        raise RuntimeError("RELAY_API_KEY not set in environment")
+def call_llm_stream(payload: dict[str, Any]) -> str:
+    if not LLM_API_KEY:
+        raise RuntimeError("LLM_API_KEY, DASHSCOPE_API_KEY, or RELAY_API_KEY must be set in environment")
 
-    url = RELAY_BASE_URL.format(model=GEMINI_MODEL)
+    url = f"{LLM_BASE_URL}/chat/completions"
     headers = {
         "Content-Type": "application/json",
-        "Authorization": f"Bearer {RELAY_API_KEY}",
+        "Authorization": f"Bearer {LLM_API_KEY}",
     }
 
     wall_start = time.time()
@@ -166,18 +170,35 @@ def call_gemini_stream(payload: dict[str, Any]) -> str:
             except json.JSONDecodeError:
                 continue
 
-            for candidate in chunk.get("candidates", []):
-                content = candidate.get("content", {})
-                for part in content.get("parts", []):
-                    text = part.get("text", "")
-                    if text:
-                        first_text_received = True
-                        text_parts.append(text)
+            for choice in chunk.get("choices", []):
+                delta = choice.get("delta") or {}
+                content = delta.get("content")
+                if content is None:
+                    message = choice.get("message") or {}
+                    content = message.get("content")
+                text = _content_to_text(content)
+                if text:
+                    first_text_received = True
+                    text_parts.append(text)
 
     merged = "".join(text_parts).strip()
     if not merged:
         raise RuntimeError("Model returned empty text")
     return merged
+
+
+def _content_to_text(content: Any) -> str:
+    if isinstance(content, str):
+        return content
+    if isinstance(content, list):
+        parts: list[str] = []
+        for item in content:
+            if isinstance(item, dict):
+                text = item.get("text")
+                if isinstance(text, str):
+                    parts.append(text)
+        return "".join(parts)
+    return ""
 
 
 # ==================== JSON parsing ====================
@@ -187,7 +208,6 @@ def extract_json_object(text: str) -> dict[str, Any]:
     if not candidate:
         raise ValueError("Empty response text")
 
-    # 1) Direct parse
     try:
         obj = json.loads(candidate)
         if isinstance(obj, dict):
@@ -195,7 +215,6 @@ def extract_json_object(text: str) -> dict[str, Any]:
     except json.JSONDecodeError:
         pass
 
-    # 2) Strip markdown fences
     stripped = re.sub(r"^\s*```(?:json)?\s*", "", candidate, flags=re.IGNORECASE)
     stripped = re.sub(r"\s*```\s*$", "", stripped)
     try:
@@ -205,7 +224,6 @@ def extract_json_object(text: str) -> dict[str, Any]:
     except json.JSONDecodeError:
         pass
 
-    # 3) raw_decode scan from first {
     decoder = json.JSONDecoder()
     start = stripped.find("{")
     while start != -1:

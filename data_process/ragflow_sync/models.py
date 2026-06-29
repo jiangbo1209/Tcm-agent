@@ -6,11 +6,29 @@ from dataclasses import dataclass
 from datetime import datetime
 from typing import Any, Literal
 
-SourceType = Literal["literature", "case"]
+SourceType = Literal["literature", "case", "guideline"]
 
 
 @dataclass(slots=True)
 class LiteratureSource:
+    file_uuid: str
+    original_name: str
+    storage_path: str
+    title: str | None = None
+    authors: Any = None
+    abstract: str | None = None
+    keywords: Any = None
+    paper_type: str | None = None
+    source_site: str | None = None
+    source_url: str | None = None
+    journal: str | None = None
+    pub_year: str | None = None
+    matched_title: str | None = None
+    crawl_status: str | None = None
+
+
+@dataclass(slots=True)
+class GuidelineSource:
     file_uuid: str
     original_name: str
     storage_path: str

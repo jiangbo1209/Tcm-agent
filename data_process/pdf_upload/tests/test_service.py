@@ -42,8 +42,34 @@ async def test_upload_success(service: UploadService, mock_minio):
     assert result["file_type"] == "pdf"
     assert result["status_metadata"] is False
     assert result["status_case"] is False
+    assert result["document_type"] == 0
+    assert result["status_guidelinemeta"] is False
+    assert result["storage_path"].startswith("literature/")
     assert result["original_name"] in result["storage_path"]
     mock_minio.put_object.assert_called_once()
+
+
+@pytest.mark.asyncio
+async def test_upload_guideline_document_type(service: UploadService):
+    result = await service.upload(
+        "guideline.pdf",
+        b"%PDF-1.4 guideline content",
+        document_type=2,
+    )
+
+    assert result["document_type"] == 2
+    assert result["status_guidelinemeta"] is False
+    assert result["storage_path"].startswith("guideline/")
+
+
+@pytest.mark.asyncio
+async def test_same_filename_allowed_across_document_types(service: UploadService):
+    literature = await service.upload("same_name.pdf", b"%PDF literature", document_type=0)
+    guideline = await service.upload("same_name.pdf", b"%PDF guideline", document_type=2)
+
+    assert literature["file_uuid"] != guideline["file_uuid"]
+    assert literature["storage_path"].startswith("literature/")
+    assert guideline["storage_path"].startswith("guideline/")
 
 
 @pytest.mark.asyncio
@@ -132,3 +158,9 @@ async def test_upload_duplicate_rejected(service: UploadService):
     await service.upload("dup_paper.pdf", b"%PDF content")
     with pytest.raises(ValueError, match="File already exists"):
         await service.upload("dup_paper.pdf", b"%PDF content v2")
+
+
+@pytest.mark.asyncio
+async def test_upload_invalid_document_type_rejected(service: UploadService):
+    with pytest.raises(ValueError, match="Invalid document_type"):
+        await service.upload("invalid_type.pdf", b"%PDF content", document_type=9)

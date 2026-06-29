@@ -33,7 +33,12 @@ async def main() -> int:
         print("=" * 60)
         print("TCM Case Metadata Extraction")
         print("=" * 60)
-        print(f"Gemini model: {__import__('os').getenv('GEMINI_MODEL', 'gemini-3-flash-preview')}")
+        os_module = __import__("os")
+        model = (
+            os_module.getenv("LLM_MODEL")
+            or os_module.getenv("QWEN_MODEL", "qwen-vl-plus")
+        )
+        print(f"LLM model: {model}")
         print()
 
         # Ensure tables exist

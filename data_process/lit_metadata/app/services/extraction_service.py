@@ -327,6 +327,7 @@ class ExtractionService:
     ) -> None:
         suggested_action = FAILURE_ACTIONS.get(failure_reason, "manual_check")
         data = FailedRecordCreate(
+            file_uuid=file.file_uuid,
             file_name=file.file_name,
             file_path=file.file_path,
             cleaned_title=cleaned_title,

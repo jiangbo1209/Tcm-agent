@@ -8,7 +8,7 @@ import time
 from datetime import datetime
 from pathlib import Path
 
-from sqlalchemy import select, update
+from sqlalchemy import func, select, update
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_async_engine
 
 from data_process.pdf_upload.config import get_minio_config, get_postgres_config
@@ -18,9 +18,8 @@ from data_process.pdf_upload.models import Base
 from .llm_client import (
     build_final_prompt,
     build_payload,
-    call_gemini_stream,
+    call_llm_stream,
     extract_json_object,
-    jsonschema_to_gemini_schema,
     load_json_file,
     normalize_record,
     validate_record,
@@ -31,6 +30,7 @@ from .models import MedCase
 from .schemas import ExtractionResult, ExtractionSummary, map_chinese_to_english
 
 LOGGER = logging.getLogger("case_metadata")
+CASE_DOCUMENT_TYPE = 1
 
 _MODULE_DIR = Path(__file__).resolve().parent
 _PROMPT_PATH = _MODULE_DIR / "prompt.md"
@@ -64,7 +64,6 @@ class CaseExtractionService:
         self._local_schema = load_json_file(_SCHEMA_PATH)
         self._field_names = list(self._local_schema.get("properties", {}).keys())
         self._final_prompt = build_final_prompt(self._prompt_md, self._field_names)
-        self._gemini_schema = jsonschema_to_gemini_schema(self._local_schema)
 
         # Enable file logging
         _setup_file_logger()
@@ -79,7 +78,11 @@ class CaseExtractionService:
         async with self._session_factory() as session:
             # Query pending records
             from data_process.pdf_upload.models import CoreFile
-            stmt = select(CoreFile).where(CoreFile.status_case == False)  # noqa: E712
+            stmt = select(CoreFile).where(
+                CoreFile.status_case == False,  # noqa: E712
+                CoreFile.document_type == CASE_DOCUMENT_TYPE,
+                func.lower(CoreFile.file_type) == "pdf",
+            )
             result = await session.execute(stmt)
             pending = result.scalars().all()
 
@@ -123,8 +126,8 @@ class CaseExtractionService:
         # 2. Call LLM with retries
         for attempt in range(1, MAX_RETRIES + 1):
             try:
-                payload = build_payload(self._final_prompt, pdf_bytes, self._gemini_schema)
-                raw_text = call_gemini_stream(payload)
+                payload = build_payload(self._final_prompt, pdf_bytes)
+                raw_text = call_llm_stream(payload)
                 break
             except Exception as exc:
                 LOGGER.warning("Attempt %d/%d failed for %s: %s", attempt, MAX_RETRIES, original_name, exc)
@@ -165,7 +168,7 @@ class CaseExtractionService:
         mapped = map_chinese_to_english(normalized)
         mapped["file_uuid"] = file_uuid
 
-        # 6. Insert into MED_CASE
+        # 6. Insert into case_metadata
         med_case = MedCase(**mapped)
         session.add(med_case)
 

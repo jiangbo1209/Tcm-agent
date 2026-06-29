@@ -42,10 +42,16 @@ class CoreFileRepository:
         items = result.scalars().all()
         return items, total
 
-    async def exists_by_original_name(self, original_name: str) -> bool:
+    async def exists_by_original_name(
+        self,
+        original_name: str,
+        document_type: int | None = None,
+    ) -> bool:
         stmt = select(func.count()).select_from(CoreFile).where(
             CoreFile.original_name == original_name
         )
+        if document_type is not None:
+            stmt = stmt.where(CoreFile.document_type == document_type)
         count = (await self._session.execute(stmt)).scalar() or 0
         return count > 0
 

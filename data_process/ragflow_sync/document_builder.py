@@ -7,7 +7,7 @@ import json
 import re
 from typing import Any
 
-from .models import CaseSource, LiteratureSource
+from .models import CaseSource, GuidelineSource, LiteratureSource
 
 
 def normalize_list(value: Any) -> str | None:
@@ -58,6 +58,11 @@ def literature_filename(source: LiteratureSource) -> str:
     return safe_filename(title, ".pdf")
 
 
+def guideline_filename(source: GuidelineSource) -> str:
+    title = source.title or source.matched_title or source.original_name or source.file_uuid
+    return safe_filename(f"guideline_{title}", ".pdf")
+
+
 def case_filename(source: CaseSource) -> str:
     title = source.literature_title or source.original_name or source.file_uuid
     return safe_filename(f"case_{title}", ".md")
@@ -79,6 +84,27 @@ def literature_metadata(source: LiteratureSource, domain: str) -> dict[str, str]
             "source_url": source.source_url,
             "minio_path": source.storage_path,
             "graph_node_type": "paper",
+            "crawl_status": source.crawl_status,
+        }
+    )
+
+
+def guideline_metadata(source: GuidelineSource, domain: str) -> dict[str, str]:
+    return compact_metadata(
+        {
+            "source_type": "guideline",
+            "domain": domain,
+            "file_uuid": source.file_uuid,
+            "title": source.title,
+            "authors": normalize_list(source.authors),
+            "keywords": normalize_list(source.keywords),
+            "journal": source.journal,
+            "pub_year": source.pub_year,
+            "paper_type": source.paper_type,
+            "source_site": source.source_site,
+            "source_url": source.source_url,
+            "minio_path": source.storage_path,
+            "knowledge_role": "medical_guideline_validation",
             "crawl_status": source.crawl_status,
         }
     )

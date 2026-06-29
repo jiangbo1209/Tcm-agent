@@ -1,0 +1,1 @@
+"""Guideline metadata synchronization module."""
