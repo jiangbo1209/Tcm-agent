@@ -20,10 +20,25 @@ class FailedRecordRepository:
         result = await self.session.execute(stmt)
         return result.scalar_one_or_none() is not None
 
+    async def exists_by_file_uuid(self, file_uuid: str) -> bool:
+        stmt = select(FailedRecord.id).where(FailedRecord.file_uuid == file_uuid).limit(1)
+        result = await self.session.execute(stmt)
+        return result.scalar_one_or_none() is not None
+
     async def create(self, data: FailedRecordCreate) -> FailedRecord:
         try:
-            record = FailedRecord(**data.model_dump())
-            self.session.add(record)
+            existing_stmt = select(FailedRecord).where(FailedRecord.file_uuid == data.file_uuid)
+            existing_result = await self.session.execute(existing_stmt)
+            record = existing_result.scalar_one_or_none()
+
+            values = data.model_dump()
+            if record is None:
+                record = FailedRecord(**values)
+                self.session.add(record)
+            else:
+                for key, value in values.items():
+                    setattr(record, key, value)
+
             await self.session.commit()
             await self.session.refresh(record)
             return record

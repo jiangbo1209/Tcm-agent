@@ -338,10 +338,13 @@ class ExtractionService:
         )
         async with self.session_factory() as session:
             repo = FailedRecordRepository(session)
+            existed = await repo.exists_by_file_uuid(file.file_uuid)
             await repo.create(data)
         logger.info(
-            "Saved failed record: file_name={}, attempted_sites={}, failure_reason={}, suggested_action={}",
+            "{} failed record: file_name={}, file_uuid={}, attempted_sites={}, failure_reason={}, suggested_action={}",
+            "Updated" if existed else "Saved",
             file.file_name,
+            file.file_uuid,
             attempted_sites,
             failure_reason,
             suggested_action,

@@ -117,3 +117,24 @@ LLM 输出中文键名（语义更准确），入库时映射为英文：
 SELECT * FROM case_metadata;
 SELECT file_uuid, status_case FROM core_file WHERE status_case = true;
 ```
+
+## 去重机制
+
+本模块可以安全重复运行，不会因为重复处理同一个病案 PDF 而产生多条病案结构化记录。
+
+去重依据是 `file_uuid`：
+
+- `case_metadata.file_uuid` 会创建唯一索引 `ux_case_metadata_file_uuid`，同一个 PDF 只保留一条病案结构化记录。
+- 待处理查询只选择 `document_type=1`、`lower(file_type)='pdf'`、`status_case=false`，且 `case_metadata` 不存在同 `file_uuid` 记录的文件。
+- 处理单条记录前会再次检查 `case_metadata` 是否已存在，防止任务中断后重新运行时重复调用 Gemini。
+- 如果 `case_metadata` 已经存在记录，但 `core_file.status_case=false`，脚本只同步 `status_case=true`，不会重新调用 Gemini。
+- 如果极端并发导致重复插入，唯一索引会阻止重复数据；程序回滚后同步 `status_case=true`，并将该条计为 skipped。
+- Gemini、MinIO 或解析失败时不会写入 `case_metadata`，也不会把 `status_case` 改为 `true`，后续重新运行会继续重试。
+
+状态规则：
+
+```text
+case_metadata 已存在 -> 不调用 Gemini -> 同步 core_file.status_case=true -> skipped
+case_metadata 不存在且 status_case=false -> 下载 PDF -> Gemini 抽取 -> 写入 case_metadata -> status_case=true
+抽取失败/超时 -> 不写 case_metadata -> status_case 保持 false，后续可重试
+```

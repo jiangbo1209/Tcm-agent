@@ -250,3 +250,23 @@ python -m data_process.guideline_metadata.main
 - 病案也建议先跑 `lit_metadata`，这样后续图谱和 RAGFlow 同步能拿到标题、来源等信息。
 - 本模块只做基础文档元数据，不做病案结构化抽取。
 - 本模块不把数据同步到 RAGFlow，RAGFlow 同步由 `data_process/ragflow_sync` 负责。
+
+## 去重机制
+
+本模块可以安全重复运行，不会因为重复处理同一个 PDF 而产生多条基础元数据记录。
+
+去重依据是 `file_uuid`：
+
+- `lit_metadata.file_uuid` 有唯一约束，同一个 PDF 只保留一条基础元数据记录。
+- 写入 `lit_metadata` 时使用 upsert 逻辑；同一个 `file_uuid` 再次写入会更新原记录，不会重复插入。
+- 扫描待处理文件时，会排除已经存在于 `lit_metadata` 的 `file_uuid`，避免再次爬取和解析。
+- 如果 `lit_metadata` 已经存在记录，但 `core_file.status_metadata=false`，程序会先同步为 `true`，然后跳过该文件。
+- `failed_records.file_uuid` 也有唯一约束；同一个 PDF 失败多次时，会更新原失败记录，不会重复插入，也不会因为唯一键冲突中断任务。
+
+状态规则：
+
+```text
+lit_metadata 已存在 -> 不重新爬取 -> 同步 core_file.status_metadata=true -> skipped
+lit_metadata 不存在且 status_metadata=false -> 正常爬取 -> 写入 lit_metadata -> status_metadata=true
+爬取失败 -> upsert failed_records -> status_metadata 保持 false，后续可重试
+```

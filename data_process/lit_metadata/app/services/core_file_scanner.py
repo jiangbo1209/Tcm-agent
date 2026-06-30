@@ -26,6 +26,10 @@ class CoreFileScanner:
     async def scan(self) -> list[DatasetFile]:
         async with self.session_factory() as session:
             repo = CoreFileRepository(session)
+            synced_count = await repo.sync_existing_metadata_statuses()
+            if synced_count:
+                await session.commit()
+                logger.info("Synced existing lit_metadata statuses: count={}", synced_count)
             records = await repo.list_pending_metadata(self.settings.CORE_FILE_PENDING_LIMIT)
 
         files = [self._to_dataset_file(record) for record in records]

@@ -14,7 +14,7 @@ class FailedRecord(Base):
     __tablename__ = "failed_records"
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
-    file_uuid: Mapped[str] = mapped_column(String, nullable=False, index=True)
+    file_uuid: Mapped[str] = mapped_column(String, nullable=False, unique=True, index=True)
     file_name: Mapped[str] = mapped_column(String(512), nullable=False, index=True)
     file_path: Mapped[str] = mapped_column(Text, nullable=False)
     cleaned_title: Mapped[str] = mapped_column(Text, nullable=False)
