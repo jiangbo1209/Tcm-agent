@@ -2,9 +2,9 @@
 
 ## 功能
 
-从已上传且标记为病案的 PDF 中，调用通义千问多模态模型提取中医病案结构化数据，写入 `case_metadata` 表，并更新 `core_file.status_case` 标记。
+从已上传的 PDF 论文中，调用 Gemini 大模型提取中医病案结构化数据，写入 `case_metadata` 表，并更新 `core_file.status_case` 标记。
 
-处理流程：查询待处理记录 → 从 MinIO 下载 PDF → PDF 页面渲染为图片 → Qwen-VL 提取 → JSON 解析校验 → 入库 → 更新状态
+处理流程：查询待处理记录 → 从 MinIO 下载 PDF → Gemini API 提取 → JSON 解析校验 → 入库 → 更新状态
 
 ## 运行
 
@@ -15,33 +15,36 @@ conda activate tcm-agent
 # 从项目根目录运行
 cd D:\SleepPause\Program\python\Tcm-agent
 python -m data_process.case_metadata.run_extraction
+
+# 只处理 20 条待处理病案
+python -m data_process.case_metadata.run_extraction --limit 20
 ```
 
 ## 前置条件
 
 1. PostgreSQL 和 MinIO 服务运行中
 2. `core_file` 表中有 `document_type=1` 且 `status_case=false` 的记录（即已上传但未提取病案的 PDF）
-3. `.env` 中已配置通义千问/百炼 API 密钥
-4. 已安装 `PyMuPDF`，用于将 PDF 页面渲染为图片
+3. `.env` 中已配置 Gemini API 密钥
 
 ## 工作机制
 
 ```
 run_extraction.py 启动
-  → 查询 core_file WHERE document_type=1 AND status_case=false AND file_type='pdf'
+  → 查询 core_file WHERE document_type=1 AND status_case=false
   → 对每条记录：
     1. 从 MinIO 下载 PDF
-    2. 将 PDF 前若干页渲染为 JPEG 图片，并转为 base64 data URL
-    3. 通过 DashScope OpenAI 兼容接口发送 prompt + 页面图片给 Qwen-VL
-    4. 解析 Qwen-VL 返回的 JSON（20 个中文键名字段）
-    5. 校验字段完整性，缺失字段补 null
-    6. 中文键名映射为英文列名（如"中医证候诊断" → tcm_diagnosis）
-    7. 插入 case_metadata 表
-    8. 更新 core_file.status_case = true
+    2. base64 编码 PDF，连同 prompt 一起发送给 Gemini
+    3. 解析 Gemini 返回的 JSON（20 个中文键名字段）
+    4. 校验字段完整性，缺失字段补 null
+    5. 中文键名映射为英文列名（如"中医证候诊断" → tcm_diagnosis）
+    6. 插入 case_metadata 表
+    7. 更新 core_file.status_case = true
   → 输出统计：成功/失败数
 ```
 
-**断点续传**：已 `status_case=true` 的病案记录自动跳过，可随时中断后重新运行；文献和指南不会进入本模块处理。
+**断点续传**：已 `status_case=true` 的记录自动跳过，可随时中断后重新运行。
+
+**去重保护**：已存在于 `case_metadata` 的 `file_uuid` 会跳过，不会重复调用 Gemini 或重复插入；若 `core_file.status_case=false` 但 `case_metadata` 已有记录，脚本只会同步 `status_case=true`。
 
 **重试**：单条记录最多重试 3 次，间隔 10 秒。
 
@@ -90,10 +93,10 @@ LLM 输出中文键名（语义更准确），入库时映射为英文：
 
 | 文件 | 说明 |
 |------|------|
-| `prompt.md` | 发送给 Qwen-VL 的提取指令（中文键名，20 字段） |
-| `schema.json` | JSON Schema，用于校验 LLM 输出 |
+| `prompt.md` | 发送给 Gemini 的提取指令（中文键名，20 字段） |
+| `schema.json` | JSON Schema，用于校验 LLM 输出 + 生成 Gemini responseSchema |
 | `models.py` | MedCase SQLAlchemy 模型 |
-| `llm_client.py` | Qwen-VL OpenAI 兼容流式调用、PDF 渲染、payload 构建、JSON 解析 |
+| `llm_client.py` | Gemini SSE 流式调用、payload 构建、JSON 解析 |
 | `schemas.py` | 中文→英文映射、Pydantic 校验模型 |
 | `service.py` | 核心业务逻辑（下载→提取→入库→更新状态） |
 | `run_extraction.py` | 手动触发入口脚本 |
@@ -102,13 +105,9 @@ LLM 输出中文键名（语义更准确），入库时映射为英文：
 
 | 变量 | 默认值 | 说明 |
 |------|--------|------|
-| `LLM_BASE_URL` | `https://dashscope.aliyuncs.com/compatible-mode/v1` | DashScope OpenAI 兼容端点 |
-| `LLM_API_KEY` | - | API 密钥 |
-| `LLM_MODEL` | `qwen-vl-plus` | 使用的多模态模型 |
-| `QWEN_PDF_MAX_PAGES` | `8` | 每个 PDF 最多发送前几页 |
-| `QWEN_PDF_RENDER_SCALE` | `1.5` | PDF 页面渲染倍率 |
-
-兼容旧变量：如果没有配置 `LLM_BASE_URL` 或 `LLM_API_KEY`，代码仍会读取 `RELAY_BASE_URL`、`RELAY_API_KEY`。模型名请使用 `LLM_MODEL` 或 `QWEN_MODEL`。
+| RELAY_BASE_URL | https://x666.me/v1beta/... | Gemini 中转站端点 |
+| RELAY_API_KEY | - | API 密钥 |
+| GEMINI_MODEL | gemini-3-flash-preview | 使用的模型 |
 
 ## 验证
 

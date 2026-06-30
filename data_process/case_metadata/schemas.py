@@ -44,6 +44,7 @@ class ExtractionResult(BaseModel):
     file_uuid: str
     original_name: str
     success: bool
+    skipped: bool = False
     error: str | None = None
     missing_fields: list[str] = Field(default_factory=list)
     extra_fields: list[str] = Field(default_factory=list)

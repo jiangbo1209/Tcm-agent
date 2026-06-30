@@ -3,12 +3,15 @@
 
 Usage:
     python -m data_process.case_metadata.run_extraction
+    python -m data_process.case_metadata.run_extraction --limit 20
 """
 
 from __future__ import annotations
 
+import argparse
 import asyncio
 import logging
+import os
 import sys
 from pathlib import Path
 
@@ -24,40 +27,57 @@ logging.basicConfig(
 )
 
 
-async def main() -> int:
+def current_model_name() -> str:
+    return os.getenv("GEMINI_MODEL") or os.getenv("LLM_MODEL", "gemini-3-flash-preview")
+
+
+def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
+    parser = argparse.ArgumentParser(description="Extract case metadata from uploaded case PDFs.")
+    parser.add_argument(
+        "-n",
+        "--limit",
+        type=int,
+        default=None,
+        help="Maximum number of pending case PDFs to process in this run.",
+    )
+    args = parser.parse_args(argv)
+    if args.limit is not None and args.limit < 1:
+        parser.error("--limit must be a positive integer")
+    return args
+
+
+async def main(argv: list[str] | None = None) -> int:
     from .service import CaseExtractionService
 
+    args = parse_args(argv)
     service = CaseExtractionService()
 
     try:
         print("=" * 60)
         print("TCM Case Metadata Extraction")
         print("=" * 60)
-        os_module = __import__("os")
-        model = (
-            os_module.getenv("LLM_MODEL")
-            or os_module.getenv("QWEN_MODEL", "qwen-vl-plus")
-        )
-        print(f"LLM model: {model}")
+        print(f"Gemini model: {current_model_name()}")
+        print(f"Limit: {args.limit if args.limit is not None else 'all pending cases'}")
         print()
 
         # Ensure tables exist
         await service.ensure_tables()
 
-        # Process all pending cases
-        summary = await service.process_pending_cases()
+        # Process pending cases
+        summary = await service.process_pending_cases(limit=args.limit)
 
         # Print summary
         print()
         print("-" * 40)
         print(f"Total pending: {summary.total}")
         print(f"  Success: {summary.success}")
+        print(f"  Skipped: {summary.skipped}")
         print(f"  Failed:  {summary.failed}")
 
         if summary.results:
             print()
             for r in summary.results:
-                status = "OK" if r.success else "FAIL"
+                status = "SKIP" if r.skipped else ("OK" if r.success else "FAIL")
                 print(f"  [{status}] {r.original_name}")
                 if r.error:
                     print(f"         Error: {r.error}")

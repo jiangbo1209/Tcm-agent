@@ -8,7 +8,8 @@ import time
 from datetime import datetime
 from pathlib import Path
 
-from sqlalchemy import func, select, update
+from sqlalchemy import func, select, text, update
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_async_engine
 
 from data_process.pdf_upload.config import get_minio_config, get_postgres_config
@@ -18,8 +19,9 @@ from data_process.pdf_upload.models import Base
 from .llm_client import (
     build_final_prompt,
     build_payload,
-    call_llm_stream,
+    call_gemini_stream,
     extract_json_object,
+    jsonschema_to_gemini_schema,
     load_json_file,
     normalize_record,
     validate_record,
@@ -30,7 +32,6 @@ from .models import MedCase
 from .schemas import ExtractionResult, ExtractionSummary, map_chinese_to_english
 
 LOGGER = logging.getLogger("case_metadata")
-CASE_DOCUMENT_TYPE = 1
 
 _MODULE_DIR = Path(__file__).resolve().parent
 _PROMPT_PATH = _MODULE_DIR / "prompt.md"
@@ -64,6 +65,7 @@ class CaseExtractionService:
         self._local_schema = load_json_file(_SCHEMA_PATH)
         self._field_names = list(self._local_schema.get("properties", {}).keys())
         self._final_prompt = build_final_prompt(self._prompt_md, self._field_names)
+        self._gemini_schema = jsonschema_to_gemini_schema(self._local_schema)
 
         # Enable file logging
         _setup_file_logger()
@@ -71,42 +73,112 @@ class CaseExtractionService:
     async def ensure_tables(self) -> None:
         async with self._engine.begin() as conn:
             await conn.run_sync(Base.metadata.create_all)
+            await conn.execute(
+                text(
+                    "CREATE UNIQUE INDEX IF NOT EXISTS "
+                    "ux_case_metadata_file_uuid ON case_metadata (file_uuid)"
+                )
+            )
 
-    async def process_pending_cases(self) -> ExtractionSummary:
+    async def process_pending_cases(self, limit: int | None = None) -> ExtractionSummary:
         summary = ExtractionSummary()
 
         async with self._session_factory() as session:
-            # Query pending records
             from data_process.pdf_upload.models import CoreFile
-            stmt = select(CoreFile).where(
-                CoreFile.status_case == False,  # noqa: E712
-                CoreFile.document_type == CASE_DOCUMENT_TYPE,
-                func.lower(CoreFile.file_type) == "pdf",
+
+            synced_existing = await self._sync_existing_case_statuses(session)
+            for core_file in synced_existing:
+                summary.results.append(
+                    ExtractionResult(
+                        file_uuid=core_file.file_uuid,
+                        original_name=core_file.original_name,
+                        success=True,
+                        skipped=True,
+                    )
+                )
+            summary.skipped += len(synced_existing)
+
+            # Query pending records
+            existing_case = select(MedCase.id).where(MedCase.file_uuid == CoreFile.file_uuid).exists()
+            stmt = (
+                select(CoreFile)
+                .where(
+                    CoreFile.document_type == 1,
+                    func.lower(CoreFile.file_type) == "pdf",
+                    CoreFile.status_case == False,  # noqa: E712
+                    ~existing_case,
+                )
+                .order_by(CoreFile.upload_time.asc())
             )
+            if limit is not None:
+                stmt = stmt.limit(max(0, limit))
             result = await session.execute(stmt)
             pending = result.scalars().all()
 
-            summary.total = len(pending)
+            summary.total = len(pending) + summary.skipped
             if not pending:
                 LOGGER.info("No pending cases to process")
                 return summary
 
-            LOGGER.info("Found %d pending cases", len(pending))
+            LOGGER.info(
+                "Found %d pending cases%s",
+                len(pending),
+                f" (limit={limit})" if limit is not None else "",
+            )
 
             for core_file in pending:
                 extraction = await self._process_one(session, core_file.file_uuid, core_file.storage_path, core_file.original_name)
                 summary.results.append(extraction)
 
                 if extraction.success:
-                    summary.success += 1
+                    if extraction.skipped:
+                        summary.skipped += 1
+                    else:
+                        summary.success += 1
                 else:
                     summary.failed += 1
 
         return summary
 
+    async def _sync_existing_case_statuses(self, session: AsyncSession) -> list:
+        from data_process.pdf_upload.models import CoreFile
+
+        existing_case = select(MedCase.id).where(MedCase.file_uuid == CoreFile.file_uuid).exists()
+        stmt = (
+            select(CoreFile)
+            .where(
+                CoreFile.document_type == 1,
+                func.lower(CoreFile.file_type) == "pdf",
+                CoreFile.status_case == False,  # noqa: E712
+                existing_case,
+            )
+            .order_by(CoreFile.upload_time.asc())
+        )
+        result = await session.execute(stmt)
+        stale_rows = result.scalars().all()
+        if not stale_rows:
+            return []
+
+        await session.execute(
+            update(CoreFile)
+            .where(CoreFile.file_uuid.in_([row.file_uuid for row in stale_rows]))
+            .values(status_case=True)
+        )
+        await session.commit()
+        LOGGER.info("Skipped %d cases already present in case_metadata", len(stale_rows))
+        return stale_rows
+
     async def _process_one(self, session: AsyncSession, file_uuid: str, storage_path: str, original_name: str) -> ExtractionResult:
         extraction = ExtractionResult(file_uuid=file_uuid, original_name=original_name, success=False)
         t_start = time.monotonic()
+
+        if await self._case_metadata_exists(session, file_uuid):
+            await self._mark_case_processed(session, file_uuid)
+            extraction.success = True
+            extraction.skipped = True
+            elapsed = time.monotonic() - t_start
+            LOGGER.info("RESULT | SKIP | %s | reason=already_extracted | elapsed=%.1fs", original_name, elapsed)
+            return extraction
 
         # 1. Download PDF from MinIO
         try:
@@ -126,8 +198,8 @@ class CaseExtractionService:
         # 2. Call LLM with retries
         for attempt in range(1, MAX_RETRIES + 1):
             try:
-                payload = build_payload(self._final_prompt, pdf_bytes)
-                raw_text = call_llm_stream(payload)
+                payload = build_payload(self._final_prompt, pdf_bytes, self._gemini_schema)
+                raw_text = call_gemini_stream(payload)
                 break
             except Exception as exc:
                 LOGGER.warning("Attempt %d/%d failed for %s: %s", attempt, MAX_RETRIES, original_name, exc)
@@ -173,12 +245,21 @@ class CaseExtractionService:
         session.add(med_case)
 
         # 7. Update CORE_FILE.status_case = true
-        from data_process.pdf_upload.models import CoreFile
         await session.execute(
             update(CoreFile).where(CoreFile.file_uuid == file_uuid).values(status_case=True)
         )
 
-        await session.commit()
+        try:
+            await session.commit()
+        except IntegrityError:
+            await session.rollback()
+            await self._mark_case_processed(session, file_uuid)
+            extraction.success = True
+            extraction.skipped = True
+            elapsed = time.monotonic() - t_start
+            LOGGER.info("RESULT | SKIP | %s | reason=duplicate_insert | elapsed=%.1fs", original_name, elapsed)
+            return extraction
+
         extraction.success = True
         elapsed = time.monotonic() - t_start
         LOGGER.info(
@@ -187,6 +268,24 @@ class CaseExtractionService:
             f" [{','.join(missing_fields[:5])}]" if missing_fields else "",
         )
         return extraction
+
+    async def _case_metadata_exists(self, session: AsyncSession, file_uuid: str) -> bool:
+        stmt = select(MedCase.id).where(MedCase.file_uuid == file_uuid).limit(1)
+        result = await session.execute(stmt)
+        return result.scalar_one_or_none() is not None
+
+    async def _mark_case_processed(self, session: AsyncSession, file_uuid: str) -> None:
+        from data_process.pdf_upload.models import CoreFile
+
+        await session.execute(
+            update(CoreFile)
+            .where(
+                CoreFile.file_uuid == file_uuid,
+                CoreFile.document_type == 1,
+            )
+            .values(status_case=True)
+        )
+        await session.commit()
 
     async def dispose(self) -> None:
         await self._engine.dispose()
