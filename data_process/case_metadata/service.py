@@ -9,12 +9,12 @@ from datetime import datetime
 from pathlib import Path
 
 from sqlalchemy import func, select, text, update
-from sqlalchemy.exc import IntegrityError
+from sqlalchemy.exc import IntegrityError, SQLAlchemyError
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_async_engine
 
 from data_process.pdf_upload.config import get_minio_config, get_postgres_config
 from data_process.pdf_upload.minio_client import MinioClient
-from data_process.pdf_upload.models import Base
+from data_process.pdf_upload.models import Base, CoreFile
 
 from .llm_client import (
     build_final_prompt,
@@ -41,6 +41,11 @@ _LOG_DIR = Path(__file__).resolve().parents[2] / "logs" / "case_metadata"
 
 def _setup_file_logger() -> logging.Handler:
     """Add a file handler that appends every extraction result to a log file."""
+    logger = logging.getLogger("case_metadata")
+    for handler in logger.handlers:
+        if isinstance(handler, logging.FileHandler):
+            return handler
+
     _LOG_DIR.mkdir(parents=True, exist_ok=True)
     log_file = _LOG_DIR / f"extraction_{datetime.now().strftime('%Y%m%d')}.log"
     fh = logging.FileHandler(log_file, encoding="utf-8")
@@ -49,7 +54,7 @@ def _setup_file_logger() -> logging.Handler:
         "%(asctime)s | %(levelname)s | %(message)s",
         datefmt="%Y-%m-%d %H:%M:%S",
     ))
-    logging.getLogger("case_metadata").addHandler(fh)
+    logger.addHandler(fh)
     return fh
 
 
@@ -127,7 +132,22 @@ class CaseExtractionService:
             )
 
             for core_file in pending:
-                extraction = await self._process_one(session, core_file.file_uuid, core_file.storage_path, core_file.original_name)
+                try:
+                    extraction = await self._process_one(
+                        session,
+                        core_file.file_uuid,
+                        core_file.storage_path,
+                        core_file.original_name,
+                    )
+                except Exception as exc:
+                    await session.rollback()
+                    LOGGER.exception("Unexpected failure for %s", core_file.original_name)
+                    extraction = ExtractionResult(
+                        file_uuid=core_file.file_uuid,
+                        original_name=core_file.original_name,
+                        success=False,
+                        error=f"Unexpected error: {exc}",
+                    )
                 summary.results.append(extraction)
 
                 if extraction.success:
@@ -258,6 +278,12 @@ class CaseExtractionService:
             extraction.skipped = True
             elapsed = time.monotonic() - t_start
             LOGGER.info("RESULT | SKIP | %s | reason=duplicate_insert | elapsed=%.1fs", original_name, elapsed)
+            return extraction
+        except SQLAlchemyError as exc:
+            await session.rollback()
+            extraction.error = f"Database commit failed: {exc}"
+            elapsed = time.monotonic() - t_start
+            LOGGER.exception("RESULT | FAIL | %s | phase=commit | elapsed=%.1fs", original_name, elapsed)
             return extraction
 
         extraction.success = True

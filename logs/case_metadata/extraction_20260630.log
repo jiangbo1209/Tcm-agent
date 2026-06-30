@@ -1,0 +1,35 @@
+2026-06-30 22:04:29 | INFO | Found 20 pending cases (limit=20)
+2026-06-30 22:04:29 | INFO | Downloaded 10卷5期疑难病案讨论选登_李晶.pdf (317438 bytes)
+2026-06-30 22:06:08 | ERROR | Fatal error
+Traceback (most recent call last):
+  File "F:\中医智能体\tcm-test\Tcm-agent\data_process\case_metadata\run_extraction.py", line 67, in main
+    summary = await service.process_pending_cases(limit=args.limit)
+              ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "F:\中医智能体\tcm-test\Tcm-agent\data_process\case_metadata\service.py", line 130, in process_pending_cases
+    extraction = await self._process_one(session, core_file.file_uuid, core_file.storage_path, core_file.original_name)
+                 ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "F:\中医智能体\tcm-test\Tcm-agent\data_process\case_metadata\service.py", line 249, in _process_one
+    update(CoreFile).where(CoreFile.file_uuid == file_uuid).values(status_case=True)
+           ^^^^^^^^
+NameError: name 'CoreFile' is not defined
+2026-06-30 22:12:13 | INFO | Found 20 pending cases (limit=20)
+2026-06-30 22:12:13 | INFO | Downloaded 10卷5期疑难病案讨论选登_李晶.pdf (317438 bytes)
+2026-06-30 22:12:40 | WARNING | Attempt 1/3 failed for 10卷5期疑难病案讨论选登_李晶.pdf: HTTP 429: {"error":{"message":"You exceeded your current quota, please check your plan and billing details. For more information on this error, head to: https://***.dev/***/***/*** To monitor your current usage, head to: https://***.dev/*** \n* Quota exceeded for metric: ***.***.com/generate_content_free_tier_requests, limit: 20, model: gemini-3.5-flash\nPlease retry in 19.461903396s.","type":"upstream_error","param":"","code":429}}
+2026-06-30 22:14:59 | WARNING | Attempt 2/3 failed for 10卷5期疑难病案讨论选登_李晶.pdf: HTTP 524: <!DOCTYPE html>
+<!--[if lt IE 7]> <html class="no-js ie6 oldie" lang="en-US"> <![endif]-->
+<!--[if IE 7]>    <html class="no-js ie7 oldie" lang="en-US"> <![endif]-->
+<!--[if IE 8]>    <html class="no-js ie8 oldie" lang="en-US"> <![endif]-->
+<!--[if gt IE 8]><!--> <html class="no-js" lang="en-US"> <!--<![endif]-->
+<head>
+
+<title>hxi.me | 524: A timeout occurred</title>
+<meta charset="UTF-8" />
+<meta http-equiv="Content-Type" content="text/html; charset=UTF-8" />
+<meta http-equiv="X-UA-Compatible" content="IE=Edge" />
+<meta name="robots" content="noindex, nofollow" />
+<meta name="viewport" content="width=device-width,initial-scale=1" />
+<link rel="stylesheet" id="cf_styles-css" href="/cdn-cgi/styles/main.css" />
+</head>
+<body>
+<div id="cf-wrapper">
+    <div id="cf-error-details" class="p-0">

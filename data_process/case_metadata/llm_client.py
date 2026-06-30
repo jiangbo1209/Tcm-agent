@@ -127,6 +127,8 @@ def build_gemini_endpoint() -> str:
         return base_url.format(model=GEMINI_MODEL)
     if "/v1beta/models/" in base_url:
         return base_url
+    if base_url.endswith("/v1beta/models"):
+        return f"{base_url}/{GEMINI_MODEL}:streamGenerateContent?alt=sse"
     return f"{base_url}/v1beta/models/{GEMINI_MODEL}:streamGenerateContent?alt=sse"
 
 
