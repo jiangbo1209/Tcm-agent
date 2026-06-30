@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from unittest.mock import MagicMock, patch
+from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 import pytest_asyncio
@@ -26,8 +26,11 @@ TEST_DB_URL = "sqlite+aiosqlite:///:memory:"
 def _make_mock_minio() -> MagicMock:
     mock = MagicMock(spec=MinioClient)
     mock.put_object.side_effect = lambda object_name, data, content_type="application/pdf": object_name
+    mock.put_object_async = AsyncMock(side_effect=lambda object_name, data, content_type="application/pdf": object_name)
     mock.remove_object.return_value = None
+    mock.remove_object_async = AsyncMock(return_value=None)
     mock.presigned_get_object.return_value = "http://minio:9000/tcm-documents/test.pdf?signature=abc"
+    mock.presigned_get_object_async = AsyncMock(return_value="http://minio:9000/tcm-documents/test.pdf?signature=abc")
     return mock
 
 

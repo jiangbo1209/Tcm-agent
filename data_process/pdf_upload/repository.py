@@ -20,6 +20,16 @@ class CoreFileRepository:
         await self._session.refresh(core_file)
         return core_file
 
+    async def insert_many(self, core_files: list[CoreFile]) -> list[CoreFile]:
+        if not core_files:
+            return []
+
+        self._session.add_all(core_files)
+        await self._session.flush()
+        for core_file in core_files:
+            await self._session.refresh(core_file)
+        return core_files
+
     async def get_by_uuid(self, file_uuid: str) -> CoreFile | None:
         stmt = select(CoreFile).where(CoreFile.file_uuid == file_uuid)
         result = await self._session.execute(stmt)
@@ -54,6 +64,22 @@ class CoreFileRepository:
             stmt = stmt.where(CoreFile.document_type == document_type)
         count = (await self._session.execute(stmt)).scalar() or 0
         return count > 0
+
+    async def existing_original_names(
+        self,
+        original_names: list[str],
+        document_type: int | None = None,
+    ) -> set[str]:
+        if not original_names:
+            return set()
+
+        stmt = select(CoreFile.original_name).where(
+            CoreFile.original_name.in_(original_names)
+        )
+        if document_type is not None:
+            stmt = stmt.where(CoreFile.document_type == document_type)
+        result = await self._session.execute(stmt)
+        return set(result.scalars().all())
 
     async def delete_by_uuid(self, file_uuid: str) -> bool:
         stmt = delete(CoreFile).where(CoreFile.file_uuid == file_uuid)

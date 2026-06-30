@@ -82,6 +82,7 @@ class UploadConfig(BaseSettings):
 
     max_file_size_mb: int = 100
     allowed_extensions: str = ".pdf"
+    batch_concurrency: int = 5
 
     @property
     def extensions_tuple(self) -> Tuple[str, ...]:

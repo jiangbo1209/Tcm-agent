@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import asyncio
 import io
 from datetime import timedelta
 from urllib.parse import urlparse
@@ -77,6 +78,20 @@ class MinioClient:
         )
         return object_name
 
+    async def put_object_async(
+        self,
+        object_name: str,
+        data: bytes,
+        content_type: str = "application/pdf",
+    ) -> str:
+        """Upload bytes without blocking the event loop."""
+        return await asyncio.to_thread(
+            self.put_object,
+            object_name=object_name,
+            data=data,
+            content_type=content_type,
+        )
+
     def presigned_get_object(
         self,
         object_name: str,
@@ -96,6 +111,19 @@ class MinioClient:
         except S3Error:
             raise
 
+    async def presigned_get_object_async(
+        self,
+        object_name: str,
+        *,
+        expires: timedelta = timedelta(hours=1),
+    ) -> str:
+        """Generate a presigned URL without blocking the event loop."""
+        return await asyncio.to_thread(
+            self.presigned_get_object,
+            object_name=object_name,
+            expires=expires,
+        )
+
     def get_object(self, object_name: str) -> bytes:
         """Download object from MinIO, return bytes."""
         response = self._client.get_object(
@@ -113,3 +141,7 @@ class MinioClient:
             bucket_name=self._config.bucket_name,
             object_name=object_name,
         )
+
+    async def remove_object_async(self, object_name: str) -> None:
+        """Remove an object without blocking the event loop."""
+        await asyncio.to_thread(self.remove_object, object_name=object_name)

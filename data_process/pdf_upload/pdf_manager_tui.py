@@ -32,6 +32,7 @@ LIST_ENDPOINT = f"{API_BASE_URL}/api/files"
 DELETE_ENDPOINT = f"{API_BASE_URL}/api/files"
 BATCH_DELETE_ENDPOINT = f"{API_BASE_URL}/api/files/batch-delete"
 HEALTH_CHECK_URL = f"{API_BASE_URL}/health"
+DEFAULT_UPLOAD_BATCH_SIZE = 50
 
 console = Console()
 
@@ -40,6 +41,18 @@ DOCUMENT_TYPE_LABELS = {
     1: "病案",
     2: "指南",
 }
+
+
+def _upload_batch_size() -> int:
+    try:
+        return max(1, int(os.getenv("PDF_UPLOAD_BATCH_SIZE", str(DEFAULT_UPLOAD_BATCH_SIZE))))
+    except ValueError:
+        return DEFAULT_UPLOAD_BATCH_SIZE
+
+
+def _chunks(items: list[Path], size: int):
+    for index in range(0, len(items), size):
+        yield items[index:index + size]
 
 
 def check_service() -> bool:
@@ -213,79 +226,105 @@ def upload_files() -> None:
     )
 
     results = []
-    for file_path in valid_files:
+    batch_size = _upload_batch_size()
+    total_batches = -(-len(valid_files) // batch_size)
+
+    for batch_index, batch_files in enumerate(_chunks(valid_files, batch_size), 1):
+        console.print(
+            f"[cyan]批次 {batch_index}/{total_batches}：上传 {len(batch_files)} 个文件...[/cyan]"
+        )
+        file_handles = []
         try:
-            with open(file_path, "rb") as f:
-                files = {"files": (file_path.name, f, "application/pdf")}
-                response = requests.post(
-                    UPLOAD_ENDPOINT,
-                    files=files,
-                    data={"document_type": str(document_type)},
-                    timeout=30,
-                )
+            files_payload = []
+            for file_path in batch_files:
+                handle = open(file_path, "rb")
+                file_handles.append(handle)
+                files_payload.append(("files", (file_path.name, handle, "application/pdf")))
+
+            response = requests.post(
+                UPLOAD_ENDPOINT,
+                files=files_payload,
+                data={"document_type": str(document_type)},
+                timeout=max(300, len(batch_files) * 30),
+            )
 
             if response.status_code == 200:
                 data = response.json()
                 items = data.get("items", []) if isinstance(data, dict) else []
-                item = items[0] if items else {}
-                status = item.get("status")
-                detail = item.get("detail") or ""
 
-                if status == "uploaded":
+                for file_path, item in zip(batch_files, items):
+                    status = item.get("status")
+                    detail = item.get("detail") or ""
+
+                    if status == "uploaded":
+                        results.append(
+                            {
+                                "文件名": file_path.name,
+                                "类型": document_label,
+                                "状态": "✅ 成功",
+                                "UUID": item.get("file_uuid", "")[:12],
+                            }
+                        )
+                        console.print(f"[green]✅ {file_path.name}[/green]")
+                    elif status == "skipped":
+                        results.append(
+                            {
+                                "文件名": file_path.name,
+                                "类型": document_label,
+                                "状态": "⚠️  已存在",
+                                "UUID": "-",
+                            }
+                        )
+                        console.print(f"[yellow]⚠️  {file_path.name} 已存在[/yellow]")
+                    else:
+                        message = detail or "上传失败"
+                        results.append(
+                            {
+                                "文件名": file_path.name,
+                                "类型": document_label,
+                                "状态": f"❌ {message}",
+                                "UUID": "-",
+                            }
+                        )
+                        console.print(f"[red]❌ {file_path.name} - {message}[/red]")
+
+                for file_path in batch_files[len(items):]:
                     results.append(
                         {
                             "文件名": file_path.name,
                             "类型": document_label,
-                            "状态": "✅ 成功",
-                            "UUID": item.get("file_uuid", "")[:12],
-                        }
-                    )
-                    console.print(f"[green]✅ {file_path.name}[/green]")
-                elif status == "skipped":
-                    results.append(
-                        {
-                            "文件名": file_path.name,
-                            "类型": document_label,
-                            "状态": "⚠️  已存在",
+                            "状态": "❌ 上传失败",
                             "UUID": "-",
                         }
                     )
-                    console.print(f"[yellow]⚠️  {file_path.name} 已存在[/yellow]")
-                else:
-                    message = detail or "上传失败"
-                    results.append(
-                        {
-                            "文件名": file_path.name,
-                            "类型": document_label,
-                            "状态": f"❌ {message}",
-                            "UUID": "-",
-                        }
-                    )
-                    console.print(f"[red]❌ {file_path.name} - {message}[/red]")
+                    console.print(f"[red]❌ {file_path.name} - 上传失败[/red]")
             else:
                 detail = response.text[:120] if response.text else ""
+                for file_path in batch_files:
+                    results.append(
+                        {
+                            "文件名": file_path.name,
+                            "类型": document_label,
+                            "状态": f"❌ HTTP {response.status_code}",
+                            "UUID": "-",
+                        }
+                    )
+                console.print(f"[red]❌ 批量上传失败 - HTTP {response.status_code} {detail}[/red]")
+
+        except Exception as e:
+            for file_path in batch_files:
                 results.append(
                     {
                         "文件名": file_path.name,
                         "类型": document_label,
-                        "状态": f"❌ HTTP {response.status_code}",
+                        "状态": "❌ 错误",
                         "UUID": "-",
                     }
                 )
-                console.print(
-                    f"[red]❌ {file_path.name} - HTTP {response.status_code} {detail}[/red]"
-                )
-
-        except Exception as e:
-            results.append(
-                {
-                    "文件名": file_path.name,
-                    "类型": document_label,
-                    "状态": "❌ 错误",
-                    "UUID": "-",
-                }
-            )
-            console.print(f"[red]❌ {file_path.name} - {e}[/red]")
+            console.print(f"[red]❌ 批量上传出错 - {e}[/red]")
+        finally:
+            for handle in file_handles:
+                handle.close()
 
     # 显示总结表格
     console.print("\n[cyan]📊 上传总结[/cyan]")

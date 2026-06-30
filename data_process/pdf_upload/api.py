@@ -101,25 +101,23 @@ async def batch_upload_pdf(
     ),
     service: UploadService = Depends(_get_service),
 ):
-    results: list[BatchUploadItem] = []
-    uploaded = 0
-    skipped = 0
-    failed = 0
+    results: list[BatchUploadItem | None] = [None] * len(files)
+    valid_files: list[tuple[str, bytes]] = []
+    valid_positions: list[int] = []
 
-    for file in files:
+    for index, file in enumerate(files):
         filename = _normalize_filename(file.filename) if file.filename else None
 
         # Validate extension
         if not filename or not any(
             filename.lower().endswith(ext) for ext in service.allowed_extensions
         ):
-            results.append(BatchUploadItem(
+            results[index] = BatchUploadItem(
                 file_uuid=None,
                 original_name=file.filename or "",
                 status="failed",
                 detail="Only PDF files are accepted",
-            ))
-            failed += 1
+            )
             await file.close()
             continue
 
@@ -128,54 +126,49 @@ async def batch_upload_pdf(
 
         # Validate size
         if len(content) == 0:
-            results.append(BatchUploadItem(
+            results[index] = BatchUploadItem(
                 file_uuid=None,
                 original_name=filename,
                 status="failed",
                 detail="Empty file rejected",
-            ))
-            failed += 1
+            )
             continue
         if len(content) > service.max_file_size_bytes:
-            results.append(BatchUploadItem(
+            results[index] = BatchUploadItem(
                 file_uuid=None,
                 original_name=filename,
                 status="failed",
                 detail=f"File exceeds maximum size of {service.max_file_size_mb}MB",
-            ))
-            failed += 1
+            )
             continue
 
-        # Upload, skip on duplicate
+        valid_positions.append(index)
+        valid_files.append((filename, content))
+
+    if valid_files:
         try:
-            result = await service.upload(filename, content, document_type=document_type)
-            results.append(BatchUploadItem(
-                file_uuid=result["file_uuid"],
-                original_name=filename,
-                status="uploaded",
-            ))
-            uploaded += 1
-        except ValueError:
-            results.append(BatchUploadItem(
-                file_uuid=None,
-                original_name=filename,
-                status="skipped",
-                detail="File already exists",
-            ))
-            skipped += 1
-        except (S3Error, Exception) as exc:
-            LOGGER.exception("Batch upload failed for %s", filename)
-            results.append(BatchUploadItem(
-                file_uuid=None,
-                original_name=filename,
-                status="failed",
-                detail="Internal upload error",
-            ))
-            failed += 1
+            batch_result = await service.upload_many(valid_files, document_type=document_type)
+        except ValueError as exc:
+            raise HTTPException(status_code=400, detail=str(exc)) from exc
+        except Exception as exc:
+            LOGGER.exception("Batch upload processing failed")
+            raise HTTPException(status_code=500, detail="Internal upload error") from exc
+
+        for position, item in zip(valid_positions, batch_result["items"]):
+            results[position] = BatchUploadItem(**item)
+
+    final_results = [
+        item
+        for item in results
+        if item is not None
+    ]
+    uploaded = sum(1 for item in final_results if item.status == "uploaded")
+    skipped = sum(1 for item in final_results if item.status == "skipped")
+    failed = sum(1 for item in final_results if item.status == "failed")
 
     return BatchUploadResponse(
-        items=results,
-        total=len(results),
+        items=final_results,
+        total=len(final_results),
         uploaded=uploaded,
         skipped=skipped,
         failed=failed,
