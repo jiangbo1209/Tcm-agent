@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 import asyncio
-from typing import Any
 
 from loguru import logger
 
@@ -11,7 +10,6 @@ from app.database import engine
 from app.services.core_file_scanner import CoreFileScanner
 from app.services.crawlers.base import BaseCrawler
 from app.services.crawlers.nstl_crawler import NstlCrawler
-from app.services.crawlers.wanfang_crawler import WanfangCrawler
 from app.services.crawlers.yidu_crawler import YiduCrawler
 from app.services.extraction_service import ExtractionService
 
@@ -20,8 +18,6 @@ CRAWLER_FACTORIES: dict[str, type[BaseCrawler]] = {
     "yidu": YiduCrawler,
     "nstl": NstlCrawler,
     "cnki": None,  # lazy import
-    "wanfang": WanfangCrawler,
-    "weipu": None,  # lazy import
 }
 
 
@@ -41,10 +37,6 @@ async def main() -> None:
             from app.services.crawlers.cnki_crawler import CnkiCrawler
 
             crawlers[site] = CnkiCrawler(settings)
-        elif factory is None and site == "weipu":
-            from app.services.crawlers.weipu_crawler import WeipuCrawler
-
-            crawlers[site] = WeipuCrawler()
         elif factory is not None:
             crawlers[site] = factory()
         else:
@@ -55,8 +47,6 @@ async def main() -> None:
             yidu_crawler=crawlers.get("yidu"),
             nstl_crawler=crawlers.get("nstl"),
             cnki_crawler=crawlers.get("cnki"),
-            wanfang_crawler=crawlers.get("wanfang"),
-            weipu_crawler=crawlers.get("weipu"),
             app_settings=settings,
         )
         summary = await extraction_service.process_all(files)
