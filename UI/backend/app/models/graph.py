@@ -1,4 +1,4 @@
-"""ORM models for PostgreSQL graph tables (nodes, edges, lit_metadata, med_case, core_file)."""
+"""ORM models for PostgreSQL graph tables (nodes, edges, lit_metadata, case_metadata, core_file)."""
 
 from __future__ import annotations
 
@@ -36,6 +36,8 @@ class CoreFile(GraphBase):
     )
     status_metadata: Mapped[bool] = mapped_column(Boolean, nullable=False)
     status_case: Mapped[bool] = mapped_column(Boolean, nullable=False)
+    document_type: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    status_guidelinemeta: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
 
 
 class LitMetadata(GraphBase):
@@ -68,7 +70,7 @@ class LitMetadata(GraphBase):
 
 
 class MedCase(GraphBase):
-    __tablename__ = "med_case"
+    __tablename__ = "case_metadata"
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
     file_uuid: Mapped[str] = mapped_column(String, ForeignKey("core_file.file_uuid"), nullable=False)
