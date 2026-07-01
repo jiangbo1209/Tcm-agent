@@ -282,4 +282,5 @@ class UploadService:
             "status_case": core_file.status_case,
             "document_type": core_file.document_type,
             "status_guidelinemeta": core_file.status_guidelinemeta,
+            "status_ragflow": core_file.status_ragflow,
         }
