@@ -1,13 +1,12 @@
 from __future__ import annotations
 
 import asyncio
-import sys
 
 from loguru import logger
 
 from app.core.config import settings
 from app.core.logging import setup_logging
-from app.database import engine, init_db
+from app.database import engine
 from app.services.core_file_scanner import CoreFileScanner
 from app.services.crawlers.nstl_crawler import NstlCrawler
 from app.services.crawlers.yidu_crawler import YiduCrawler
@@ -21,9 +20,6 @@ async def main() -> None:
         "Settings loaded: output_dir={}",
         settings.OUTPUT_DIR,
     )
-
-    await init_db()
-    logger.info("Database initialized")
 
     scanner = CoreFileScanner(settings)
     files = await scanner.scan()
@@ -62,6 +58,4 @@ async def main() -> None:
 
 
 if __name__ == "__main__":
-    if sys.platform.startswith("win"):
-        asyncio.set_event_loop_policy(asyncio.WindowsProactorEventLoopPolicy())
     asyncio.run(main())

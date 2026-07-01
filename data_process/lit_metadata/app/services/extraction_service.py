@@ -66,6 +66,7 @@ class ExtractionService:
         self.matcher = matcher or ExactTitleMatcher()
 
     async def process_all(self, files: list[DatasetFile]) -> ProcessingSummary:
+        total = len(files)
         semaphore = asyncio.Semaphore(self.settings.CRAWLER_CONCURRENCY)
         lock = asyncio.Lock()
         counts: dict[ProcessingStatus, int] = {
@@ -74,24 +75,52 @@ class ExtractionService:
             "failed": 0,
             "skipped": 0,
         }
+        processed = 0
+
+        print(f"\n{'='*50}")
+        print(f"Starting crawl: {total} files, concurrency={self.settings.CRAWLER_CONCURRENCY}")
+        print(f"{'='*50}\n")
 
         async def bounded_process(file: DatasetFile) -> None:
+            nonlocal processed
             async with semaphore:
                 status = await self._process_one(file)
                 async with lock:
                     counts[status] += 1
+                    processed += 1
+                    self._print_progress(processed, total, counts)
 
         await asyncio.gather(*(bounded_process(file) for file in files))
 
         summary = ProcessingSummary(
-            total_files=len(files),
+            total_files=total,
             success_count=counts["success"],
             partial_count=counts["partial"],
             failed_count=counts["failed"],
             skipped_count=counts["skipped"],
         )
         logger.info("Processing summary: {}", summary.model_dump())
+        print(f"\n{'='*50}")
+        print("Crawl finished.")
+        print(f"{'='*50}")
         return summary
+
+    @staticmethod
+    def _print_progress(
+        processed: int,
+        total: int,
+        counts: dict[ProcessingStatus, int],
+    ) -> None:
+        pct = processed / total * 100 if total else 0
+        print(
+            f"\r[{processed}/{total} {pct:.1f}%] "
+            f"success={counts['success']} "
+            f"partial={counts['partial']} "
+            f"failed={counts['failed']} "
+            f"skipped={counts['skipped']}   ",
+            end="",
+            flush=True,
+        )
 
     async def process_one(self, file: DatasetFile) -> None:
         await self._process_one(file)
@@ -129,6 +158,10 @@ class ExtractionService:
             last_reason = yidu_outcome.failure_reason or "unknown_error"
             last_message = yidu_outcome.error_message
             if yidu_outcome.stop_processing:
+                logger.warning(
+                    "yidu stop processing: file_name={}, reason={}, message={}",
+                    file_name, last_reason, last_message,
+                )
                 return "failed"
 
             if self.settings.ENABLE_CNKI and self.cnki_crawler is not None:
@@ -140,6 +173,10 @@ class ExtractionService:
                 last_reason = cnki_outcome.failure_reason or last_reason
                 last_message = cnki_outcome.error_message or last_message
                 if cnki_outcome.stop_processing:
+                    logger.warning(
+                        "cnki stop processing: file_name={}, reason={}, message={}",
+                        file_name, last_reason, last_message,
+                    )
                     return "failed"
 
             if self.settings.ENABLE_NSTL and self.nstl_crawler is not None:
@@ -151,8 +188,16 @@ class ExtractionService:
                 last_reason = nstl_outcome.failure_reason or last_reason
                 last_message = nstl_outcome.error_message or last_message
                 if nstl_outcome.stop_processing:
+                    logger.warning(
+                        "nstl stop processing: file_name={}, reason={}, message={}",
+                        file_name, last_reason, last_message,
+                    )
                     return "failed"
 
+            logger.warning(
+                "All sites failed: file_name={}, attempted_sites={}, reason={}, message={}",
+                file_name, attempted_sites, last_reason, last_message,
+            )
             return "failed"
 
         except Exception as exc:
@@ -167,14 +212,15 @@ class ExtractionService:
             return "failed"
 
     async def _attempt_site(self, site: str, crawler: BaseCrawler, cleaned_title: str) -> SiteAttemptOutcome:
-        logger.info("Trying site: site={}, cleaned_title={}", site, cleaned_title)
+        logger.debug("Trying site: site={}, cleaned_title={}", site, cleaned_title)
         try:
             results = await crawler.search(cleaned_title)
-            logger.info("Search results: site={}, count={}", site, len(results))
+            logger.debug("Search results: site={}, count={}", site, len(results))
             for index, result in enumerate(results, start=1):
-                logger.info("Search result title: site={}, index={}, title={}", site, index, result.title)
+                logger.debug("Search result title: site={}, index={}, title={}", site, index, result.title)
 
             if not results:
+                logger.warning("No search results: site={}, cleaned_title={}", site, cleaned_title)
                 return SiteAttemptOutcome(
                     success=False,
                     site=site,
@@ -184,7 +230,7 @@ class ExtractionService:
 
             match_result = self.matcher.find_exact_match(cleaned_title, results)
             if match_result is None:
-                logger.info("No exact title match: site={}, cleaned_title={}", site, cleaned_title)
+                logger.warning("No exact title match: site={}, cleaned_title={}", site, cleaned_title)
                 return SiteAttemptOutcome(
                     success=False,
                     site=site,
@@ -192,7 +238,7 @@ class ExtractionService:
                     error_message=f"{site} returned results but no exact title match",
                 )
 
-            logger.info(
+            logger.debug(
                 "Exact title match found: site={}, expected_title={}, matched_title={}, detail_url={}",
                 site,
                 cleaned_title,

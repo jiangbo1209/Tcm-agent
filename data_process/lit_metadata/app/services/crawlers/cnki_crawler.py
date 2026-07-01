@@ -99,20 +99,20 @@ class CnkiCrawler(BaseCrawler):
 
         simple = simplify_query(title)
         if simple and simple != title:
-            logger.info("cnki fallback (strip parens): {!r}", simple)
+            logger.debug("cnki fallback (strip parens): {!r}", simple)
             await asyncio.sleep(0.6)
             results = await self._client.search(simple)
             if results:
                 return results
 
-        logger.info("cnki fallback (SU subject search): {!r}", title)
+        logger.debug("cnki fallback (SU subject search): {!r}", title)
         await asyncio.sleep(0.6)
         return await self._client.search(title, field="SU")
 
     async def search(self, title: str) -> list[SearchResult]:
         await self._ensure_client()
         await self._sleep_before_request()
-        logger.info("Searching cnki: title={}", title)
+        logger.debug("Searching cnki: title={}", title)
         try:
             raw_results = await self._search_with_fallback(title)
         except CaptchaRequired as exc:
@@ -125,7 +125,7 @@ class CnkiCrawler(BaseCrawler):
                     f"cnki still requires captcha after bootstrap: {exc2.captcha_url}"
                 ) from exc2
 
-        logger.info("Cnki search result count: title={}, count={}", title, len(raw_results))
+        logger.debug("Cnki search result count: title={}, count={}", title, len(raw_results))
         return [
             SearchResult(
                 title=r.title,
@@ -162,9 +162,9 @@ class CnkiCrawler(BaseCrawler):
                 endnote_text = await self._client.get_export(cnki_result)
                 parsed = parse_endnote(endnote_text, dbname=cnki_result.dbname)
             except (CnkiApiError, CaptchaRequired) as exc2:
-                logger.info("cnki export still failed after bootstrap: {}", exc2)
+                logger.debug("cnki export still failed after bootstrap: {}", exc2)
         except CnkiApiError as exc:
-            logger.info("cnki export failed, falling back to detail page: {}", exc)
+            logger.debug("cnki export failed, falling back to detail page: {}", exc)
 
         needs_detail = not (
             parsed.get("title")

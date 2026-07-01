@@ -24,7 +24,7 @@ class YiduCrawler(BaseCrawler):
     async def search(self, title: str) -> list[SearchResult]:
         url = self.build_search_url(title)
         payload = self._build_search_payload(title)
-        logger.info("Searching yidu API: title={}, url={}", title, url)
+        logger.debug("Searching yidu API: title={}, url={}", title, url)
         data = await self._request_json(
             "POST",
             url,
@@ -35,7 +35,7 @@ class YiduCrawler(BaseCrawler):
             },
         )
         results = self.parse_search_results(data)
-        logger.info("Yidu API search result count: title={}, count={}", title, len(results))
+        logger.debug("Yidu API search result count: title={}, count={}", title, len(results))
         return results
 
     def _build_search_payload(self, title: str) -> dict[str, Any]:
@@ -110,7 +110,7 @@ class YiduCrawler(BaseCrawler):
             return self._metadata_from_record(raw, result)
 
         url = f"{self.base_url}/prod-api/yidu/resource/getInfo"
-        logger.info("Fetching yidu API detail: title={}, ukey={}, type={}", result.title, ukey, schema_code)
+        logger.debug("Fetching yidu API detail: title={}, ukey={}, type={}", result.title, ukey, schema_code)
         data = await self._request_json(
             "GET",
             url,
@@ -151,7 +151,7 @@ class YiduCrawler(BaseCrawler):
             journal=journal,
             pub_year=pub_year,
         )
-        logger.info(
+        logger.debug(
             "Parsed yidu metadata: title={}, authors={}, keywords={}, paper_type={}",
             metadata.title,
             len(metadata.authors),
