@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import asyncio
+import time
 from pathlib import Path
 from typing import Any
 
@@ -60,6 +61,7 @@ class CnkiCrawler(BaseCrawler):
         self._client: CnkiClient | None = None
         self._cookie_lock = asyncio.Lock()
         self._client_lock = asyncio.Lock()
+        self._last_bootstrap = 0.0
 
     async def _ensure_client(self) -> None:
         async with self._client_lock:
@@ -77,7 +79,11 @@ class CnkiCrawler(BaseCrawler):
     async def _bootstrap(self, *, captcha_url: str | None = None) -> None:
         async with self._cookie_lock:
             assert self._client is not None
-            if self._client.cookies_usable():
+            # No captcha + cookies work: skip
+            if captcha_url is None and self._client.cookies_usable():
+                return
+            # Real 403 but another task just bootstrapped within 10s: skip
+            if captcha_url is not None and time.time() - self._last_bootstrap < 10:
                 return
             hint = (
                 "请完成滑块/点选验证，页面正常加载后点击右上角按钮。"
@@ -92,6 +98,7 @@ class CnkiCrawler(BaseCrawler):
                 channel=self.settings.CNKI_BROWSER_CHANNEL or None,
             )
             self._client.update_cookies(cookies)
+            self._last_bootstrap = time.time()
 
     async def _search_with_fallback(self, title: str) -> list[CnkiSearchResult]:
         assert self._client is not None
