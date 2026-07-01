@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from pydantic import BaseModel, Field
 
-# Chinese key names from LLM output → English column names in med_case table
+# Chinese key names from LLM output → English column names in case_metadata table
 FIELD_MAP: dict[str, str] = {
     "年齡": "age",
     "BMI": "bmi",
@@ -44,6 +44,7 @@ class ExtractionResult(BaseModel):
     file_uuid: str
     original_name: str
     success: bool
+    skipped: bool = False
     error: str | None = None
     missing_fields: list[str] = Field(default_factory=list)
     extra_fields: list[str] = Field(default_factory=list)

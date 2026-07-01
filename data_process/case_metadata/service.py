@@ -8,12 +8,13 @@ import time
 from datetime import datetime
 from pathlib import Path
 
-from sqlalchemy import select, update
+from sqlalchemy import func, select, text, update
+from sqlalchemy.exc import IntegrityError, SQLAlchemyError
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_async_engine
 
 from data_process.pdf_upload.config import get_minio_config, get_postgres_config
 from data_process.pdf_upload.minio_client import MinioClient
-from data_process.pdf_upload.models import Base
+from data_process.pdf_upload.models import Base, CoreFile
 
 from .llm_client import (
     build_final_prompt,
@@ -40,6 +41,11 @@ _LOG_DIR = Path(__file__).resolve().parents[2] / "logs" / "case_metadata"
 
 def _setup_file_logger() -> logging.Handler:
     """Add a file handler that appends every extraction result to a log file."""
+    logger = logging.getLogger("case_metadata")
+    for handler in logger.handlers:
+        if isinstance(handler, logging.FileHandler):
+            return handler
+
     _LOG_DIR.mkdir(parents=True, exist_ok=True)
     log_file = _LOG_DIR / f"extraction_{datetime.now().strftime('%Y%m%d')}.log"
     fh = logging.FileHandler(log_file, encoding="utf-8")
@@ -48,7 +54,7 @@ def _setup_file_logger() -> logging.Handler:
         "%(asctime)s | %(levelname)s | %(message)s",
         datefmt="%Y-%m-%d %H:%M:%S",
     ))
-    logging.getLogger("case_metadata").addHandler(fh)
+    logger.addHandler(fh)
     return fh
 
 
@@ -72,38 +78,127 @@ class CaseExtractionService:
     async def ensure_tables(self) -> None:
         async with self._engine.begin() as conn:
             await conn.run_sync(Base.metadata.create_all)
+            await conn.execute(
+                text(
+                    "CREATE UNIQUE INDEX IF NOT EXISTS "
+                    "ux_case_metadata_file_uuid ON case_metadata (file_uuid)"
+                )
+            )
 
-    async def process_pending_cases(self) -> ExtractionSummary:
+    async def process_pending_cases(self, limit: int | None = None) -> ExtractionSummary:
         summary = ExtractionSummary()
 
         async with self._session_factory() as session:
-            # Query pending records
             from data_process.pdf_upload.models import CoreFile
-            stmt = select(CoreFile).where(CoreFile.status_case == False)  # noqa: E712
+
+            synced_existing = await self._sync_existing_case_statuses(session)
+            for core_file in synced_existing:
+                summary.results.append(
+                    ExtractionResult(
+                        file_uuid=core_file.file_uuid,
+                        original_name=core_file.original_name,
+                        success=True,
+                        skipped=True,
+                    )
+                )
+            summary.skipped += len(synced_existing)
+
+            # Query pending records
+            existing_case = select(MedCase.id).where(MedCase.file_uuid == CoreFile.file_uuid).exists()
+            stmt = (
+                select(CoreFile)
+                .where(
+                    CoreFile.document_type == 1,
+                    func.lower(CoreFile.file_type) == "pdf",
+                    CoreFile.status_case == False,  # noqa: E712
+                    ~existing_case,
+                )
+                .order_by(CoreFile.upload_time.asc())
+            )
+            if limit is not None:
+                stmt = stmt.limit(max(0, limit))
             result = await session.execute(stmt)
             pending = result.scalars().all()
 
-            summary.total = len(pending)
+            summary.total = len(pending) + summary.skipped
             if not pending:
                 LOGGER.info("No pending cases to process")
                 return summary
 
-            LOGGER.info("Found %d pending cases", len(pending))
+            LOGGER.info(
+                "Found %d pending cases%s",
+                len(pending),
+                f" (limit={limit})" if limit is not None else "",
+            )
 
             for core_file in pending:
-                extraction = await self._process_one(session, core_file.file_uuid, core_file.storage_path, core_file.original_name)
+                try:
+                    extraction = await self._process_one(
+                        session,
+                        core_file.file_uuid,
+                        core_file.storage_path,
+                        core_file.original_name,
+                    )
+                except Exception as exc:
+                    await session.rollback()
+                    LOGGER.exception("Unexpected failure for %s", core_file.original_name)
+                    extraction = ExtractionResult(
+                        file_uuid=core_file.file_uuid,
+                        original_name=core_file.original_name,
+                        success=False,
+                        error=f"Unexpected error: {exc}",
+                    )
                 summary.results.append(extraction)
 
                 if extraction.success:
-                    summary.success += 1
+                    if extraction.skipped:
+                        summary.skipped += 1
+                    else:
+                        summary.success += 1
                 else:
                     summary.failed += 1
 
         return summary
 
+    async def _sync_existing_case_statuses(self, session: AsyncSession) -> list:
+        from data_process.pdf_upload.models import CoreFile
+
+        existing_case = select(MedCase.id).where(MedCase.file_uuid == CoreFile.file_uuid).exists()
+        stmt = (
+            select(CoreFile)
+            .where(
+                CoreFile.document_type == 1,
+                func.lower(CoreFile.file_type) == "pdf",
+                CoreFile.status_case == False,  # noqa: E712
+                existing_case,
+            )
+            .order_by(CoreFile.upload_time.asc())
+        )
+        result = await session.execute(stmt)
+        stale_rows = result.scalars().all()
+        if not stale_rows:
+            return []
+
+        await session.execute(
+            update(CoreFile)
+            .where(CoreFile.file_uuid.in_([row.file_uuid for row in stale_rows]))
+            .values(status_case=True)
+        )
+        await session.commit()
+        LOGGER.info("Skipped %d cases already present in case_metadata", len(stale_rows))
+        return stale_rows
+
     async def _process_one(self, session: AsyncSession, file_uuid: str, storage_path: str, original_name: str) -> ExtractionResult:
         extraction = ExtractionResult(file_uuid=file_uuid, original_name=original_name, success=False)
         t_start = time.monotonic()
+
+        if await self._case_metadata_exists(session, file_uuid):
+            await self._mark_case_processed(session, file_uuid)
+            extraction.success = True
+            extraction.skipped = True
+            elapsed = time.monotonic() - t_start
+            LOGGER.info("RESULT | SKIP | %s | reason=already_extracted | elapsed=%.1fs", original_name, elapsed)
+            return extraction
 
         # 1. Download PDF from MinIO
         try:
@@ -165,17 +260,32 @@ class CaseExtractionService:
         mapped = map_chinese_to_english(normalized)
         mapped["file_uuid"] = file_uuid
 
-        # 6. Insert into MED_CASE
+        # 6. Insert into case_metadata
         med_case = MedCase(**mapped)
         session.add(med_case)
 
         # 7. Update CORE_FILE.status_case = true
-        from data_process.pdf_upload.models import CoreFile
         await session.execute(
             update(CoreFile).where(CoreFile.file_uuid == file_uuid).values(status_case=True)
         )
 
-        await session.commit()
+        try:
+            await session.commit()
+        except IntegrityError:
+            await session.rollback()
+            await self._mark_case_processed(session, file_uuid)
+            extraction.success = True
+            extraction.skipped = True
+            elapsed = time.monotonic() - t_start
+            LOGGER.info("RESULT | SKIP | %s | reason=duplicate_insert | elapsed=%.1fs", original_name, elapsed)
+            return extraction
+        except SQLAlchemyError as exc:
+            await session.rollback()
+            extraction.error = f"Database commit failed: {exc}"
+            elapsed = time.monotonic() - t_start
+            LOGGER.exception("RESULT | FAIL | %s | phase=commit | elapsed=%.1fs", original_name, elapsed)
+            return extraction
+
         extraction.success = True
         elapsed = time.monotonic() - t_start
         LOGGER.info(
@@ -184,6 +294,24 @@ class CaseExtractionService:
             f" [{','.join(missing_fields[:5])}]" if missing_fields else "",
         )
         return extraction
+
+    async def _case_metadata_exists(self, session: AsyncSession, file_uuid: str) -> bool:
+        stmt = select(MedCase.id).where(MedCase.file_uuid == file_uuid).limit(1)
+        result = await session.execute(stmt)
+        return result.scalar_one_or_none() is not None
+
+    async def _mark_case_processed(self, session: AsyncSession, file_uuid: str) -> None:
+        from data_process.pdf_upload.models import CoreFile
+
+        await session.execute(
+            update(CoreFile)
+            .where(
+                CoreFile.file_uuid == file_uuid,
+                CoreFile.document_type == 1,
+            )
+            .values(status_case=True)
+        )
+        await session.commit()
 
     async def dispose(self) -> None:
         await self._engine.dispose()

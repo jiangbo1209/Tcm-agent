@@ -45,6 +45,19 @@ class MinioConfig(BaseSettings):
         env_file_encoding="utf-8",
     )
 
+    @classmethod
+    def settings_customise_sources(
+        cls,
+        settings_cls,
+        init_settings,
+        env_settings,
+        dotenv_settings,
+        file_secret_settings,
+    ):
+        # Keep project .env authoritative for MinIO. Stale OS-level MinIO
+        # variables can point to a different server account and break startup.
+        return init_settings, dotenv_settings, env_settings, file_secret_settings
+
     endpoint: str = "172.16.150.45:9000"
     root_user: str = "admin"
     root_password: str = ""
@@ -69,6 +82,7 @@ class UploadConfig(BaseSettings):
 
     max_file_size_mb: int = 100
     allowed_extensions: str = ".pdf"
+    batch_concurrency: int = 5
 
     @property
     def extensions_tuple(self) -> Tuple[str, ...]:

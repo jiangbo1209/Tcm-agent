@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from unittest.mock import MagicMock, patch
+from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 import pytest_asyncio
@@ -26,8 +26,11 @@ TEST_DB_URL = "sqlite+aiosqlite:///:memory:"
 def _make_mock_minio() -> MagicMock:
     mock = MagicMock(spec=MinioClient)
     mock.put_object.side_effect = lambda object_name, data, content_type="application/pdf": object_name
+    mock.put_object_async = AsyncMock(side_effect=lambda object_name, data, content_type="application/pdf": object_name)
     mock.remove_object.return_value = None
+    mock.remove_object_async = AsyncMock(return_value=None)
     mock.presigned_get_object.return_value = "http://minio:9000/tcm-documents/test.pdf?signature=abc"
+    mock.presigned_get_object_async = AsyncMock(return_value="http://minio:9000/tcm-documents/test.pdf?signature=abc")
     return mock
 
 
@@ -87,7 +90,31 @@ def test_upload_pdf_success(client):
     assert data["file_type"] == "pdf"
     assert data["status_metadata"] is False
     assert data["status_case"] is False
+    assert data["document_type"] == 0
+    assert data["status_guidelinemeta"] is False
     assert "file_uuid" in data
+
+
+def test_upload_pdf_with_document_type(client):
+    pdf_content = b"%PDF-1.4 fake guideline pdf content"
+    response = client.post(
+        "/api/files/upload",
+        files={"file": ("guideline_api.pdf", pdf_content, "application/pdf")},
+        data={"document_type": "2"},
+    )
+    assert response.status_code == 200
+    data = response.json()
+    assert data["original_name"] == "guideline_api.pdf"
+    assert data["document_type"] == 2
+
+
+def test_upload_invalid_document_type_rejected(client):
+    response = client.post(
+        "/api/files/upload",
+        files={"file": ("invalid_type.pdf", b"%PDF-1.4", "application/pdf")},
+        data={"document_type": "9"},
+    )
+    assert response.status_code == 422
 
 
 def test_upload_non_pdf_rejected(client):
@@ -212,6 +239,24 @@ def test_batch_upload(client):
     assert statuses["batch_a.pdf"] == "uploaded"
     assert statuses["batch_b.pdf"] == "uploaded"
     assert statuses["batch_c.txt"] == "failed"
+
+
+def test_batch_upload_with_document_type(client):
+    resp = client.post(
+        "/api/files/batch-upload",
+        files=[
+            ("files", ("batch_guideline_a.pdf", b"%PDF-1.4 A", "application/pdf")),
+            ("files", ("batch_guideline_b.pdf", b"%PDF-1.4 B", "application/pdf")),
+        ],
+        data={"document_type": "2"},
+    )
+    assert resp.status_code == 200
+    data = resp.json()
+    assert data["uploaded"] == 2
+
+    detail_resp = client.get(f"/api/files/{data['items'][0]['file_uuid']}")
+    assert detail_resp.status_code == 200
+    assert detail_resp.json()["document_type"] == 2
 
 
 def test_batch_upload_skip_duplicate(client):

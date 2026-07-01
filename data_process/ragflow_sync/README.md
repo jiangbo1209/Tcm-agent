@@ -1,72 +1,45 @@
 # RAGFlow 同步脚本
 
-用于将项目中的文献 PDF 和病案结构化内容同步到 RAGFlow 知识库。该脚本按服务器运行场景设计，默认只在部署了 RAGFlow、PostgreSQL、MinIO 的服务器上执行。
+用于把项目中的文献、病案和指南同步到 RAGFlow。当前按三类知识库分别同步：
 
-## 功能概览
+- 文献 PDF -> 文献知识库
+- 病案结构化 Markdown -> 病案知识库
+- 指南 PDF -> 指南校验知识库
 
-- 从 `core_file` + `lit_metadata` 读取文献记录。
-- 根据 `storage_path` 从 MinIO 下载文献 PDF。
-- 从 `med_case` 读取病案记录，并生成可上传文本。
-- 通过 RAGFlow HTTP API 上传文档、写入元数据、触发解析。
-- 通过 `ragflow_sync_status` 表记录同步状态，保证幂等。
-- 支持只重跑失败记录，适合生产补数。
+`--source all` 只同步文献和病案，不包含指南。指南需要显式执行 `--source guideline`，避免误传到主问答知识库。
 
-读取 PostgreSQL core_file / lit_metadata / med_case
+## 数据来源
 
-    |
+| source | 数据来源 | 上传内容 | RAGFlow 知识库 |
+|------|------|------|------|
+| `literature` | `core_file` + `lit_metadata`，且 `document_type=0` | PDF 原文 | 文献知识库 |
+| `case` | `case_metadata`，且 `document_type=1` | Markdown 文本 | 病案知识库 |
+| `guideline` | `core_file` + `guideline_metadata`，且 `document_type=2` | PDF 原文 | 指南校验知识库 |
 
-    |-- 文献：从 MinIO 下载 PDF
+同步状态写入 `ragflow_sync_status`，用于幂等跳过和失败重跑。
 
-    |       -> 上传 PDF 到 RAGFlow
+## 环境变量
 
-    |       -> 用 document_id 写入 meta_fields
+```env
+RAGFLOW_BASE_URL=http://172.16.150.45:8012
+RAGFLOW_API_KEY=你的API_KEY
 
-    |       -> 触发 parse
+RAGFLOW_LITERATURE_DATASET_ID=文献知识库ID
+RAGFLOW_CASE_DATASET_ID=病案知识库ID
+RAGFLOW_GUIDELINE_DATASET_ID=指南校验知识库ID
 
-    |
-
-    |-- 病案：从 med_case 生成 Markdown/TXT
-
-    -> 上传到
-
-    RAGFlow
-
-    -> 写入 meta_fields
-
-    -> 触发 parse
-
-## 代码结构
-
-```text
-data_process/ragflow_sync/
-├── __init__.py              # 包标识
-├── __main__.py              # 支持 python -m data_process.ragflow_sync
-├── main.py                  # 命令行入口，解析参数并输出同步摘要
-├── config.py                # 读取 .env 中的数据库、MinIO、RAGFlow 配置
-├── models.py                # 同步流程使用的数据类，如 LiteratureSource、CaseSource、SyncResult
-├── orm.py                   # RAGFlow 同步状态表 ORM 模型 RagflowSyncStatus
-├── database.py              # SQLAlchemy ORM 数据库访问层，读取文献/病案并维护同步状态
-├── minio_store.py           # MinIO PDF 下载封装
-├── ragflow_client.py        # RAGFlow HTTP API 客户端，负责上传、写 metadata、触发 parse
-├── document_builder.py      # 病案文本生成、文件名生成、metadata 构建、content_hash 计算
-├── service.py               # 同步主流程编排，处理幂等、阶段日志、失败记录
-├── requirements.txt         # 同步脚本依赖
-├── README.md                # 使用说明
-└── tests/                   # 单元测试
-    ├── test_document_builder.py
-    ├── test_service.py
-    ├── test_main.py
-    └── test_database_orm.py
+RAGFLOW_PARSE_AFTER_UPLOAD=true
+RAGFLOW_DOMAIN=DOR infertility
 ```
 
-核心调用链：
+脚本会根据 `--source` 自动选择对应知识库：
 
-```text
-main.py
-  -> RagflowSyncService
-  -> RagflowSyncRepository / MinioObjectStore / RagflowClient
-  -> RAGFlow API
-```
+| 命令参数 | 使用的 dataset id |
+|------|------|
+| `--source literature` | `RAGFLOW_LITERATURE_DATASET_ID` |
+| `--source case` | `RAGFLOW_CASE_DATASET_ID` |
+| `--source guideline` | `RAGFLOW_GUIDELINE_DATASET_ID` |
+| `--source all` | 文献 + 病案，不包含指南 |
 
 ## 安装依赖
 
@@ -74,89 +47,90 @@ main.py
 pip install -r data_process/ragflow_sync/requirements.txt
 ```
 
-## 命令说明
+## Dry-run 预览
 
-最常用的参数：
-
-- `--source`：同步范围，可选 `all`、`literature`、`case`
-- `--limit`：限制本次同步条数，适合分批测试
-- `--dry-run`：只预览待同步数据，不实际上传
-- `--only-failed`：只重跑上次状态为 `failed` 的记录
-- `--no-parse`：上传并写入元数据，但不触发解析
-- `--force`：忽略已有成功状态，强制重新上传
-
-## 生产运行
-
-下面三类最关键命令。
-
-### 1. Dry-run 预览
-
-用于正式同步前检查本次会处理哪些数据，不会调用 RAGFlow。
+只查看待同步数据，不上传到 RAGFlow。
 
 ```bash
-python -m data_process.ragflow_sync --source all --limit 5 --dry-run
+python -m data_process.ragflow_sync --source literature --limit 5 --dry-run
+python -m data_process.ragflow_sync --source case --limit 5 --dry-run
+python -m data_process.ragflow_sync --source guideline --limit 5 --dry-run
 ```
 
-### 2. 小批量同步
+## 小批量同步
 
-建议先从病案或文献各同步少量记录，确认上传、元数据写入和解析都正常。
+建议生产前先小批量验证。
 
 ```bash
-python -m data_process.ragflow_sync --source case --limit 5
 python -m data_process.ragflow_sync --source literature --limit 5
+python -m data_process.ragflow_sync --source case --limit 5
+python -m data_process.ragflow_sync --source guideline --limit 5
 ```
 
-### 3. 全量同步
+## 全量同步
 
-小批量验证通过后，再执行全量同步。全量运行时不传 `--limit`，脚本会按当前筛选条件处理全部记录。
+小批量验证通过后再执行全量。全量运行时不传 `--limit`。
 
 ```bash
 python -m data_process.ragflow_sync --source literature
 python -m data_process.ragflow_sync --source case
+python -m data_process.ragflow_sync --source guideline
+```
+
+也可以同步主问答知识库相关数据：
+
+```bash
 python -m data_process.ragflow_sync --source all
 ```
 
-### 4. 失败重跑
+注意：`all` 只包含 `literature` 和 `case`。
 
-当部分文档因解析失败、网络波动或接口异常未完成时，只重跑失败项。
+## 失败重跑
+
+只重跑上次同步状态为 `failed` 的记录。
 
 ```bash
 python -m data_process.ragflow_sync --source literature --only-failed
 python -m data_process.ragflow_sync --source case --only-failed
+python -m data_process.ragflow_sync --source guideline --only-failed
 ```
 
-## 日志与结果
+## 输出摘要
 
 每条记录会输出：
 
-- 数据类型：`literature` / `case`
-- `file_uuid`
-- 当前结果：`uploaded` / `parsed` / `skipped` / `failed`
-- 当前阶段：`precheck` / `dry_run` / `metadata` / `parse` / `upload`
-- `document_id`
-- 错误信息或补充信息
-
-示例：
-
 ```text
-literature 95b36265-04dc-4595-bdf6-c46b856a60e1: parsed stage=parse document_id=f9e5086069ec11f1b42713f4d88a1b71
-literature dbcf7033-8843-4642-a1d1-77a47be2f009: failed stage=parse document_id=f9489c0a69ec11f1b42713f4d88a1b71 message=parse failed: RAGFlow API error: IndexError('list index out of range')
+{source} {file_uuid}: {action} stage={stage} document_id={document_id} message={message}
 ```
 
-脚本结束后会输出汇总摘要：
+脚本结束会输出汇总：
 
 ```text
-Summary: uploaded=0 parsed=3 skipped=5 failed=2 total=10
+Summary: uploaded=12 parsed=10 skipped=50 failed=2 total=74
 ```
 
-## 故障定位
+常见阶段：
 
-常见失败阶段含义如下：
+| stage | 含义 |
+|------|------|
+| `dry_run` | 预览模式，没有上传 |
+| `precheck` | 同步前检查，通常是跳过 |
+| `upload` | 上传到 RAGFlow |
+| `metadata` | 写入 RAGFlow 元数据 |
+| `parse` | 触发 RAGFlow 解析 |
 
-- `stage=upload`：上传文档到 RAGFlow 失败
-- `stage=metadata`：写入元数据失败
-- `stage=parse`：触发解析或解析过程失败
-- `stage=precheck`：同步前检查命中跳过条件
-- `stage=dry_run`：当前是预览模式，没有实际上传
+## 代码结构
 
-如果某条记录反复在 `parse` 阶段失败，通常说明文档本身在 RAGFlow 解析时存在兼容问题，可在 RAGFlow 页面进一步查看该 `document_id`。
+```text
+data_process/ragflow_sync/
+├── __main__.py          # 支持 python -m data_process.ragflow_sync
+├── main.py              # 命令行入口
+├── config.py            # 读取数据库、MinIO、RAGFlow 配置
+├── database.py          # SQLAlchemy 数据库访问
+├── document_builder.py  # 构建文件名、Markdown 和 metadata
+├── minio_store.py       # MinIO 下载封装
+├── ragflow_client.py    # RAGFlow HTTP API 客户端
+├── service.py           # 同步主流程
+├── orm.py               # ragflow_sync_status ORM
+└── tests/               # 单元测试
+```

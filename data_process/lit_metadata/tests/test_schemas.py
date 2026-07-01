@@ -4,7 +4,7 @@ from app.models.schemas import DatasetFile, FailedRecordCreate, PaperMetadata, S
 
 
 def test_dataset_file_schema() -> None:
-    data = DatasetFile(file_name="a.pdf", file_path="/tmp/a.pdf", suffix=".pdf")
+    data = DatasetFile(file_uuid="uuid-1", file_name="a.pdf", file_path="/tmp/a.pdf", suffix=".pdf")
     assert data.file_name == "a.pdf"
 
 
@@ -34,6 +34,7 @@ def test_paper_metadata_schema() -> None:
 
 def test_failed_record_create_schema() -> None:
     data = FailedRecordCreate(
+        file_uuid="uuid-1",
         file_name="a.pdf",
         file_path="/tmp/a.pdf",
         cleaned_title="论文标题",

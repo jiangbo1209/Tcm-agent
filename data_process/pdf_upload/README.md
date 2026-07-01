@@ -2,7 +2,15 @@
 
 ## 功能
 
-用户上传 PDF 论文 → 后端生成 UUID → 存储到 MinIO → 记录到 PostgreSQL `core_file` 表。
+用户上传 PDF 文件 → 选择数据类型 → 后端生成 UUID → 存储到 MinIO → 记录到 PostgreSQL `core_file` 表。
+
+`document_type` 用于区分数据类型：
+
+| 值 | 类型 | 后续处理 |
+|------|------|------|
+| 0 | 文献 | 进入 `lit_metadata`，参与文献检索和图谱构建 |
+| 1 | 病案 | 进入 `case_metadata`，参与病案检索和图谱构建 |
+| 2 | 指南 | 进入 `guideline_metadata`，只用于 Agent 回答校验 |
 
 ## 启动服务
 
@@ -26,8 +34,8 @@ python data_process/pdf_upload/pdf_manager_tui.py
 ```
 
 菜单功能：
-- **📤 上传文件** - 弹出文件选择器，支持单选或多选 PDF 文件
-- **📋 查看文件列表** - 查看所有已上传的文件和处理状态
+- **📤 上传文件** - 弹出文件选择器，支持单选或多选 PDF 文件；上传前选择文献、病案或指南
+- **📋 查看文件列表** - 查看所有已上传的文件、数据类型和处理状态
 - **🗑️  删除文件** - 通过编号选择文件删除（确认后执行）
 
 **Linux 无图形界面说明**
@@ -36,21 +44,13 @@ python data_process/pdf_upload/pdf_manager_tui.py
 - 直接输入单个或多个 PDF 文件路径（逗号分隔）。
 - 也可以输入一个目录路径，工具会自动读取该目录下的 `*.pdf`。
 
-### 简单上传工具
-
-```bash
-python data_process/pdf_upload/upload_to_tcm.py
-```
-
-直接弹出文件选择器，快速上传 PDF 文件。
-
 ## API 端点
 
 | 方法 | 路径 | 说明 |
 |------|------|------|
 | GET | `/health` | 健康检查 |
-| POST | `/api/files/upload` | 单文件上传，同名返回 409 |
-| POST | `/api/files/batch-upload` | 批量上传，同名自动 skip |
+| POST | `/api/files/upload` | 单文件上传，可通过 `document_type` 指定类型 |
+| POST | `/api/files/batch-upload` | 批量上传，可通过 `document_type` 指定类型，同类型同名自动 skip |
 | GET | `/api/files/` | 文件列表（分页） |
 | GET | `/api/files/{uuid}` | 文件详情 |
 | GET | `/api/files/{uuid}/download-url` | 生成 MinIO 下载链接 |
@@ -60,13 +60,23 @@ python data_process/pdf_upload/upload_to_tcm.py
 ## 使用示例
 
 ```bash
-# 单文件上传
-curl -X POST -F "file=@论文.pdf" http://localhost:8001/api/files/upload
-
-# 批量上传（同名文件自动跳过）
+# 单文件上传文献
 curl -X POST \
-  -F "files=@论文A.pdf" \
-  -F "files=@论文B.pdf" \
+  -F "document_type=0" \
+  -F "file=@论文.pdf" \
+  http://localhost:8001/api/files/upload
+
+# 单文件上传指南
+curl -X POST \
+  -F "document_type=2" \
+  -F "file=@指南.pdf" \
+  http://localhost:8001/api/files/upload
+
+# 批量上传病案（同类型同名文件自动跳过）
+curl -X POST \
+  -F "document_type=1" \
+  -F "files=@病案A.pdf" \
+  -F "files=@病案B.pdf" \
   http://localhost:8001/api/files/batch-upload
 
 # 查看文件列表
@@ -92,6 +102,8 @@ curl -X DELETE http://localhost:8001/api/files/{uuid}
 | upload_time | TIMESTAMPTZ | 上传时间 |
 | status_metadata | BOOLEAN | 文献元数据处理状态 |
 | status_case | BOOLEAN | 病案处理状态 |
+| document_type | INTEGER | 数据类型：0 文献、1 病案、2 指南 |
+| status_guidelinemeta | BOOLEAN | 指南元数据处理状态 |
 
 ## 环境变量
 

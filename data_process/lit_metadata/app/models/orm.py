@@ -14,6 +14,7 @@ class FailedRecord(Base):
     __tablename__ = "failed_records"
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    file_uuid: Mapped[str] = mapped_column(String, nullable=False, unique=True, index=True)
     file_name: Mapped[str] = mapped_column(String(512), nullable=False, index=True)
     file_path: Mapped[str] = mapped_column(Text, nullable=False)
     cleaned_title: Mapped[str] = mapped_column(Text, nullable=False)
@@ -48,6 +49,8 @@ class CoreFile(Base):
     )
     status_metadata: Mapped[bool] = mapped_column(Boolean, nullable=False)
     status_case: Mapped[bool] = mapped_column(Boolean, nullable=False)
+    document_type: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    status_guidelinemeta: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
 
 
 class LitMetadata(Base):
@@ -91,4 +94,48 @@ class LitMetadata(Base):
 
     __table_args__ = (
         Index("idx_lit_metadata_title", "title"),
+    )
+
+
+class GuidelineMetadata(Base):
+    __tablename__ = "guideline_metadata"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    file_uuid: Mapped[str] = mapped_column(
+        String,
+        ForeignKey("core_file.file_uuid"),
+        nullable=False,
+        unique=True,
+        index=True,
+    )
+    original_name: Mapped[str] = mapped_column(String(512), nullable=False)
+    storage_path: Mapped[str] = mapped_column(Text, nullable=False)
+    cleaned_title: Mapped[str] = mapped_column(Text, nullable=False)
+    title: Mapped[str] = mapped_column(Text, nullable=False)
+    authors: Mapped[list[str]] = mapped_column(JSON, nullable=False, default=list)
+    abstract: Mapped[str | None] = mapped_column(Text, nullable=True)
+    keywords: Mapped[list[str]] = mapped_column(JSON, nullable=False, default=list)
+    paper_type: Mapped[str | None] = mapped_column(String(64), nullable=True)
+    source_site: Mapped[str] = mapped_column(String(64), nullable=False, index=True)
+    source_url: Mapped[str | None] = mapped_column(Text, nullable=True)
+    journal: Mapped[str | None] = mapped_column(String(256), nullable=True)
+    pub_year: Mapped[str | None] = mapped_column(String(16), nullable=True)
+    matched_title: Mapped[str] = mapped_column(Text, nullable=False)
+    is_exact_match: Mapped[bool] = mapped_column(Boolean, nullable=False, default=True)
+    crawl_status: Mapped[str] = mapped_column(String(32), nullable=False, index=True)
+    error_message: Mapped[str | None] = mapped_column(Text, nullable=True)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True),
+        nullable=False,
+        server_default=func.now(),
+    )
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True),
+        nullable=False,
+        server_default=func.now(),
+        onupdate=func.now(),
+    )
+
+    __table_args__ = (
+        Index("idx_guideline_metadata_title", "title"),
     )

@@ -5,7 +5,7 @@ from __future__ import annotations
 import uuid
 from datetime import datetime
 
-from sqlalchemy import Boolean, DateTime, Index, String, text
+from sqlalchemy import Boolean, DateTime, Index, Integer, String, text
 from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column
 
 
@@ -35,8 +35,15 @@ class CoreFile(Base):
     status_case: Mapped[bool] = mapped_column(
         Boolean, nullable=False, default=False
     )
+    document_type: Mapped[int] = mapped_column(
+        Integer, nullable=False, default=0
+    )
+    status_guidelinemeta: Mapped[bool] = mapped_column(
+        Boolean, nullable=False, default=False
+    )
 
     __table_args__ = (
+        Index("idx_core_file_document_type", "document_type"),
         Index(
             "idx_core_file_status_meta",
             "status_metadata",
@@ -46,6 +53,11 @@ class CoreFile(Base):
             "idx_core_file_status_case",
             "status_case",
             postgresql_where=text("status_case = FALSE"),
+        ),
+        Index(
+            "idx_core_file_status_guidelinemeta",
+            "status_guidelinemeta",
+            postgresql_where=text("status_guidelinemeta = FALSE"),
         ),
         Index("idx_core_file_upload_time", upload_time.desc()),
     )

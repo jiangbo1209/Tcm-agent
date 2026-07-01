@@ -21,12 +21,14 @@ LOGGER = logging.getLogger("case_metadata")
 
 # ==================== Config ====================
 
-RELAY_BASE_URL = os.getenv(
-    "RELAY_BASE_URL",
-    "https://x666.me/v1beta/models/{model}:streamGenerateContent?alt=sse",
+RELAY_BASE_URL = (
+    os.getenv("RELAY_BASE_URL")
+    or os.getenv("LLM_BASE_URL")
+    or "https://runanytime.hxi.me"
 )
-RELAY_API_KEY = os.getenv("RELAY_API_KEY", "")
-GEMINI_MODEL = os.getenv("GEMINI_MODEL", "gemini-3-flash-preview")
+RELAY_API_KEY = os.getenv("RELAY_API_KEY") or os.getenv("LLM_API_KEY", "")
+GEMINI_MODEL = os.getenv("GEMINI_MODEL") or os.getenv("LLM_MODEL", "gemini-3-flash-preview")
+GEMINI_AUTH_HEADER = os.getenv("GEMINI_AUTH_HEADER") or os.getenv("RELAY_AUTH_HEADER") or "x-goog-api-key"
 
 CONNECT_TIMEOUT = 100
 READ_TIMEOUT = 180
@@ -119,14 +121,32 @@ def build_payload(final_prompt: str, pdf_bytes: bytes, gemini_schema: dict[str, 
 
 # ==================== SSE streaming call ====================
 
+def build_gemini_endpoint() -> str:
+    base_url = RELAY_BASE_URL.rstrip("/")
+    if "{model}" in base_url:
+        return base_url.format(model=GEMINI_MODEL)
+    if "/v1beta/models/" in base_url:
+        return base_url
+    if base_url.endswith("/v1beta/models"):
+        return f"{base_url}/{GEMINI_MODEL}:streamGenerateContent?alt=sse"
+    return f"{base_url}/v1beta/models/{GEMINI_MODEL}:streamGenerateContent?alt=sse"
+
+
+def build_auth_headers() -> dict[str, str]:
+    header_name = GEMINI_AUTH_HEADER.strip() or "x-goog-api-key"
+    if header_name.lower() in {"authorization", "bearer"}:
+        return {"Authorization": f"Bearer {RELAY_API_KEY}"}
+    return {header_name: RELAY_API_KEY}
+
+
 def call_gemini_stream(payload: dict[str, Any]) -> str:
     if not RELAY_API_KEY:
         raise RuntimeError("RELAY_API_KEY not set in environment")
 
-    url = RELAY_BASE_URL.format(model=GEMINI_MODEL)
+    url = build_gemini_endpoint()
     headers = {
         "Content-Type": "application/json",
-        "Authorization": f"Bearer {RELAY_API_KEY}",
+        **build_auth_headers(),
     }
 
     wall_start = time.time()

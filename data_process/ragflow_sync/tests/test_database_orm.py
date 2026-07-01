@@ -11,13 +11,13 @@ def test_repository_status_uses_orm_model_roundtrip():
     repository.upsert_status(
         source_type="case",
         file_uuid="case-1",
-        dataset_id="dataset-1",
+        dataset_id="case-dataset",
         document_id="doc-1",
         content_hash="hash-1",
         sync_status="parsed",
     )
 
-    status = repository.get_status("case", "case-1", "dataset-1")
+    status = repository.get_status("case", "case-1", "case-dataset")
 
     assert status is not None
     assert status.document_id == "doc-1"

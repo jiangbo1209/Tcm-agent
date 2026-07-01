@@ -33,6 +33,7 @@ class PaperMetadata(BaseModel):
 
 
 class FailedRecordCreate(BaseModel):
+    file_uuid: str
     file_name: str
     file_path: str
     cleaned_title: str

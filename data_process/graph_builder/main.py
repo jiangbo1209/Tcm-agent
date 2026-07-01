@@ -24,7 +24,6 @@ def options_from_settings(settings: GraphBuilderSettings) -> BuildGraphOptions:
 
 
 def main() -> int:
-
     settings = GraphBuilderSettings()
 
     if not settings.password:
@@ -35,3 +34,7 @@ def main() -> int:
         return 1
 
     return run(options_from_settings(settings))
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())

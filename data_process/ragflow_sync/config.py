@@ -31,7 +31,9 @@ class RagflowSyncSettings(BaseSettings):
 
     ragflow_base_url: str = Field(default="http://127.0.0.1:9380", validation_alias=AliasChoices("RAGFLOW_BASE_URL"))
     ragflow_api_key: str = Field(default="", validation_alias=AliasChoices("RAGFLOW_API_KEY"))
-    ragflow_dataset_id: str = Field(default="", validation_alias=AliasChoices("RAGFLOW_DATASET_ID"))
+    ragflow_literature_dataset_id: str = Field(default="", validation_alias=AliasChoices("RAGFLOW_LITERATURE_DATASET_ID"))
+    ragflow_case_dataset_id: str = Field(default="", validation_alias=AliasChoices("RAGFLOW_CASE_DATASET_ID"))
+    ragflow_guideline_dataset_id: str = Field(default="", validation_alias=AliasChoices("RAGFLOW_GUIDELINE_DATASET_ID"))
     ragflow_parse_after_upload: bool = Field(default=True, validation_alias=AliasChoices("RAGFLOW_PARSE_AFTER_UPLOAD"))
     ragflow_request_timeout: int = Field(default=120, validation_alias=AliasChoices("RAGFLOW_REQUEST_TIMEOUT"))
     ragflow_domain: str = Field(default="DOR infertility", validation_alias=AliasChoices("RAGFLOW_DOMAIN"))

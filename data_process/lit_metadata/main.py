@@ -9,7 +9,6 @@ from app.core.config import settings
 from app.core.logging import setup_logging
 from app.database import engine, init_db
 from app.services.core_file_scanner import CoreFileScanner
-from app.services.crawlers.cnki_crawler import CnkiCrawler
 from app.services.crawlers.nstl_crawler import NstlCrawler
 from app.services.crawlers.yidu_crawler import YiduCrawler
 from app.services.export_service import ExportService
@@ -32,7 +31,11 @@ async def main() -> None:
 
     yidu_crawler = YiduCrawler(settings)
     nstl_crawler = NstlCrawler(settings) if settings.ENABLE_NSTL else None
-    cnki_crawler = CnkiCrawler(settings) if settings.ENABLE_CNKI else None
+    cnki_crawler = None
+    if settings.ENABLE_CNKI:
+        from app.services.crawlers.cnki_crawler import CnkiCrawler
+
+        cnki_crawler = CnkiCrawler(settings)
 
     try:
         extraction_service = ExtractionService(

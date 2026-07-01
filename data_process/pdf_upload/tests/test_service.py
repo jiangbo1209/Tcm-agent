@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from unittest.mock import MagicMock
+from unittest.mock import AsyncMock, MagicMock
 
 import pytest
 import pytest_asyncio
@@ -17,9 +17,14 @@ from data_process.pdf_upload.service import UploadService
 def mock_minio() -> MagicMock:
     client = MagicMock(spec=MinioClient)
     client.put_object.return_value = "test-uuid/test.pdf"
+    client.put_object_async = AsyncMock(return_value="test-uuid/test.pdf")
     client.remove_object.return_value = None
+    client.remove_object_async = AsyncMock(return_value=None)
     client.presigned_get_object.return_value = (
         "http://minio:9000/tcm-documents/test-uuid/test.pdf"
+    )
+    client.presigned_get_object_async = AsyncMock(
+        return_value="http://minio:9000/tcm-documents/test-uuid/test.pdf"
     )
     return client
 
@@ -42,8 +47,34 @@ async def test_upload_success(service: UploadService, mock_minio):
     assert result["file_type"] == "pdf"
     assert result["status_metadata"] is False
     assert result["status_case"] is False
+    assert result["document_type"] == 0
+    assert result["status_guidelinemeta"] is False
+    assert result["storage_path"].startswith("literature/")
     assert result["original_name"] in result["storage_path"]
-    mock_minio.put_object.assert_called_once()
+    mock_minio.put_object_async.assert_awaited_once()
+
+
+@pytest.mark.asyncio
+async def test_upload_guideline_document_type(service: UploadService):
+    result = await service.upload(
+        "guideline.pdf",
+        b"%PDF-1.4 guideline content",
+        document_type=2,
+    )
+
+    assert result["document_type"] == 2
+    assert result["status_guidelinemeta"] is False
+    assert result["storage_path"].startswith("guideline/")
+
+
+@pytest.mark.asyncio
+async def test_same_filename_allowed_across_document_types(service: UploadService):
+    literature = await service.upload("same_name.pdf", b"%PDF literature", document_type=0)
+    guideline = await service.upload("same_name.pdf", b"%PDF guideline", document_type=2)
+
+    assert literature["file_uuid"] != guideline["file_uuid"]
+    assert literature["storage_path"].startswith("literature/")
+    assert guideline["storage_path"].startswith("guideline/")
 
 
 @pytest.mark.asyncio
@@ -90,7 +121,7 @@ async def test_delete_file(service: UploadService, mock_minio):
 
     deleted = await service.delete_file(file_uuid)
     assert deleted is True
-    mock_minio.remove_object.assert_called_once()
+    mock_minio.remove_object_async.assert_awaited_once()
 
     result = await service.get_file(file_uuid)
     assert result is None
@@ -101,7 +132,7 @@ async def test_delete_file_minio_failure_still_deletes_db(service: UploadService
     upload_result = await service.upload("minio_fail.pdf", b"%PDF content")
     file_uuid = upload_result["file_uuid"]
 
-    mock_minio.remove_object.side_effect = Exception("MinIO down")
+    mock_minio.remove_object_async.side_effect = Exception("MinIO down")
     deleted = await service.delete_file(file_uuid)
     assert deleted is True
 
@@ -124,7 +155,7 @@ async def test_get_download_url(service: UploadService, mock_minio):
     assert result is not None
     assert "url" in result
     assert result["expires_in"] == 3600
-    mock_minio.presigned_get_object.assert_called_once()
+    mock_minio.presigned_get_object_async.assert_awaited_once()
 
 
 @pytest.mark.asyncio
@@ -132,3 +163,9 @@ async def test_upload_duplicate_rejected(service: UploadService):
     await service.upload("dup_paper.pdf", b"%PDF content")
     with pytest.raises(ValueError, match="File already exists"):
         await service.upload("dup_paper.pdf", b"%PDF content v2")
+
+
+@pytest.mark.asyncio
+async def test_upload_invalid_document_type_rejected(service: UploadService):
+    with pytest.raises(ValueError, match="Invalid document_type"):
+        await service.upload("invalid_type.pdf", b"%PDF content", document_type=9)

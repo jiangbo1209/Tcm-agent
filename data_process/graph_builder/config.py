@@ -19,23 +19,23 @@ class GraphBuilderSettings(BaseSettings):
 
     host: str = Field(
         default="127.0.0.1",
-        validation_alias=AliasChoices("DB_HOST", "POSTGRES_HOST"),
+        validation_alias=AliasChoices("POSTGRES_HOST"),
     )
     port: int = Field(
         default=5432,
-        validation_alias=AliasChoices("DB_PORT", "POSTGRES_PORT"),
+        validation_alias=AliasChoices("POSTGRES_PORT"),
     )
     user: str = Field(
         default="postgres",
-        validation_alias=AliasChoices("DB_USER", "POSTGRES_USER"),
+        validation_alias=AliasChoices("POSTGRES_USER"),
     )
     password: str = Field(
         default="",
-        validation_alias=AliasChoices("DB_PASSWORD", "POSTGRES_PASSWORD"),
+        validation_alias=AliasChoices("POSTGRES_PASSWORD"),
     )
     database: str = Field(
         default="postgres",
-        validation_alias=AliasChoices("DB_NAME", "POSTGRES_DB"),
+        validation_alias=AliasChoices("POSTGRES_DB"),
     )
 
     strategy: str = Field(

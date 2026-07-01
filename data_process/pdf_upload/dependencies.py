@@ -54,6 +54,7 @@ def build_service(session: AsyncSession) -> UploadService:
         minio_client=_minio_client,
         max_file_size_mb=upload_config.max_file_size_mb,
         allowed_extensions=upload_config.extensions_tuple,
+        batch_concurrency=upload_config.batch_concurrency,
     )
 
 

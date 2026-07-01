@@ -37,8 +37,11 @@ def create_graph_schema(conn: Connection) -> None:
 
 def build_nodes(conn: Connection) -> tuple[list[Node], list[Node], dict[str, Node], dict[str, Node]]:
     paper_sql = (
-        "SELECT file_uuid, title, keywords, abstract, pub_year, original_name, cleaned_title, matched_title "
-        "FROM lit_metadata"
+        "SELECT lm.file_uuid, lm.title, lm.keywords, lm.abstract, lm.pub_year, "
+        "lm.original_name, lm.cleaned_title, lm.matched_title "
+        "FROM lit_metadata lm "
+        "JOIN core_file cf ON cf.file_uuid = lm.file_uuid "
+        "WHERE cf.document_type = 0"
     )
     paper_rows = conn.execute(text(paper_sql)).fetchall()
 
@@ -47,7 +50,7 @@ def build_nodes(conn: Connection) -> tuple[list[Node], list[Node], dict[str, Nod
         "mc.treatment_principle, mc.prescription, mc.present_symptoms, mc.medical_history, "
         "mc.lab_tests, mc.ultrasound, mc.followup, mc.commentary, "
         "lm.title, lm.matched_title, lm.cleaned_title, lm.original_name "
-        "FROM med_case mc "
+        "FROM case_metadata mc "
         "LEFT JOIN lit_metadata lm ON lm.file_uuid = mc.file_uuid"
     )
     record_rows = conn.execute(text(record_sql)).fetchall()

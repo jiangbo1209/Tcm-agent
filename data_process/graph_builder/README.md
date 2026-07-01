@@ -1,6 +1,6 @@
 # graph_builder — 离线图谱建表
 
-从 `lit_metadata` 与 `med_case` 抽取节点特征，计算相似度边，并写入图谱展示表 `nodes` / `edges`。
+从 `lit_metadata` 与 `case_metadata` 抽取节点特征，计算相似度边，并写入图谱展示表 `nodes` / `edges`。
 
 ## 模块说明
 
@@ -15,7 +15,7 @@
 
 1. `cli.py` 读取 `.env`（优先 `DB_*`，其次 `POSTGRES_*`）。
 2. `engine.py` 连接数据库并应用 Schema。
-3. `database.py` 拉取 `lit_metadata` 与 `med_case`，构建节点。
+3. `database.py` 拉取 `lit_metadata` 与 `case_metadata`，构建节点。
 4. `processor.py` 计算相似度边与 `top_k_value`。
 5. `database.py` 按策略写入 `nodes` / `edges`。
 
@@ -32,7 +32,7 @@
 - **过滤**：`tokens` 为空则丢弃该节点。
 - `metric_value`：从 `pub_year` 中提取年份。
 
-### record 节点（`med_case`）
+### record 节点（`case_metadata`）
 
 - 标题：来源于关联的 `lit_metadata` 字段，逻辑与 paper 同。
 - `node_id`：`record` 前缀 + 归一化 key 的 SHA1。
@@ -79,7 +79,7 @@
 从项目根目录运行：
 
 ```bash
-python -m data_process.graph_builder
+python -m data_process.graph_builder.main
 ```
 
 默认读取项目根目录 `.env`，并按 `DB_*` 优先、`POSTGRES_*` 兜底的顺序读取数据库配置。
