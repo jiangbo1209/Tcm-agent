@@ -39,6 +39,7 @@ class Settings(BaseSettings):
 
     ENABLE_NSTL: bool = True
     LOG_LEVEL: str = "INFO"
+    CRAWLER_ORDER: str = "nstl,yidu"
 
     YIDU_BASE_URL: str = "https://yidu.calis.edu.cn"
     NSTL_BASE_URL: str = "https://www.nstl.gov.cn"
