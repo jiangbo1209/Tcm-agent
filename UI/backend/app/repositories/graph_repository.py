@@ -9,24 +9,23 @@ from typing import Any
 from sqlalchemy import String, case, func, or_, text
 from sqlalchemy.orm import Session
 
-from app.config import DatabaseConfig, SearchConfig
-from app.models.graph import CoreFile, Edge, LitMetadata, MedCase, Node
-from app.search.settings import SearchBackendMode
+from app.config import PostgresSettings, SearchSettings
+from app.models.search_history import SearchBackendMode
 
 
 class GraphRepository:
     PAPER_FULLTEXT_COLUMNS = ("title", "keywords", "abstract")
     RECORD_FULLTEXT_COLUMNS = ("tcm_diagnosis", "western_diagnosis")
     PAPER_SEARCH_INDEX = "idx_lit_metadata_search"
-    RECORD_SEARCH_INDEX = "idx_med_case_search"
+    RECORD_SEARCH_INDEX = "idx_case_metadata_search"
 
-    def __init__(self, db_config: DatabaseConfig, search_config: SearchConfig | None = None) -> None:
+    def __init__(self, db_config: PostgresSettings, search_config: SearchSettings | None = None) -> None:
         self._db_config = db_config
-        self._search_config = search_config or SearchConfig()
+        self._search_config = search_config or SearchSettings()
         self._fulltext_cache: dict[str, bool] = {}
 
     def _get_session(self) -> Session:
-        from app.database_pg import PgSession
+        from UI.backend.app.core.database_pg import PgSession
         return PgSession()
 
     def _title_coalesce(self, model):
@@ -415,7 +414,7 @@ class GraphRepository:
 
             recommendations: list[str] = []
             if not fulltext_ready:
-                recommendations.append("Create fulltext indexes on lit_metadata and med_case tables")
+                recommendations.append("Create fulltext indexes on lit_metadata and case_metadata tables")
             if self._search_config.backend_mode == SearchBackendMode.LIKE:
                 recommendations.append("SEARCH_BACKEND_MODE=like is enabled; switch to auto/fulltext after index rollout")
 
@@ -431,7 +430,7 @@ class GraphRepository:
                         "missing_columns": paper_missing,
                     },
                     {
-                        "name": "med_case",
+                        "name": "case_metadata",
                         "required_columns": list(self.RECORD_FULLTEXT_COLUMNS),
                         "indexed_columns": sorted(record_indexed),
                         "missing_columns": record_missing,
@@ -520,7 +519,7 @@ class GraphRepository:
                         to_tsvector('simple', COALESCE(mc.tcm_diagnosis, '') || ' ' || COALESCE(mc.western_diagnosis, '')),
                         plainto_tsquery('simple', :keyword)
                     ) AS score
-                FROM med_case mc
+                FROM case_metadata mc
                 LEFT JOIN lit_metadata lm_r ON lm_r.file_uuid = mc.file_uuid
                 LEFT JOIN nodes n ON n.title = COALESCE(lm_r.title, lm_r.matched_title, lm_r.cleaned_title, lm_r.original_name) AND n.node_type = 'record'
                 WHERE to_tsvector('simple', COALESCE(mc.tcm_diagnosis, '') || ' ' || COALESCE(mc.western_diagnosis, '')) @@ plainto_tsquery('simple', :keyword)
@@ -545,7 +544,7 @@ class GraphRepository:
                     lm_r.journal AS journal,
                     lm_r.keywords::text AS keywords_text,
                     COALESCE(lm_r.title, '') || ' ' || COALESCE(lm_r.keywords::text, '') || ' ' || COALESCE(mc.tcm_diagnosis, '') || ' ' || COALESCE(mc.western_diagnosis, '') AS topic_text
-                FROM med_case mc
+                FROM case_metadata mc
                 LEFT JOIN lit_metadata lm_r ON lm_r.file_uuid = mc.file_uuid
                 WHERE to_tsvector('simple', COALESCE(mc.tcm_diagnosis, '') || ' ' || COALESCE(mc.western_diagnosis, '')) @@ plainto_tsquery('simple', :keyword)
             ) AS combined
@@ -603,7 +602,7 @@ class GraphRepository:
                     COALESCE(lm_r.title, '') || ' ' || COALESCE(lm_r.keywords::text, '') || ' ' || COALESCE(mc.tcm_diagnosis, '') || ' ' || COALESCE(mc.western_diagnosis, '') AS topic_text,
                     mc.tcm_diagnosis AS tcm_diagnosis, mc.western_diagnosis AS western_diagnosis,
                     0 AS score
-                FROM med_case mc
+                FROM case_metadata mc
                 LEFT JOIN lit_metadata lm_r ON lm_r.file_uuid = mc.file_uuid
                 LEFT JOIN nodes n ON n.title = COALESCE(lm_r.title, lm_r.matched_title, lm_r.cleaned_title, lm_r.original_name) AND n.node_type = 'record'
                 WHERE (COALESCE(lm_r.title, lm_r.matched_title, lm_r.cleaned_title, lm_r.original_name) ILIKE :like
@@ -632,7 +631,7 @@ class GraphRepository:
                     lm_r.journal AS journal,
                     lm_r.keywords::text AS keywords_text,
                     COALESCE(lm_r.title, '') || ' ' || COALESCE(lm_r.keywords::text, '') || ' ' || COALESCE(mc.tcm_diagnosis, '') || ' ' || COALESCE(mc.western_diagnosis, '') AS topic_text
-                FROM med_case mc
+                FROM case_metadata mc
                 LEFT JOIN lit_metadata lm_r ON lm_r.file_uuid = mc.file_uuid
                 WHERE (COALESCE(lm_r.title, lm_r.matched_title, lm_r.cleaned_title, lm_r.original_name) ILIKE :like
                        OR mc.tcm_diagnosis ILIKE :like
@@ -674,7 +673,7 @@ class GraphRepository:
                     lm_r.journal AS journal,
                     lm_r.keywords::text AS keywords_text,
                     COALESCE(lm_r.title, '') || ' ' || COALESCE(lm_r.keywords::text, '') || ' ' || COALESCE(mc.tcm_diagnosis, '') || ' ' || COALESCE(mc.western_diagnosis, '') AS topic_text
-                FROM med_case mc
+                FROM case_metadata mc
                 LEFT JOIN lit_metadata lm_r ON lm_r.file_uuid = mc.file_uuid
                 WHERE to_tsvector('simple', COALESCE(mc.tcm_diagnosis, '') || ' ' || COALESCE(mc.western_diagnosis, '')) @@ plainto_tsquery('simple', :keyword)
             ) AS combined
@@ -710,7 +709,7 @@ class GraphRepository:
                     lm_r.journal AS journal,
                     lm_r.keywords::text AS keywords_text,
                     COALESCE(lm_r.title, '') || ' ' || COALESCE(lm_r.keywords::text, '') || ' ' || COALESCE(mc.tcm_diagnosis, '') || ' ' || COALESCE(mc.western_diagnosis, '') AS topic_text
-                FROM med_case mc
+                FROM case_metadata mc
                 LEFT JOIN lit_metadata lm_r ON lm_r.file_uuid = mc.file_uuid
                 WHERE (COALESCE(lm_r.title, lm_r.matched_title, lm_r.cleaned_title, lm_r.original_name) ILIKE :like
                        OR mc.tcm_diagnosis ILIKE :like

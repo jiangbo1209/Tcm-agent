@@ -1,86 +1,79 @@
-"""Database and environment configuration."""
+"""Application settings using pydantic-settings."""
 
 from __future__ import annotations
 
-import os
-from dataclasses import dataclass
+from functools import lru_cache
 
-from app.search.settings import SearchBackendMode, SearchConfig
+from pydantic import Field
+from pydantic_settings import BaseSettings, SettingsConfigDict
 
-
-@dataclass(frozen=True)
-class DatabaseConfig:
-    host: str
-    port: int
-    user: str
-    password: str
-    database: str
+from app.models.search_history import SearchBackendMode
 
 
-@dataclass(frozen=True)
-class MinioConfig:
-    endpoint: str
-    access_key: str
-    secret_key: str
-    bucket_name: str
+class PostgresSettings(BaseSettings):
+    model_config = SettingsConfigDict(env_prefix="", extra="ignore")
+
+    host: str = Field(default="127.0.0.1", alias="POSTGRES_HOST")
+    port: int = Field(default=5432, alias="POSTGRES_PORT")
+    user: str = Field(default="postgres", alias="POSTGRES_USER")
+    password: str = Field(default="", alias="POSTGRES_PASSWORD")
+    database: str = Field(default="postgres", alias="POSTGRES_DB")
 
 
-def parse_int_env(name: str, default: int) -> int:
-    raw = os.getenv(name)
-    if raw is None or raw.strip() == "":
-        return default
-    try:
-        return int(raw)
-    except ValueError:
-        return default
+class MinioSettings(BaseSettings):
+    model_config = SettingsConfigDict(env_prefix="MINIO_", extra="ignore")
+
+    endpoint: str = "localhost:9000"
+    root_user: str = ""
+    root_password: str = ""
+    bucket_name: str = "tcm-documents"
 
 
-def get_database_config() -> DatabaseConfig:
-    db_host = os.getenv("DB_HOST") or os.getenv("POSTGRES_HOST", "127.0.0.1")
-    db_port_raw = os.getenv("DB_PORT") or os.getenv("POSTGRES_PORT")
-    db_port_default = int(db_port_raw) if db_port_raw and db_port_raw.isdigit() else 5432
-    db_port = parse_int_env("DB_PORT", db_port_default)
+class SearchSettings(BaseSettings):
+    model_config = SettingsConfigDict(env_prefix="SEARCH_", extra="ignore")
 
-    db_user = os.getenv("DB_USER") or os.getenv("POSTGRES_USER", "postgres")
-    db_password = os.getenv("DB_PASSWORD")
-    if db_password is None:
-        db_password = os.getenv("POSTGRES_PASSWORD", "")
+    backend_mode: SearchBackendMode = SearchBackendMode.AUTO
+    suggest_default_size: int = 8
 
-    db_name = os.getenv("DB_NAME") or os.getenv("POSTGRES_DB", "postgres")
-    return DatabaseConfig(
-        host=db_host,
-        port=db_port,
-        user=db_user,
-        password=db_password,
-        database=db_name,
+
+class AuthSettings(BaseSettings):
+    model_config = SettingsConfigDict(env_prefix="JWT_", extra="ignore")
+
+    secret_key: str = "tcm-agent-secret-key-change-in-production"
+    expire_minutes: int = 1440
+
+
+class Settings(BaseSettings):
+    model_config = SettingsConfigDict(
+        env_file=(".env", "../.env", "../../.env"),
+        env_file_encoding="utf-8",
+        extra="ignore",
     )
 
+    postgres: PostgresSettings = PostgresSettings()
+    minio: MinioSettings = MinioSettings()
+    search: SearchSettings = SearchSettings()
+    auth: AuthSettings = AuthSettings()
 
-def get_search_config() -> SearchConfig:
-    raw_mode = (os.getenv("SEARCH_BACKEND_MODE") or "auto").strip().lower()
-    try:
-        backend_mode = SearchBackendMode(raw_mode)
-    except ValueError:
-        backend_mode = SearchBackendMode.AUTO
-
-    suggest_default_size = parse_int_env("SEARCH_SUGGEST_DEFAULT_SIZE", 8)
-    suggest_default_size = max(1, min(20, suggest_default_size))
-
-    return SearchConfig(
-        backend_mode=backend_mode,
-        suggest_default_size=suggest_default_size,
-    )
+    cors_allow_origins: str = "http://127.0.0.1:5500,http://localhost:5500,http://127.0.0.1:8080,http://localhost:8080"
 
 
-def get_minio_config() -> MinioConfig:
-    endpoint = (os.getenv("MINIO_ENDPOINT") or "localhost:9000").strip()
-    access_key = (os.getenv("MINIO_ACCESS_KEY") or "").strip()
-    secret_key = (os.getenv("MINIO_SECRET_KEY") or "").strip()
-    bucket_name = (os.getenv("MINIO_BUCKET_NAME") or "tcm-documents").strip() or "tcm-documents"
+@lru_cache
+def get_settings() -> Settings:
+    return Settings()
 
-    return MinioConfig(
-        endpoint=endpoint,
-        access_key=access_key,
-        secret_key=secret_key,
-        bucket_name=bucket_name,
-    )
+
+def get_database_config() -> PostgresSettings:
+    return get_settings().postgres
+
+
+def get_minio_config() -> MinioSettings:
+    return get_settings().minio
+
+
+def get_search_config() -> SearchSettings:
+    return get_settings().search
+
+
+def get_auth_config() -> AuthSettings:
+    return get_settings().auth

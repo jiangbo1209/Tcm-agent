@@ -10,7 +10,7 @@ from sqlalchemy import func
 from sqlalchemy.orm import Session
 
 from app.auth.dependencies import get_current_user, require_professional
-from app.database import get_db
+from UI.backend.app.core.database import get_db
 from app.models.search_history import SearchHistory
 from app.models.user import User
 from app.repositories.graph_repository import GraphRepository

@@ -1,14 +1,23 @@
 """Search history ORM model."""
 
 from __future__ import annotations
-
 from datetime import datetime
-
 from sqlalchemy import DateTime, ForeignKey, Integer, String, func
 from sqlalchemy.orm import Mapped, mapped_column
-
 from app.models.base import Base
+from enum import Enum
 
+class SearchBackendMode(str, Enum):
+    """Search strategy modes.
+
+    auto: Prefer FULLTEXT when indexes are ready, fallback to LIKE.
+    fulltext: Force FULLTEXT strategy first; fallback to LIKE on SQL errors.
+    like: Always use LIKE strategy.
+    """
+
+    AUTO = "auto"
+    FULLTEXT = "fulltext"
+    LIKE = "like"
 
 class SearchHistory(Base):
     __tablename__ = "search_history"

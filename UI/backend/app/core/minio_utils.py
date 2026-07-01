@@ -9,7 +9,7 @@ from urllib.parse import urlparse
 from minio import Minio
 from minio.error import S3Error
 
-from app.config import MinioConfig
+from app.config import MinioSettings
 
 
 @dataclass(frozen=True)
@@ -31,14 +31,14 @@ def _parse_endpoint(raw_endpoint: str) -> ParsedEndpoint:
 class MinioClient:
     """Thin wrapper around MinIO SDK used by backend services."""
 
-    def __init__(self, config: MinioConfig, *, auto_create_bucket: bool = True) -> None:
+    def __init__(self, config: MinioSettings, *, auto_create_bucket: bool = True) -> None:
         self._config = config
         parsed = _parse_endpoint(config.endpoint)
 
         self._client = Minio(
             endpoint=parsed.endpoint,
-            access_key=config.access_key,
-            secret_key=config.secret_key,
+            access_key=config.root_user,
+            secret_key=config.root_password,
             secure=parsed.secure,
         )
 
