@@ -80,6 +80,11 @@ class ExtractionService:
         return registry
 
     async def process_all(self, files: list[DatasetFile]) -> ProcessingSummary:
+        skip = max(0, self.settings.SKIP_FIRST_N)
+        if skip > 0:
+            skipped_files = files[:skip]
+            files = files[skip:]
+            print(f"Skipping first {skip} files: {skipped_files[0].file_name} ... {skipped_files[-1].file_name}")
         total = len(files)
         semaphore = asyncio.Semaphore(self.settings.CRAWLER_CONCURRENCY)
         lock = asyncio.Lock()
@@ -157,9 +162,8 @@ class ExtractionService:
         try:
             cleaned_title = self.cleaner.clean(file_name)
             logger.info(
-                "Processing file: file_name={}, file_path={}, cleaned_title={}",
+                "Processing file: file_name={}, cleaned_title={}",
                 file_name,
-                file_path,
                 cleaned_title,
             )
 
@@ -211,9 +215,8 @@ class ExtractionService:
         except Exception as exc:
             reason = self._failure_reason_from_exception(exc)
             logger.exception(
-                "Failed to process file: file_name={}, file_path={}, cleaned_title={}, reason={}",
+                "Failed to process file: file_name={}, cleaned_title={}, reason={}",
                 file_name,
-                file_path,
                 cleaned_title,
                 reason,
             )
@@ -363,9 +366,8 @@ class ExtractionService:
             await session.commit()
 
         logger.info(
-            "Saved metadata record: file_name={}, file_uuid={}, source_site={}, crawl_status={}",
+            "Saved metadata record: file_name={},  source_site={}, crawl_status={}",
             file.file_name,
-            file.file_uuid,
             outcome.site,
             crawl_status,
         )

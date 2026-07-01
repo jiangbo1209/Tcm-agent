@@ -30,6 +30,7 @@ class Settings(BaseSettings):
     POSTGRES_DB: str = "papers_records"
     OUTPUT_DIR: str = "./outputs"
     CORE_FILE_PENDING_LIMIT: int = 0
+    SKIP_FIRST_N: int = 0
 
     CRAWLER_TIMEOUT: int = 30
     CRAWLER_MAX_RETRIES: int = 2
@@ -69,7 +70,7 @@ class Settings(BaseSettings):
         )
         return self
 
-    @field_validator("CRAWLER_TIMEOUT", "CRAWLER_MAX_RETRIES", "CRAWLER_CONCURRENCY", "CORE_FILE_PENDING_LIMIT")
+    @field_validator("CRAWLER_TIMEOUT", "CRAWLER_MAX_RETRIES", "CRAWLER_CONCURRENCY", "CORE_FILE_PENDING_LIMIT", "SKIP_FIRST_N")
     @classmethod
     def validate_non_negative_int(cls, value: int, info: ValidationInfo) -> int:
         if value < 0:

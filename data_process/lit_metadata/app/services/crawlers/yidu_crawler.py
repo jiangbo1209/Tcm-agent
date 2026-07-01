@@ -35,6 +35,10 @@ class YiduCrawler(BaseCrawler):
 
     async def handle_captcha(self) -> bool:
         async with self._cookie_lock:
+            # another concurrent task may have already refreshed cookies
+            if self._cookie_store.load() is not None:
+                self.client.cookies.update(self._cookie_store.load() or {})
+                return True
             try:
                 cookies = await bootstrap_yidu(self._cookie_store)
                 self.client.cookies.update(cookies)

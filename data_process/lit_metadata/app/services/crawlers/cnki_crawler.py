@@ -77,7 +77,7 @@ class CnkiCrawler(BaseCrawler):
     async def _bootstrap(self, *, captcha_url: str | None = None) -> None:
         async with self._cookie_lock:
             assert self._client is not None
-            if captcha_url is None and self._client.cookies_usable():
+            if self._client.cookies_usable():
                 return
             hint = (
                 "请完成滑块/点选验证，页面正常加载后点击右上角按钮。"
