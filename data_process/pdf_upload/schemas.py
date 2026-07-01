@@ -17,6 +17,7 @@ class UploadResponse(BaseModel):
     status_case: bool
     document_type: int = Field(..., ge=0, le=2, description="0=literature, 1=case, 2=guideline")
     status_guidelinemeta: bool
+    status_ragflow: bool
 
 
 class FileListResponse(BaseModel):

@@ -37,7 +37,6 @@ core_file.status_metadata = true
 3. 只接受标题严格匹配的结果
 4. 写入 `lit_metadata`
 5. 更新 `core_file.status_metadata=true`
-6. 失败记录写入 `failed_records`，并可导出 CSV
 
 CNKI 默认关闭，后续确实需要时再手动开启。
 
@@ -116,7 +115,6 @@ REQUEST_DELAY_MIN=2.0
 REQUEST_DELAY_MAX=5.0
 ENABLE_NSTL=true
 ENABLE_CNKI=false
-EXPORT_FAILED_CSV=true
 LOG_LEVEL=INFO
 ```
 
@@ -128,7 +126,6 @@ LOG_LEVEL=INFO
 | `ENABLE_CNKI` | 是否启用知网检索，默认关闭 |
 | `ENABLE_NSTL` | 是否启用 NSTL 检索 |
 | `CRAWLER_CONCURRENCY` | 并发数，建议先用 `1` |
-| `EXPORT_FAILED_CSV` | 是否导出失败记录 CSV |
 
 ## 安装依赖
 
@@ -211,21 +208,6 @@ order by updated_at desc
 limit 20;
 ```
 
-查看失败记录：
-
-```sql
-select file_name, cleaned_title, failure_reason, error_message, created_at
-from failed_records
-order by created_at desc
-limit 20;
-```
-
-如果开启了 `EXPORT_FAILED_CSV=true`，失败 CSV 会输出到：
-
-```text
-data_process/lit_metadata/outputs/failed_records.csv
-```
-
 ## 常用流程
 
 50 篇测试推荐顺序：
@@ -261,12 +243,10 @@ python -m data_process.guideline_metadata.main
 - 写入 `lit_metadata` 时使用 upsert 逻辑；同一个 `file_uuid` 再次写入会更新原记录，不会重复插入。
 - 扫描待处理文件时，会排除已经存在于 `lit_metadata` 的 `file_uuid`，避免再次爬取和解析。
 - 如果 `lit_metadata` 已经存在记录，但 `core_file.status_metadata=false`，程序会先同步为 `true`，然后跳过该文件。
-- `failed_records.file_uuid` 也有唯一约束；同一个 PDF 失败多次时，会更新原失败记录，不会重复插入，也不会因为唯一键冲突中断任务。
 
 状态规则：
 
 ```text
 lit_metadata 已存在 -> 不重新爬取 -> 同步 core_file.status_metadata=true -> skipped
 lit_metadata 不存在且 status_metadata=false -> 正常爬取 -> 写入 lit_metadata -> status_metadata=true
-爬取失败 -> upsert failed_records -> status_metadata 保持 false，后续可重试
 ```

@@ -28,7 +28,7 @@ class NstlCrawler(BaseCrawler):
 
     async def search(self, title: str) -> list[SearchResult]:
         url = self.build_search_url(title)
-        logger.info("Searching nstl API: title={}, url={}", title, url)
+        logger.debug("Searching nstl API: title={}, url={}", title, url)
         data = await self._request_json(
             "POST",
             url,
@@ -39,7 +39,7 @@ class NstlCrawler(BaseCrawler):
             },
         )
         results = self.parse_search_results(data)
-        logger.info("NSTL API search result count: title={}, count={}", title, len(results))
+        logger.debug("NSTL API search result count: title={}, count={}", title, len(results))
         return results
 
     def _build_search_form(self, title: str) -> dict[str, str]:
@@ -96,7 +96,7 @@ class NstlCrawler(BaseCrawler):
             f"{self.base_url}{self.PAPER_DETAIL_PATH}"
             f"&ids={quote_plus(paper_id)}&type=Detail&webDisplayId=1001"
         )
-        logger.info("Fetching nstl API detail: title={}, id={}", result.title, paper_id)
+        logger.debug("Fetching nstl API detail: title={}, id={}", result.title, paper_id)
         data = await self._request_json(
             "GET",
             url,
@@ -132,7 +132,7 @@ class NstlCrawler(BaseCrawler):
             source_url=result.detail_url,
             raw_data=record,
         )
-        logger.info(
+        logger.debug(
             "Parsed nstl metadata: title={}, authors={}, keywords={}, paper_type={}",
             metadata.title,
             len(metadata.authors),

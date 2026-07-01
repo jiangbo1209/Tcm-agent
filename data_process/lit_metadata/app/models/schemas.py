@@ -32,17 +32,6 @@ class PaperMetadata(BaseModel):
     raw_data: dict[str, Any] | None = None
 
 
-class FailedRecordCreate(BaseModel):
-    file_uuid: str
-    file_name: str
-    file_path: str
-    cleaned_title: str
-    attempted_sites: list[str] = Field(default_factory=list)
-    failure_reason: str
-    error_message: str | None = None
-    suggested_action: str
-
-
 class LitMetadataCreate(BaseModel):
     file_uuid: str
     original_name: str
@@ -71,4 +60,3 @@ class ProcessingSummary(BaseModel):
     partial_count: int = 0
     failed_count: int = 0
     skipped_count: int = 0
-    failed_export_path: str | None = None

@@ -55,15 +55,15 @@ class RagflowSyncService:
         results: list[SyncResult] = []
         if source in ("all", "literature"):
             dataset_id = self._dataset_id("literature")
-            for item in self.repository.fetch_literature(limit, only_failed=only_failed, dataset_id=dataset_id):
+            for item in self.repository.fetch_literature(limit, only_failed=only_failed, dataset_id=dataset_id, force=force):
                 results.append(self.sync_literature(item, dry_run=dry_run, force=force))
         if source in ("all", "case"):
             dataset_id = self._dataset_id("case")
-            for item in self.repository.fetch_cases(limit, only_failed=only_failed, dataset_id=dataset_id):
+            for item in self.repository.fetch_cases(limit, only_failed=only_failed, dataset_id=dataset_id, force=force):
                 results.append(self.sync_case(item, dry_run=dry_run, force=force))
         if source == "guideline":
             dataset_id = self._dataset_id("guideline")
-            for item in self.repository.fetch_guidelines(limit, only_failed=only_failed, dataset_id=dataset_id):
+            for item in self.repository.fetch_guidelines(limit, only_failed=only_failed, dataset_id=dataset_id, force=force):
                 results.append(self.sync_guideline(item, dry_run=dry_run, force=force))
         return results
 
@@ -119,6 +119,7 @@ class RagflowSyncService:
                 content_hash=current_hash,
                 sync_status=status,
             )
+            self.repository.mark_ragflow_done(source.file_uuid)
             return SyncResult("literature", source.file_uuid, status, document_id, stage=stage)
         except Exception as exc:
             self.repository.upsert_status(
@@ -180,6 +181,7 @@ class RagflowSyncService:
                 content_hash=current_hash,
                 sync_status=status,
             )
+            self.repository.mark_ragflow_done(source.file_uuid)
             return SyncResult("case", source.file_uuid, status, document_id, stage=stage)
         except Exception as exc:
             self.repository.upsert_status(
@@ -245,6 +247,7 @@ class RagflowSyncService:
                 content_hash=current_hash,
                 sync_status=status,
             )
+            self.repository.mark_ragflow_done(source.file_uuid)
             return SyncResult("guideline", source.file_uuid, status, document_id, stage=stage)
         except Exception as exc:
             self.repository.upsert_status(

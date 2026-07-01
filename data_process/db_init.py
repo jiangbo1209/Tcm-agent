@@ -9,6 +9,7 @@ from data_process.graph_builder.database import connect_postgres, create_graph_s
 from data_process.graph_builder.config import GraphBuilderSettings
 from data_process.lit_metadata.app.models.orm import Base as LitMetadataBase
 from data_process.pdf_upload.models import Base as UploadBase
+from data_process.ragflow_sync import orm as _ragflow_sync_orm  # noqa: F401
 
 
 def main() -> int:

@@ -1,17 +1,15 @@
 from __future__ import annotations
 
 import asyncio
-import sys
 
 from loguru import logger
 
 from app.core.config import settings
 from app.core.logging import setup_logging
-from app.database import engine, init_db
+from app.database import engine
 from app.services.core_file_scanner import CoreFileScanner
 from app.services.crawlers.nstl_crawler import NstlCrawler
 from app.services.crawlers.yidu_crawler import YiduCrawler
-from app.services.export_service import ExportService
 from app.services.extraction_service import ExtractionService
 
 
@@ -22,9 +20,6 @@ async def main() -> None:
         "Settings loaded: output_dir={}",
         settings.OUTPUT_DIR,
     )
-
-    await init_db()
-    logger.info("Database initialized")
 
     scanner = CoreFileScanner(settings)
     files = await scanner.scan()
@@ -46,11 +41,6 @@ async def main() -> None:
         )
         summary = await extraction_service.process_all(files)
 
-        if settings.EXPORT_FAILED_CSV:
-            export_service = ExportService(settings)
-            failed_export_path = await export_service.export_failed_to_csv()
-            summary.failed_export_path = failed_export_path
-
         logger.info("Final summary: {}", summary.model_dump())
         print("Paper info crawler finished.")
         print(f"Total files: {summary.total_files}")
@@ -58,7 +48,6 @@ async def main() -> None:
         print(f"Partial: {summary.partial_count}")
         print(f"Failed: {summary.failed_count}")
         print(f"Skipped: {summary.skipped_count}")
-        print(f"Failed CSV: {summary.failed_export_path}")
     finally:
         await yidu_crawler.close()
         if nstl_crawler is not None:
@@ -69,6 +58,4 @@ async def main() -> None:
 
 
 if __name__ == "__main__":
-    if sys.platform.startswith("win"):
-        asyncio.set_event_loop_policy(asyncio.WindowsProactorEventLoopPolicy())
     asyncio.run(main())

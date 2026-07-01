@@ -35,11 +35,14 @@ class CoreFile(Base):
     status_case: Mapped[bool] = mapped_column(
         Boolean, nullable=False, default=False
     )
-    document_type: Mapped[int] = mapped_column(
-        Integer, nullable=False, default=0
-    )
     status_guidelinemeta: Mapped[bool] = mapped_column(
         Boolean, nullable=False, default=False
+    )
+    status_ragflow: Mapped[bool] = mapped_column(
+        Boolean, nullable=False, default=False
+    )
+    document_type: Mapped[int] = mapped_column(
+        Integer, nullable=False, default=0
     )
 
     __table_args__ = (
@@ -58,6 +61,11 @@ class CoreFile(Base):
             "idx_core_file_status_guidelinemeta",
             "status_guidelinemeta",
             postgresql_where=text("status_guidelinemeta = FALSE"),
+        ),
+        Index(
+            "idx_core_file_status_ragflow",
+            "status_ragflow",
+            postgresql_where=text("status_ragflow = FALSE"),
         ),
         Index("idx_core_file_upload_time", upload_time.desc()),
     )
