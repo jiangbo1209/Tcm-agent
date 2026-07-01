@@ -42,7 +42,10 @@ class Settings(BaseSettings):
 
     YIDU_BASE_URL: str = "https://yidu.calis.edu.cn"
     NSTL_BASE_URL: str = "https://www.nstl.gov.cn"
-    USER_AGENT: str = "Mozilla/5.0"
+    USER_AGENT: str = (
+        "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 "
+        "(KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36"
+    )
     SKIP_EXISTING_RECORDS: bool = True
 
     ENABLE_CNKI: bool = False

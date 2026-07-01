@@ -254,7 +254,27 @@ class ExtractionService:
             )
         except (CaptchaDetectedError, LoginRequiredError, AccessLimitedError) as exc:
             reason = self._failure_reason_from_exception(exc)
-            logger.warning("Access issue on site: site={}, reason={}, message={}", site, reason, exc)
+            logger.warning(
+                "Access issue on site: site={}, reason={}, message={}",
+                site, reason, exc,
+            )
+            solved = await crawler.handle_captcha()
+            if solved:
+                logger.info("Captcha solved for site={}, retrying...", site)
+                try:
+                    results = await crawler.search(cleaned_title)
+                    if results:
+                        match_result = self.matcher.find_exact_match(cleaned_title, results)
+                        if match_result is not None:
+                            metadata = await crawler.fetch_detail(match_result)
+                            return SiteAttemptOutcome(
+                                success=True,
+                                site=site,
+                                metadata=metadata,
+                                match_result=match_result,
+                            )
+                except Exception as retry_exc:
+                    logger.warning("Retry after captcha failed: site={}, error={}", site, retry_exc)
             return SiteAttemptOutcome(
                 success=False,
                 site=site,
