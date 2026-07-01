@@ -10,31 +10,6 @@ class Base(DeclarativeBase):
     pass
 
 
-class FailedRecord(Base):
-    __tablename__ = "failed_records"
-
-    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
-    file_uuid: Mapped[str] = mapped_column(String, nullable=False, unique=True, index=True)
-    file_name: Mapped[str] = mapped_column(String(512), nullable=False, index=True)
-    file_path: Mapped[str] = mapped_column(Text, nullable=False)
-    cleaned_title: Mapped[str] = mapped_column(Text, nullable=False)
-    attempted_sites: Mapped[list[str]] = mapped_column(JSON, nullable=False, default=list)
-    failure_reason: Mapped[str] = mapped_column(String(64), nullable=False, index=True)
-    error_message: Mapped[str | None] = mapped_column(Text, nullable=True)
-    suggested_action: Mapped[str] = mapped_column(String(64), nullable=False)
-    created_at: Mapped[datetime] = mapped_column(
-        DateTime(timezone=True),
-        nullable=False,
-        server_default=func.now(),
-    )
-    updated_at: Mapped[datetime] = mapped_column(
-        DateTime(timezone=True),
-        nullable=False,
-        server_default=func.now(),
-        onupdate=func.now(),
-    )
-
-
 class CoreFile(Base):
     __tablename__ = "core_file"
 

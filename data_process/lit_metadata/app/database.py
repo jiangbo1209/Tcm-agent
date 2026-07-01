@@ -7,7 +7,7 @@ from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_asyn
 from sqlalchemy import text
 
 from app.core.config import settings
-from app.models.orm import Base, FailedRecord, LitMetadata
+from app.models.orm import Base, LitMetadata
 
 
 engine = create_async_engine(
@@ -26,13 +26,10 @@ AsyncSessionLocal = async_sessionmaker(
 
 
 async def init_db() -> None:
-    tables = [FailedRecord.__table__, LitMetadata.__table__]
+    tables = [LitMetadata.__table__]
 
     async with engine.begin() as conn:
         await conn.run_sync(lambda sync_conn: Base.metadata.create_all(sync_conn, tables=tables))
-        await conn.execute(
-            text("CREATE UNIQUE INDEX IF NOT EXISTS ux_failed_records_file_uuid ON failed_records (file_uuid)")
-        )
         await conn.execute(
             text("CREATE UNIQUE INDEX IF NOT EXISTS ux_lit_metadata_file_uuid ON lit_metadata (file_uuid)")
         )

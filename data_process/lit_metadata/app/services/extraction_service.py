@@ -19,33 +19,18 @@ from app.core.exceptions import (
 from app.database import AsyncSessionLocal
 from app.models.schemas import (
     DatasetFile,
-    FailedRecordCreate,
     LitMetadataCreate,
     PaperMetadata,
     ProcessingSummary,
     SearchResult,
 )
 from app.repositories.core_file_repository import CoreFileRepository
-from app.repositories.failed_record_repository import FailedRecordRepository
 from app.repositories.lit_metadata_repository import LitMetadataRepository
 from app.services.crawlers.base import BaseCrawler
 from app.services.filename_cleaner import FilenameCleaner
 from app.services.title_matcher import ExactTitleMatcher
 
 ProcessingStatus = Literal["success", "partial", "failed", "skipped"]
-
-
-FAILURE_ACTIONS = {
-    "title_not_exact_match": "manual_check",
-    "no_result": "check_site_manually",
-    "page_parse_failed": "manual_check",
-    "network_error": "retry_later",
-    "timeout": "retry_later",
-    "captcha_detected": "retry_later",
-    "login_required": "check_site_manually",
-    "access_limited": "retry_later",
-    "unknown_error": "manual_check",
-}
 
 
 @dataclass
@@ -144,7 +129,6 @@ class ExtractionService:
             last_reason = yidu_outcome.failure_reason or "unknown_error"
             last_message = yidu_outcome.error_message
             if yidu_outcome.stop_processing:
-                await self._write_failed_record(file, cleaned_title, attempted_sites, last_reason, last_message)
                 return "failed"
 
             if self.settings.ENABLE_CNKI and self.cnki_crawler is not None:
@@ -156,7 +140,6 @@ class ExtractionService:
                 last_reason = cnki_outcome.failure_reason or last_reason
                 last_message = cnki_outcome.error_message or last_message
                 if cnki_outcome.stop_processing:
-                    await self._write_failed_record(file, cleaned_title, attempted_sites, last_reason, last_message)
                     return "failed"
 
             if self.settings.ENABLE_NSTL and self.nstl_crawler is not None:
@@ -168,10 +151,8 @@ class ExtractionService:
                 last_reason = nstl_outcome.failure_reason or last_reason
                 last_message = nstl_outcome.error_message or last_message
                 if nstl_outcome.stop_processing:
-                    await self._write_failed_record(file, cleaned_title, attempted_sites, last_reason, last_message)
                     return "failed"
 
-            await self._write_failed_record(file, cleaned_title, attempted_sites, last_reason, last_message)
             return "failed"
 
         except Exception as exc:
@@ -183,7 +164,6 @@ class ExtractionService:
                 cleaned_title,
                 reason,
             )
-            await self._write_failed_record(file, cleaned_title, attempted_sites, reason, str(exc))
             return "failed"
 
     async def _attempt_site(self, site: str, crawler: BaseCrawler, cleaned_title: str) -> SiteAttemptOutcome:
@@ -316,39 +296,6 @@ class ExtractionService:
             crawl_status,
         )
         return "success" if crawl_status == "success" else "partial"
-
-    async def _write_failed_record(
-        self,
-        file: DatasetFile,
-        cleaned_title: str,
-        attempted_sites: list[str],
-        failure_reason: str,
-        error_message: str | None,
-    ) -> None:
-        suggested_action = FAILURE_ACTIONS.get(failure_reason, "manual_check")
-        data = FailedRecordCreate(
-            file_uuid=file.file_uuid,
-            file_name=file.file_name,
-            file_path=file.file_path,
-            cleaned_title=cleaned_title,
-            attempted_sites=attempted_sites,
-            failure_reason=failure_reason,
-            error_message=error_message,
-            suggested_action=suggested_action,
-        )
-        async with self.session_factory() as session:
-            repo = FailedRecordRepository(session)
-            existed = await repo.exists_by_file_uuid(file.file_uuid)
-            await repo.create(data)
-        logger.info(
-            "{} failed record: file_name={}, file_uuid={}, attempted_sites={}, failure_reason={}, suggested_action={}",
-            "Updated" if existed else "Saved",
-            file.file_name,
-            file.file_uuid,
-            attempted_sites,
-            failure_reason,
-            suggested_action,
-        )
 
     @staticmethod
     def _metadata_status(metadata: PaperMetadata) -> tuple[str, str | None]:
