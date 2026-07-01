@@ -27,6 +27,8 @@ from app.services.crawlers.cnki.cookie_bootstrap import bootstrap_cookies
 from app.services.crawlers.cnki.endnote_parser import parse_endnote
 from app.utils.text import split_authors, split_keywords
 
+CNKI_BASE_URL = "https://kns.cnki.net"
+
 
 def _reconstruct_cnki_result(raw_data: dict[str, Any] | None) -> CnkiSearchResult:
     if not raw_data:
@@ -48,11 +50,11 @@ class CnkiCrawler(BaseCrawler):
     """CNKI crawler using POST API with manual cookie bootstrap on captcha."""
 
     def __init__(self, app_settings: Settings = settings) -> None:
-        super().__init__("cnki", app_settings.CNKI_BASE_URL, app_settings)
-        debug_dir = Path(app_settings.OUTPUT_DIR) / "cnki_debug"
-        debug_dir.mkdir(parents=True, exist_ok=True)
+        super().__init__("cnki", CNKI_BASE_URL, app_settings)
+        cookie_dir = Path(app_settings.OUTPUT_DIR) / "cookies"
+        cookie_dir.mkdir(parents=True, exist_ok=True)
         self._cookie_store = CookieStore(
-            debug_dir / "cnki_cookies.json",
+            cookie_dir / "cnki_cookies.json",
             ttl_sec=app_settings.CNKI_COOKIE_TTL_SEC,
         )
         self._client: CnkiClient | None = None
