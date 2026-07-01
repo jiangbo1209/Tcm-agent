@@ -24,8 +24,9 @@ class CoreFile(Base):
     )
     status_metadata: Mapped[bool] = mapped_column(Boolean, nullable=False)
     status_case: Mapped[bool] = mapped_column(Boolean, nullable=False)
-    document_type: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
     status_guidelinemeta: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
+    status_ragflow: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
+    document_type: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
 
 
 class LitMetadata(Base):

@@ -28,12 +28,22 @@ class RagflowSyncRepository:
     def ensure_schema(self) -> None:
         RagflowSyncStatus.__table__.create(bind=self._engine, checkfirst=True)
 
+    def mark_ragflow_done(self, file_uuid: str) -> None:
+        with self._session_factory() as session:
+            stmt = select(CoreFile).where(CoreFile.file_uuid == file_uuid)
+            result = session.execute(stmt)
+            core_file = result.scalar_one_or_none()
+            if core_file is not None:
+                core_file.status_ragflow = True
+                session.commit()
+
     def fetch_literature(
         self,
         limit: int | None = None,
         *,
         only_failed: bool = False,
         dataset_id: str | None = None,
+        force: bool = False,
     ) -> list[LiteratureSource]:
         with self._session_factory() as session:
             stmt = (
@@ -45,6 +55,8 @@ class RagflowSyncRepository:
                 .where(func.coalesce(CoreFile.storage_path, LitMetadata.storage_path, "") != "")
                 .order_by(LitMetadata.updated_at.desc().nulls_last(), LitMetadata.id.desc())
             )
+            if not force:
+                stmt = stmt.where(CoreFile.status_ragflow.is_(False))
             if only_failed:
                 if not dataset_id:
                     raise ValueError("dataset_id is required when only_failed=True")
@@ -69,6 +81,7 @@ class RagflowSyncRepository:
         *,
         only_failed: bool = False,
         dataset_id: str | None = None,
+        force: bool = False,
     ) -> list[CaseSource]:
         with self._session_factory() as session:
             stmt = (
@@ -79,6 +92,8 @@ class RagflowSyncRepository:
                 .where(or_(CoreFile.file_uuid.is_(None), CoreFile.document_type == 1))
                 .order_by(MedCase.updated_at.desc().nulls_last(), MedCase.id.desc())
             )
+            if not force:
+                stmt = stmt.where(or_(CoreFile.file_uuid.is_(None), CoreFile.status_ragflow.is_(False)))
             if only_failed:
                 if not dataset_id:
                     raise ValueError("dataset_id is required when only_failed=True")
@@ -103,6 +118,7 @@ class RagflowSyncRepository:
         *,
         only_failed: bool = False,
         dataset_id: str | None = None,
+        force: bool = False,
     ) -> list[GuidelineSource]:
         with self._session_factory() as session:
             stmt = (
@@ -114,6 +130,8 @@ class RagflowSyncRepository:
                 .where(func.coalesce(CoreFile.storage_path, GuidelineMetadata.storage_path, "") != "")
                 .order_by(GuidelineMetadata.updated_at.desc().nulls_last(), GuidelineMetadata.id.desc())
             )
+            if not force:
+                stmt = stmt.where(CoreFile.status_ragflow.is_(False))
             if only_failed:
                 if not dataset_id:
                     raise ValueError("dataset_id is required when only_failed=True")
