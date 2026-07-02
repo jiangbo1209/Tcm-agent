@@ -9,6 +9,7 @@ from app.core.logging import setup_logging
 from app.database import engine
 from app.services.core_file_scanner import CoreFileScanner
 from app.services.crawlers.base import BaseCrawler
+from app.services.crawlers.baidu_crawler import BaiduCrawler
 from app.services.crawlers.nstl_crawler import NstlCrawler
 from app.services.crawlers.yidu_crawler import YiduCrawler
 from app.services.extraction_service import ExtractionService
@@ -18,6 +19,7 @@ CRAWLER_FACTORIES: dict[str, type[BaseCrawler]] = {
     "yidu": YiduCrawler,
     "nstl": NstlCrawler,
     "cnki": None,  # lazy import
+    "baidu": BaiduCrawler,
 }
 
 
@@ -47,6 +49,7 @@ async def main() -> None:
             yidu_crawler=crawlers.get("yidu"),
             nstl_crawler=crawlers.get("nstl"),
             cnki_crawler=crawlers.get("cnki"),
+            baidu_crawler=crawlers.get("baidu"),
             app_settings=settings,
         )
         summary = await extraction_service.process_all(files)

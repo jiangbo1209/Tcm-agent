@@ -74,6 +74,12 @@ class FilenameCleaner:
         return cleaned
 
     @staticmethod
+    def extract_author(file_name: str) -> str | None:
+        pure_name = Path(file_name).stem
+        match = re.search(r"_([\u4e00-\u9fa5]{2,6})$", pure_name)
+        return match.group(1) if match else None
+
+    @staticmethod
     def _remove_outer_wrappers(title: str) -> str:
         stripped = title.strip()
         wrapper_pairs = (("《", "》"), ("<", ">"))

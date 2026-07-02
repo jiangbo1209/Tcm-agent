@@ -54,6 +54,7 @@ class ExtractionService:
         yidu_crawler: BaseCrawler | None = None,
         nstl_crawler: BaseCrawler | None = None,
         cnki_crawler: BaseCrawler | None = None,
+        baidu_crawler: BaseCrawler | None = None,
         app_settings: Settings = settings,
         session_factory: async_sessionmaker[AsyncSession] = AsyncSessionLocal,
         cleaner: FilenameCleaner | None = None,
@@ -62,6 +63,7 @@ class ExtractionService:
         self.yidu_crawler = yidu_crawler
         self.nstl_crawler = nstl_crawler
         self.cnki_crawler = cnki_crawler
+        self.baidu_crawler = baidu_crawler
         self.settings = app_settings
         self.session_factory = session_factory
         self.cleaner = cleaner or FilenameCleaner()
@@ -77,6 +79,8 @@ class ExtractionService:
             registry["cnki"] = self.cnki_crawler
         if self.yidu_crawler is not None:
             registry["yidu"] = self.yidu_crawler
+        if self.baidu_crawler is not None:
+            registry["baidu"] = self.baidu_crawler
         return registry
 
     async def process_all(self, files: list[DatasetFile]) -> ProcessingSummary:
@@ -155,16 +159,19 @@ class ExtractionService:
         file_name = file.file_name
         file_path = file.file_path
         cleaned_title = ""
+        expected_author: str | None = None
         attempted_sites: list[str] = []
         last_reason = "unknown_error"
         last_message: str | None = None
 
         try:
             cleaned_title = self.cleaner.clean(file_name)
+            expected_author = self.cleaner.extract_author(file_name)
             logger.info(
-                "Processing file: file_name={}, cleaned_title={}",
+                "Processing file: file_name={}, cleaned_title={}, author={}",
                 file_name,
                 cleaned_title,
+                expected_author,
             )
 
             async with self.session_factory() as session:
@@ -190,7 +197,7 @@ class ExtractionService:
                     logger.info("{} cooling down, skip (remaining: {})", site, cooldown)
                     continue
 
-                outcome = await self._attempt_site(site, crawler, cleaned_title)
+                outcome = await self._attempt_site(site, crawler, cleaned_title, expected_author)
                 attempted_sites.append(site)
                 if outcome.success and outcome.metadata and outcome.match_result:
                     self._decrement_cooldowns()
@@ -222,7 +229,7 @@ class ExtractionService:
             )
             return "failed"
 
-    async def _attempt_site(self, site: str, crawler: BaseCrawler, cleaned_title: str) -> SiteAttemptOutcome:
+    async def _attempt_site(self, site: str, crawler: BaseCrawler, cleaned_title: str, expected_author: str | None = None) -> SiteAttemptOutcome:
         logger.debug("Trying site: site={}, cleaned_title={}", site, cleaned_title)
         try:
             results = await crawler.search(cleaned_title)
@@ -240,6 +247,13 @@ class ExtractionService:
                 )
 
             match_result = self.matcher.find_exact_match(cleaned_title, results)
+            if match_result is None and expected_author:
+                match_result = self.matcher.find_fuzzy_match(cleaned_title, expected_author, results)
+                if match_result is not None:
+                    logger.info(
+                        "Fuzzy match found: site={}, expected={}, author={}, matched={}",
+                        site, cleaned_title, expected_author, match_result.title,
+                    )
             if match_result is None:
                 logger.warning("No exact title match: site={}, cleaned_title={}", site, cleaned_title)
                 return SiteAttemptOutcome(
