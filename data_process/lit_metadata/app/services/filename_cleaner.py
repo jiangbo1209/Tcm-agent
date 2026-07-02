@@ -10,10 +10,14 @@ from app.utils.text import compress_spaces, replace_full_width_spaces
 class FilenameCleaner:
     DOWNLOAD_MARKERS = ("下载", "副本", "CNKI", "知网", "万方", "维普", "NSTL", "e读", "CALIS")
     NUMBER_PREFIX_PATTERNS = (
-        re.compile(r"^\s*\d{1,3}[\._、]+(?=[\u4e00-\u9fa5]{3})"),
-        re.compile(r"^\s*[\[\【\(（]\d{1,3}[\]\】\)）]\s*(?=[\u4e00-\u9fa5]{3})"),
+        re.compile(r"^\s*\d+[\._、+]+(?=[\u4e00-\u9fa5]{3})"),
+        re.compile(r"^\s*[\[\【\(（]\d+[\]\】\)）]\s*(?=[\u4e00-\u9fa5]{3})"),
     )
-    _AUTHOR_RE = re.compile(r"_([\u4e00-\u9fa5\u00b7·]{2,4})$")
+    # Mixed prefix like "3.0+T+MR" or "21061+" before Chinese title.
+    # Only strip prefixes that contain digits or '+' to avoid removing legitimate
+    # medical terms like "Budd-Chiari".
+    MIXED_PREFIX_PATTERN = re.compile(r"^\s*[^\u4e00-\u9fa5]*(?:\d|\+)[^\u4e00-\u9fa5]*(?=[\u4e00-\u9fa5]{3})")
+    _AUTHOR_RE = re.compile(r"_([\u4e00-\u9fa5\u00b7·]{2,4}|[A-Za-z][A-Za-z\s\.]{1,19})$")
     TRAILING_AUTHOR_PATTERN = _AUTHOR_RE
     TRAILING_DUP_PATTERN = re.compile(r"\s*[\(（]\s*\d{1,3}\s*[\)）]\s*$")
 
@@ -23,15 +27,28 @@ class FilenameCleaner:
     def clean_with_author(self, file_name: str) -> tuple[str, str | None]:
         pure_name = Path(file_name).name
         stem = Path(pure_name).stem
+        stem = stem.lstrip("_")
 
-        author = self._extract_trailing_authors(stem)
+        author, title_stem = self._extract_trailing_authors(stem)
 
-        title = replace_full_width_spaces(stem)
+        title = replace_full_width_spaces(title_stem)
+        title = title.replace("_", " ")
         title = compress_spaces(title)
 
         for pattern in self.NUMBER_PREFIX_PATTERNS:
             title = pattern.sub("", title)
             title = compress_spaces(title)
+
+        title = self.MIXED_PREFIX_PATTERN.sub("", title)
+        title = compress_spaces(title)
+
+        # Remaining '+' separators (e.g. inside titles) become spaces
+        title = title.replace("+", " ")
+        title = compress_spaces(title)
+
+        # Remove shortened tokens like "AZ...Ab" (filename ellipsis)
+        title = re.sub(r"\w*\.\.\.\w*\s*[、,;]?\s*", "", title)
+        title = compress_spaces(title)
 
         title = self._remove_trailing_download_markers(title)
         title = self._remove_trailing_filename_artifacts(title)
@@ -42,10 +59,10 @@ class FilenameCleaner:
             raise ValueError(f"Cleaned title is empty for file name: {file_name}")
         return title, author
 
-    def _extract_trailing_authors(self, stem: str) -> str | None:
+    def _extract_trailing_authors(self, stem: str) -> tuple[str | None, str]:
         """Extract consecutive trailing _作者 suffixes from the stem."""
         if stem.startswith("_"):
-            return None
+            return None, stem
         authors: list[str] = []
         remaining = stem
         while True:
@@ -54,7 +71,7 @@ class FilenameCleaner:
                 break
             authors.insert(0, match.group(1))
             remaining = remaining[:match.start()]
-        return " ".join(authors) if authors else None
+        return (" ".join(authors) if authors else None), remaining
 
     def _remove_trailing_download_markers(self, title: str) -> str:
         marker_pattern = "|".join(re.escape(marker) for marker in self.DOWNLOAD_MARKERS)

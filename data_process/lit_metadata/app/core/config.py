@@ -39,7 +39,7 @@ class Settings(BaseSettings):
     REQUEST_DELAY_MAX: float = 5.0
 
     LOG_LEVEL: str = "INFO"
-    CRAWLER_ORDER: str = "nstl,cnki,yidu,baidu"
+    CRAWLER_ORDER: str = "nstl,cnki,yidu,wanfang"
 
     USER_AGENT: str = (
         "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 "

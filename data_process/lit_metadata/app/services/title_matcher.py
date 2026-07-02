@@ -1,6 +1,8 @@
 """Title matcher with exact and fuzzy matching support."""
 from __future__ import annotations
 
+import re
+
 from app.models.schemas import SearchResult
 from app.utils.text import compress_spaces, replace_full_width_spaces
 
@@ -37,7 +39,7 @@ class ExactTitleMatcher:
                     best = result
                     best_diff = diff
 
-            elif diff == 5 and expected_author and self._author_matches(expected_author, result):
+            elif diff <= 6 and expected_author and self._author_matches(expected_author, result):
                 if diff < best_diff:
                     best = result
                     best_diff = diff
@@ -49,7 +51,15 @@ class ExactTitleMatcher:
         t = replace_full_width_spaces(title)
         t = compress_spaces(t)
         t = t.replace("\uff05", "%")
-        return t
+        # Treat common medical separators as whitespace
+        t = t.replace("/", " ")
+        # Strip leading non-Chinese prefix like "3.0 T MR " or "3D-TVS"
+        t = re.sub(r"^[^\u4e00-\u9fa5]+(?=[\u4e00-\u9fa5])", "", t)
+        # Remove quotes (content is what matters for matching)
+        t = re.sub(r'[""''""'']', "", t)
+        # Remove spaces between Chinese characters
+        t = re.sub(r"([\u4e00-\u9fa5])\s+([\u4e00-\u9fa5])", r"\1\2", t)
+        return compress_spaces(t).strip()
 
     @staticmethod
     def _char_diff(a: str, b: str) -> int:

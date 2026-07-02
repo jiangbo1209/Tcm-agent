@@ -54,7 +54,7 @@ class ExtractionService:
         yidu_crawler: BaseCrawler | None = None,
         nstl_crawler: BaseCrawler | None = None,
         cnki_crawler: BaseCrawler | None = None,
-        baidu_crawler: BaseCrawler | None = None,
+        wanfang_crawler: BaseCrawler | None = None,
         app_settings: Settings = settings,
         session_factory: async_sessionmaker[AsyncSession] = AsyncSessionLocal,
         cleaner: FilenameCleaner | None = None,
@@ -63,7 +63,7 @@ class ExtractionService:
         self.yidu_crawler = yidu_crawler
         self.nstl_crawler = nstl_crawler
         self.cnki_crawler = cnki_crawler
-        self.baidu_crawler = baidu_crawler
+        self.wanfang_crawler = wanfang_crawler
         self.settings = app_settings
         self.session_factory = session_factory
         self.cleaner = cleaner or FilenameCleaner()
@@ -79,8 +79,8 @@ class ExtractionService:
             registry["cnki"] = self.cnki_crawler
         if self.yidu_crawler is not None:
             registry["yidu"] = self.yidu_crawler
-        if self.baidu_crawler is not None:
-            registry["baidu"] = self.baidu_crawler
+        if self.wanfang_crawler is not None:
+            registry["wanfang"] = self.wanfang_crawler
         return registry
 
     async def process_all(self, files: list[DatasetFile]) -> ProcessingSummary:
