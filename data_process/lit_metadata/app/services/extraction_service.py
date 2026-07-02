@@ -165,8 +165,7 @@ class ExtractionService:
         last_message: str | None = None
 
         try:
-            cleaned_title = self.cleaner.clean(file_name)
-            expected_author = self.cleaner.extract_author(file_name)
+            cleaned_title, expected_author = self.cleaner.clean_with_author(file_name)
             logger.info(
                 "Processing file: file_name={}, cleaned_title={}, author={}",
                 file_name,

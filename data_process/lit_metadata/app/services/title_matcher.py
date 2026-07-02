@@ -6,13 +6,11 @@ from app.utils.text import compress_spaces, replace_full_width_spaces
 
 
 class ExactTitleMatcher:
-    """Strict + fuzzy title matcher."""
-
     def normalize(self, title: str) -> str:
-        return compress_spaces(replace_full_width_spaces(title))
+        return self._norm(title)
 
     def is_exact_match(self, expected_title: str, result_title: str) -> bool:
-        return self.normalize(expected_title) == self.normalize(result_title)
+        return self._norm(expected_title) == self._norm(result_title)
 
     def find_exact_match(self, expected_title: str, results: list[SearchResult]) -> SearchResult | None:
         for result in results:
@@ -23,19 +21,40 @@ class ExactTitleMatcher:
     def find_fuzzy_match(
         self, expected_title: str, expected_author: str | None, results: list[SearchResult]
     ) -> SearchResult | None:
-        if not expected_author:
-            return None
+        best: SearchResult | None = None
+        best_diff = 999
+
         for result in results:
-            if self._titles_similar(expected_title, result.title) and self._author_matches(
-                expected_author, result
-            ):
+            a = self._norm(expected_title)
+            b = self._norm(result.title)
+            if a == b:
                 return result
-        return None
+
+            diff = self._char_diff(a, b)
+
+            if diff <= 2:
+                if diff < best_diff:
+                    best = result
+                    best_diff = diff
+
+            elif diff == 5 and expected_author and self._author_matches(expected_author, result):
+                if diff < best_diff:
+                    best = result
+                    best_diff = diff
+
+        return best
+
+    @staticmethod
+    def _norm(title: str) -> str:
+        t = replace_full_width_spaces(title)
+        t = compress_spaces(t)
+        t = t.replace("\uff05", "%")
+        return t
 
     @staticmethod
     def _char_diff(a: str, b: str) -> int:
-        a = a.replace(" ", "").replace("　", "")
-        b = b.replace(" ", "").replace("　", "")
+        a = a.replace(" ", "").replace("\u3000", "")
+        b = b.replace(" ", "").replace("\u3000", "")
         if a == b:
             return 0
         if len(a) < len(b):
@@ -51,21 +70,9 @@ class ExactTitleMatcher:
                 diff += j2 - j1
         return diff
 
-    @classmethod
-    def _titles_similar(cls, expected: str, result: str) -> bool:
-        a = cls.normalize(expected)
-        b = cls.normalize(result)
-        if a == b:
-            return True
-        # Allow up to 3 character differences for short titles
-        diff = cls._char_diff(a, b)
-        max_diff = 2 if len(a) > 8 else 1
-        return diff <= max_diff
-
     @staticmethod
     def _author_matches(expected_author: str, result: SearchResult) -> bool:
         raw = result.raw_data or {}
-        # Try common author field names
         authors_text = (
             raw.get("authors")
             or raw.get("author")
@@ -78,4 +85,8 @@ class ExactTitleMatcher:
             return False
         if isinstance(authors_text, list):
             authors_text = " ".join(str(a) for a in authors_text)
-        return expected_author in str(authors_text)
+        result_authors = str(authors_text)
+        for author in expected_author.split():
+            if author in result_authors:
+                return True
+        return False
