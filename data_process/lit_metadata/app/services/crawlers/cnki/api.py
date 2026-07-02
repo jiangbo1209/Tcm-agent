@@ -627,5 +627,5 @@ class CnkiClient:
             m = re.search(r"https?://[^\s\"'<>]+", body)
             url = m.group(0) if m else ""
         if not url:
-            raise CnkiApiError(f"403 且解析不出 captcha URL：{body[:200]}")
+            raise CaptchaRequired("", raw_body=f"403 captcha (no URL in body): {body[:200]}")
         raise CaptchaRequired(url, raw_body=body)

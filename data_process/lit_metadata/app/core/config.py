@@ -30,6 +30,7 @@ class Settings(BaseSettings):
     POSTGRES_DB: str = "papers_records"
     OUTPUT_DIR: str = "./outputs"
     CORE_FILE_PENDING_LIMIT: int = 0
+    SKIP_FIRST_N: int = 0
 
     CRAWLER_TIMEOUT: int = 30
     CRAWLER_MAX_RETRIES: int = 2
@@ -37,16 +38,15 @@ class Settings(BaseSettings):
     REQUEST_DELAY_MIN: float = 2.0
     REQUEST_DELAY_MAX: float = 5.0
 
-    ENABLE_NSTL: bool = True
     LOG_LEVEL: str = "INFO"
+    CRAWLER_ORDER: str = "nstl,cnki,yidu,wanfang"
 
-    YIDU_BASE_URL: str = "https://yidu.calis.edu.cn"
-    NSTL_BASE_URL: str = "https://www.nstl.gov.cn"
-    USER_AGENT: str = "Mozilla/5.0"
+    USER_AGENT: str = (
+        "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 "
+        "(KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36"
+    )
     SKIP_EXISTING_RECORDS: bool = True
 
-    ENABLE_CNKI: bool = False
-    CNKI_BASE_URL: str = "https://kns.cnki.net"
     CNKI_COOKIE_TTL_SEC: int = 300
     CNKI_HEADLESS_BOOTSTRAP: bool = False
     CNKI_BROWSER_CHANNEL: str = ""
@@ -70,7 +70,7 @@ class Settings(BaseSettings):
         )
         return self
 
-    @field_validator("CRAWLER_TIMEOUT", "CRAWLER_MAX_RETRIES", "CRAWLER_CONCURRENCY", "CORE_FILE_PENDING_LIMIT")
+    @field_validator("CRAWLER_TIMEOUT", "CRAWLER_MAX_RETRIES", "CRAWLER_CONCURRENCY", "CORE_FILE_PENDING_LIMIT", "SKIP_FIRST_N")
     @classmethod
     def validate_non_negative_int(cls, value: int, info: ValidationInfo) -> int:
         if value < 0:

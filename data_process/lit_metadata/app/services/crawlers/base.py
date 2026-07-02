@@ -50,6 +50,11 @@ class BaseCrawler(abc.ABC):
     async def close(self) -> None:
         await self.client.aclose()
 
+    async def handle_captcha(self) -> bool:
+        """Handle captcha/access issues. Return True if captcha was solved and cookies
+        were updated; return False if cannot handle (default). Subclasses may override."""
+        return False
+
     async def _sleep_before_request(self) -> None:
         delay = random.uniform(self.settings.REQUEST_DELAY_MIN, self.settings.REQUEST_DELAY_MAX)
         await asyncio.sleep(delay)

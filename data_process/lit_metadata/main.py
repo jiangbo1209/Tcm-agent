@@ -8,35 +8,48 @@ from app.core.config import settings
 from app.core.logging import setup_logging
 from app.database import engine
 from app.services.core_file_scanner import CoreFileScanner
+from app.services.crawlers.base import BaseCrawler
 from app.services.crawlers.nstl_crawler import NstlCrawler
+from app.services.crawlers.wanfang_crawler import WanfangCrawler
 from app.services.crawlers.yidu_crawler import YiduCrawler
 from app.services.extraction_service import ExtractionService
+
+
+CRAWLER_FACTORIES: dict[str, type[BaseCrawler]] = {
+    "yidu": YiduCrawler,
+    "nstl": NstlCrawler,
+    "cnki": None,  # lazy import
+    "wanfang": WanfangCrawler,
+}
 
 
 async def main() -> None:
     setup_logging(settings)
     logger.info("Starting paper_info_crawler")
-    logger.info(
-        "Settings loaded: output_dir={}",
-        settings.OUTPUT_DIR,
-    )
+    logger.info("Settings loaded: output_dir={}", settings.OUTPUT_DIR)
 
     scanner = CoreFileScanner(settings)
     files = await scanner.scan()
 
-    yidu_crawler = YiduCrawler(settings)
-    nstl_crawler = NstlCrawler(settings) if settings.ENABLE_NSTL else None
-    cnki_crawler = None
-    if settings.ENABLE_CNKI:
-        from app.services.crawlers.cnki_crawler import CnkiCrawler
+    sites = [s.strip() for s in settings.CRAWLER_ORDER.split(",") if s.strip()]
+    crawlers: dict[str, BaseCrawler] = {}
+    for site in sites:
+        factory = CRAWLER_FACTORIES.get(site)
+        if factory is None and site == "cnki":
+            from app.services.crawlers.cnki_crawler import CnkiCrawler
 
-        cnki_crawler = CnkiCrawler(settings)
+            crawlers[site] = CnkiCrawler(settings)
+        elif factory is not None:
+            crawlers[site] = factory()
+        else:
+            logger.warning("Unknown site in CRAWLER_ORDER: {}", site)
 
     try:
         extraction_service = ExtractionService(
-            yidu_crawler=yidu_crawler,
-            nstl_crawler=nstl_crawler,
-            cnki_crawler=cnki_crawler,
+            yidu_crawler=crawlers.get("yidu"),
+            nstl_crawler=crawlers.get("nstl"),
+            cnki_crawler=crawlers.get("cnki"),
+            wanfang_crawler=crawlers.get("wanfang"),
             app_settings=settings,
         )
         summary = await extraction_service.process_all(files)
@@ -49,11 +62,11 @@ async def main() -> None:
         print(f"Failed: {summary.failed_count}")
         print(f"Skipped: {summary.skipped_count}")
     finally:
-        await yidu_crawler.close()
-        if nstl_crawler is not None:
-            await nstl_crawler.close()
-        if cnki_crawler is not None:
-            await cnki_crawler.close()
+        for crawler in crawlers.values():
+            try:
+                await crawler.close()
+            except Exception:
+                pass
         await engine.dispose()
 
 

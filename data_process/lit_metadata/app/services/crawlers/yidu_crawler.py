@@ -1,22 +1,51 @@
 from __future__ import annotations
 
+import asyncio
 import json
+from pathlib import Path
 from typing import Any
 
 from loguru import logger
 
-from app.core.config import Settings, settings
+from app.core.config import settings
 from app.core.exceptions import CrawlerError, DetailPageParseError
 from app.models.schemas import PaperMetadata, SearchResult
 from app.services.crawlers.base import BaseCrawler
+from app.services.crawlers.yidu_bootstrap import YiduCookieStore, bootstrap_yidu
 from app.utils.text import clean_text, split_authors, split_keywords, strip_html
+
+YIDU_BASE_URL = "https://yidu.calis.edu.cn"
 
 
 class YiduCrawler(BaseCrawler):
     """HTTP API crawler for e-read academic resource discovery."""
 
-    def __init__(self, app_settings: Settings = settings) -> None:
-        super().__init__("yidu", app_settings.YIDU_BASE_URL, app_settings)
+    def __init__(self) -> None:
+        super().__init__("yidu", YIDU_BASE_URL)
+        cookie_dir = Path(settings.OUTPUT_DIR) / "cookies"
+        self._cookie_store = YiduCookieStore(cookie_dir / "yidu_cookies.json")
+        self._cookie_lock = asyncio.Lock()
+        self._load_cookies()
+
+    def _load_cookies(self) -> None:
+        cookies = self._cookie_store.load()
+        if cookies:
+            self.client.cookies.update(cookies)
+            logger.info("Loaded {} yidu cookies from cache", len(cookies))
+
+    async def handle_captcha(self) -> bool:
+        async with self._cookie_lock:
+            # another concurrent task may have already refreshed cookies
+            if self._cookie_store.load() is not None:
+                self.client.cookies.update(self._cookie_store.load() or {})
+                return True
+            try:
+                cookies = await bootstrap_yidu(self._cookie_store)
+                self.client.cookies.update(cookies)
+                return True
+            except Exception as exc:
+                logger.warning("yidu captcha bootstrap failed: {}", exc)
+                return False
 
     def build_search_url(self, title: str) -> str:
         return f"{self.base_url}/prod-api/yidu/resource/query"
