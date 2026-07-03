@@ -13,7 +13,7 @@ logging.basicConfig(level=logging.INFO)
 from app.auth.router import router as auth_router
 from app.config import get_database_config, get_minio_config, get_search_config
 from app.core.minio_utils import MinioClient
-from UI.backend.app.core.database import engine
+from app.core.database import engine
 from app.models.base import Base
 from app.repositories.graph_repository import GraphRepository
 from app.routers.chat import router as chat_router
