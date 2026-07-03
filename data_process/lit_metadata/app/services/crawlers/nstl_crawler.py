@@ -7,11 +7,12 @@ from urllib.parse import quote_plus
 
 from loguru import logger
 
-from app.core.config import Settings, settings
 from app.core.exceptions import CrawlerError, DetailPageParseError
 from app.models.schemas import PaperMetadata, SearchResult
 from app.services.crawlers.base import BaseCrawler
 from app.utils.text import clean_text, split_authors, split_keywords, strip_html
+
+NSTL_BASE_URL = "https://www.nstl.gov.cn"
 
 
 class NstlCrawler(BaseCrawler):
@@ -20,8 +21,8 @@ class NstlCrawler(BaseCrawler):
     PAPER_LIST_PATH = "/api/service/nstl/web/execute?target=nstl4.search4&function=paper/pc/list/pl"
     PAPER_DETAIL_PATH = "/api/service/nstl/web/execute?target=nstl4.search4&function=paper/pc/details"
 
-    def __init__(self, app_settings: Settings = settings) -> None:
-        super().__init__("nstl", app_settings.NSTL_BASE_URL, app_settings)
+    def __init__(self) -> None:
+        super().__init__("nstl", NSTL_BASE_URL)
 
     def build_search_url(self, title: str) -> str:
         return f"{self.base_url}{self.PAPER_LIST_PATH}"

@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import asyncio
+import time
 from pathlib import Path
 from typing import Any
 
@@ -27,6 +28,8 @@ from app.services.crawlers.cnki.cookie_bootstrap import bootstrap_cookies
 from app.services.crawlers.cnki.endnote_parser import parse_endnote
 from app.utils.text import split_authors, split_keywords
 
+CNKI_BASE_URL = "https://kns.cnki.net"
+
 
 def _reconstruct_cnki_result(raw_data: dict[str, Any] | None) -> CnkiSearchResult:
     if not raw_data:
@@ -48,16 +51,17 @@ class CnkiCrawler(BaseCrawler):
     """CNKI crawler using POST API with manual cookie bootstrap on captcha."""
 
     def __init__(self, app_settings: Settings = settings) -> None:
-        super().__init__("cnki", app_settings.CNKI_BASE_URL, app_settings)
-        debug_dir = Path(app_settings.OUTPUT_DIR) / "cnki_debug"
-        debug_dir.mkdir(parents=True, exist_ok=True)
+        super().__init__("cnki", CNKI_BASE_URL, app_settings)
+        cookie_dir = Path(app_settings.OUTPUT_DIR) / "cookies"
+        cookie_dir.mkdir(parents=True, exist_ok=True)
         self._cookie_store = CookieStore(
-            debug_dir / "cnki_cookies.json",
+            cookie_dir / "cnki_cookies.json",
             ttl_sec=app_settings.CNKI_COOKIE_TTL_SEC,
         )
         self._client: CnkiClient | None = None
         self._cookie_lock = asyncio.Lock()
         self._client_lock = asyncio.Lock()
+        self._last_bootstrap = 0.0
 
     async def _ensure_client(self) -> None:
         async with self._client_lock:
@@ -75,7 +79,11 @@ class CnkiCrawler(BaseCrawler):
     async def _bootstrap(self, *, captcha_url: str | None = None) -> None:
         async with self._cookie_lock:
             assert self._client is not None
+            # No captcha + cookies work: skip
             if captcha_url is None and self._client.cookies_usable():
+                return
+            # Real 403 but another task just bootstrapped within 10s: skip
+            if captcha_url is not None and time.time() - self._last_bootstrap < 10:
                 return
             hint = (
                 "请完成滑块/点选验证，页面正常加载后点击右上角按钮。"
@@ -90,6 +98,7 @@ class CnkiCrawler(BaseCrawler):
                 channel=self.settings.CNKI_BROWSER_CHANNEL or None,
             )
             self._client.update_cookies(cookies)
+            self._last_bootstrap = time.time()
 
     async def _search_with_fallback(self, title: str) -> list[CnkiSearchResult]:
         assert self._client is not None

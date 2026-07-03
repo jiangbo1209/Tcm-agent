@@ -47,11 +47,14 @@ class SiteAttemptOutcome:
 class ExtractionService:
     """Coordinate scanning results, crawlers, strict matching, and persistence."""
 
+    _SITE_COOLDOWN_FILES = 20
+
     def __init__(
         self,
-        yidu_crawler: BaseCrawler,
+        yidu_crawler: BaseCrawler | None = None,
         nstl_crawler: BaseCrawler | None = None,
         cnki_crawler: BaseCrawler | None = None,
+        wanfang_crawler: BaseCrawler | None = None,
         app_settings: Settings = settings,
         session_factory: async_sessionmaker[AsyncSession] = AsyncSessionLocal,
         cleaner: FilenameCleaner | None = None,
@@ -60,12 +63,32 @@ class ExtractionService:
         self.yidu_crawler = yidu_crawler
         self.nstl_crawler = nstl_crawler
         self.cnki_crawler = cnki_crawler
+        self.wanfang_crawler = wanfang_crawler
         self.settings = app_settings
         self.session_factory = session_factory
         self.cleaner = cleaner or FilenameCleaner()
         self.matcher = matcher or ExactTitleMatcher()
+        self._skip_site_counter: dict[str, int] = {}
+        self._site_registry = self._build_site_registry()
+
+    def _build_site_registry(self) -> dict[str, BaseCrawler]:
+        registry: dict[str, BaseCrawler] = {}
+        if self.nstl_crawler is not None:
+            registry["nstl"] = self.nstl_crawler
+        if self.cnki_crawler is not None:
+            registry["cnki"] = self.cnki_crawler
+        if self.yidu_crawler is not None:
+            registry["yidu"] = self.yidu_crawler
+        if self.wanfang_crawler is not None:
+            registry["wanfang"] = self.wanfang_crawler
+        return registry
 
     async def process_all(self, files: list[DatasetFile]) -> ProcessingSummary:
+        skip = max(0, self.settings.SKIP_FIRST_N)
+        if skip > 0:
+            skipped_files = files[:skip]
+            files = files[skip:]
+            print(f"Skipping first {skip} files: {skipped_files[0].file_name} ... {skipped_files[-1].file_name}")
         total = len(files)
         semaphore = asyncio.Semaphore(self.settings.CRAWLER_CONCURRENCY)
         lock = asyncio.Lock()
@@ -122,6 +145,13 @@ class ExtractionService:
             flush=True,
         )
 
+    def _decrement_cooldowns(self) -> None:
+        for site in list(self._skip_site_counter):
+            self._skip_site_counter[site] -= 1
+            if self._skip_site_counter[site] <= 0:
+                del self._skip_site_counter[site]
+                logger.info("{} cooldown expired, re-enabling", site)
+
     async def process_one(self, file: DatasetFile) -> None:
         await self._process_one(file)
 
@@ -129,15 +159,18 @@ class ExtractionService:
         file_name = file.file_name
         file_path = file.file_path
         cleaned_title = ""
+        expected_author: str | None = None
         attempted_sites: list[str] = []
+        last_reason = "unknown_error"
+        last_message: str | None = None
 
         try:
-            cleaned_title = self.cleaner.clean(file_name)
+            cleaned_title, expected_author = self.cleaner.clean_with_author(file_name)
             logger.info(
-                "Processing file: file_name={}, file_path={}, cleaned_title={}",
+                "Processing file: file_name={}, cleaned_title={}, author={}",
                 file_name,
-                file_path,
                 cleaned_title,
+                expected_author,
             )
 
             async with self.session_factory() as session:
@@ -150,50 +183,35 @@ class ExtractionService:
                         logger.info("Skipping existing file_uuid={}", file.file_uuid)
                         return "skipped"
 
-            yidu_outcome = await self._attempt_site("yidu", self.yidu_crawler, cleaned_title)
-            attempted_sites.append("yidu")
-            if yidu_outcome.success and yidu_outcome.metadata and yidu_outcome.match_result:
-                return await self._save_success(file, cleaned_title, yidu_outcome)
+            # Crawl sites in configured order
+            site_order = [s.strip() for s in self.settings.CRAWLER_ORDER.split(",") if s.strip()]
+            for site in site_order:
+                crawler = self._site_registry.get(site)
+                if crawler is None:
+                    logger.warning("Unknown site in CRAWLER_ORDER: {}", site)
+                    continue
 
-            last_reason = yidu_outcome.failure_reason or "unknown_error"
-            last_message = yidu_outcome.error_message
-            if yidu_outcome.stop_processing:
-                logger.warning(
-                    "yidu stop processing: file_name={}, reason={}, message={}",
-                    file_name, last_reason, last_message,
-                )
-                return "failed"
+                cooldown = self._skip_site_counter.get(site, 0)
+                if cooldown > 0:
+                    logger.info("{} cooling down, skip (remaining: {})", site, cooldown)
+                    continue
 
-            if self.settings.ENABLE_CNKI and self.cnki_crawler is not None:
-                cnki_outcome = await self._attempt_site("cnki", self.cnki_crawler, cleaned_title)
-                attempted_sites.append("cnki")
-                if cnki_outcome.success and cnki_outcome.metadata and cnki_outcome.match_result:
-                    return await self._save_success(file, cleaned_title, cnki_outcome)
+                outcome = await self._attempt_site(site, crawler, cleaned_title, expected_author)
+                attempted_sites.append(site)
+                if outcome.success and outcome.metadata and outcome.match_result:
+                    self._decrement_cooldowns()
+                    return await self._save_success(file, cleaned_title, outcome)
 
-                last_reason = cnki_outcome.failure_reason or last_reason
-                last_message = cnki_outcome.error_message or last_message
-                if cnki_outcome.stop_processing:
+                last_reason = outcome.failure_reason or last_reason
+                last_message = outcome.error_message or last_message
+                if outcome.stop_processing:
+                    self._skip_site_counter[site] = self._SITE_COOLDOWN_FILES
                     logger.warning(
-                        "cnki stop processing: file_name={}, reason={}, message={}",
-                        file_name, last_reason, last_message,
+                        "{} stop processing, disabling for {} files: file_name={}, reason={}",
+                        site, self._SITE_COOLDOWN_FILES, file_name, last_reason,
                     )
-                    return "failed"
 
-            if self.settings.ENABLE_NSTL and self.nstl_crawler is not None:
-                nstl_outcome = await self._attempt_site("nstl", self.nstl_crawler, cleaned_title)
-                attempted_sites.append("nstl")
-                if nstl_outcome.success and nstl_outcome.metadata and nstl_outcome.match_result:
-                    return await self._save_success(file, cleaned_title, nstl_outcome)
-
-                last_reason = nstl_outcome.failure_reason or last_reason
-                last_message = nstl_outcome.error_message or last_message
-                if nstl_outcome.stop_processing:
-                    logger.warning(
-                        "nstl stop processing: file_name={}, reason={}, message={}",
-                        file_name, last_reason, last_message,
-                    )
-                    return "failed"
-
+            self._decrement_cooldowns()
             logger.warning(
                 "All sites failed: file_name={}, attempted_sites={}, reason={}, message={}",
                 file_name, attempted_sites, last_reason, last_message,
@@ -203,15 +221,14 @@ class ExtractionService:
         except Exception as exc:
             reason = self._failure_reason_from_exception(exc)
             logger.exception(
-                "Failed to process file: file_name={}, file_path={}, cleaned_title={}, reason={}",
+                "Failed to process file: file_name={}, cleaned_title={}, reason={}",
                 file_name,
-                file_path,
                 cleaned_title,
                 reason,
             )
             return "failed"
 
-    async def _attempt_site(self, site: str, crawler: BaseCrawler, cleaned_title: str) -> SiteAttemptOutcome:
+    async def _attempt_site(self, site: str, crawler: BaseCrawler, cleaned_title: str, expected_author: str | None = None) -> SiteAttemptOutcome:
         logger.debug("Trying site: site={}, cleaned_title={}", site, cleaned_title)
         try:
             results = await crawler.search(cleaned_title)
@@ -229,6 +246,13 @@ class ExtractionService:
                 )
 
             match_result = self.matcher.find_exact_match(cleaned_title, results)
+            if match_result is None and expected_author:
+                match_result = self.matcher.find_fuzzy_match(cleaned_title, expected_author, results)
+                if match_result is not None:
+                    logger.info(
+                        "Fuzzy match found: site={}, expected={}, author={}, matched={}",
+                        site, cleaned_title, expected_author, match_result.title,
+                    )
             if match_result is None:
                 logger.warning("No exact title match: site={}, cleaned_title={}", site, cleaned_title)
                 return SiteAttemptOutcome(
@@ -254,7 +278,27 @@ class ExtractionService:
             )
         except (CaptchaDetectedError, LoginRequiredError, AccessLimitedError) as exc:
             reason = self._failure_reason_from_exception(exc)
-            logger.warning("Access issue on site: site={}, reason={}, message={}", site, reason, exc)
+            logger.warning(
+                "Access issue on site: site={}, reason={}, message={}",
+                site, reason, exc,
+            )
+            solved = await crawler.handle_captcha()
+            if solved:
+                logger.info("Captcha solved for site={}, retrying...", site)
+                try:
+                    results = await crawler.search(cleaned_title)
+                    if results:
+                        match_result = self.matcher.find_exact_match(cleaned_title, results)
+                        if match_result is not None:
+                            metadata = await crawler.fetch_detail(match_result)
+                            return SiteAttemptOutcome(
+                                success=True,
+                                site=site,
+                                metadata=metadata,
+                                match_result=match_result,
+                            )
+                except Exception as retry_exc:
+                    logger.warning("Retry after captcha failed: site={}, error={}", site, retry_exc)
             return SiteAttemptOutcome(
                 success=False,
                 site=site,
@@ -335,9 +379,8 @@ class ExtractionService:
             await session.commit()
 
         logger.info(
-            "Saved metadata record: file_name={}, file_uuid={}, source_site={}, crawl_status={}",
+            "Saved metadata record: file_name={},  source_site={}, crawl_status={}",
             file.file_name,
-            file.file_uuid,
             outcome.site,
             crawl_status,
         )
