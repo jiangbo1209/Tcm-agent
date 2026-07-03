@@ -187,6 +187,20 @@ class GraphRepository:
                 "file_key": file_key,
             }
 
+    def get_file_reference_by_file_uuid(self, file_uuid: str) -> dict[str, Any] | None:
+        with self._get_session() as session:
+            cf = session.query(CoreFile).filter(CoreFile.file_uuid == file_uuid).first()
+            if not cf:
+                return None
+            node_type = "paper"
+            return {
+                "node_id": file_uuid,
+                "node_type": node_type,
+                "node_title": cf.original_name,
+                "file_name": cf.original_name,
+                "file_key": cf.storage_path,
+            }
+
     def fetch_record_detail_by_title(self, title: str) -> dict[str, Any] | None:
         with self._get_session() as session:
             order_case = case(

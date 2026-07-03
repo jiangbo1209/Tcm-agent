@@ -42,19 +42,19 @@ const routes = [
         component: () => import("../views/Graph.vue"),
         meta: { requiresProfessional: true },
       },
-      {
-        path: "detail/:nodeId",
-        name: "Detail",
-        component: () => import("../views/Detail.vue"),
-        meta: { requiresProfessional: true },
-      },
-      {
-        path: "detail-by-file/:fileUuid",
-        name: "DetailByFile",
-        component: () => import("../views/Detail.vue"),
-        meta: { requiresProfessional: true },
-      },
     ],
+  },
+  {
+    path: "/detail/:nodeId",
+    name: "Detail",
+    component: () => import("../views/Detail.vue"),
+    meta: { requiresAuth: true, requiresProfessional: true },
+  },
+  {
+    path: "/detail-by-file/:fileUuid",
+    name: "DetailByFile",
+    component: () => import("../views/Detail.vue"),
+    meta: { requiresAuth: true, requiresProfessional: true },
   },
 ];
 

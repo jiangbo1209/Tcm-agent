@@ -298,11 +298,22 @@ class GraphService:
     def get_file_url(self, node_id: str, download: bool) -> dict[str, Any]:
         if not self._minio_client:
             raise RuntimeError("minio client is not configured")
-
         reference = self._repository.get_file_reference_by_node_id(node_id)
         if not reference:
             raise ValueError("node not found")
+        return self._build_file_url_payload(reference, download)
 
+    def get_file_url_by_file_uuid(self, file_uuid: str, source_type: str, download: bool) -> dict[str, Any]:
+        if not self._minio_client:
+            raise RuntimeError("minio client is not configured")
+        reference = self._repository.get_file_reference_by_file_uuid(file_uuid)
+        if not reference:
+            raise ValueError("file not found")
+        reference["node_type"] = source_type
+        return self._build_file_url_payload(reference, download)
+
+    def _build_file_url_payload(self, reference: dict[str, Any], download: bool) -> dict[str, Any]:
+        node_id = str(reference.get("node_id") or "")
         node_type = str(reference.get("node_type") or "").strip().lower()
         if node_type != "paper":
             raise ValueError("only paper nodes can generate file url")
@@ -346,7 +357,7 @@ class GraphService:
         )
 
         return {
-            "node_id": str(reference.get("node_id") or node_id),
+            "node_id": node_id,
             "node_type": node_type,
             "bucket": self._minio_client.bucket_name,
             "object_name": object_name,

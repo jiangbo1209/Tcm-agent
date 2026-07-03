@@ -43,12 +43,10 @@
 
       <div v-else class="results-list">
         <component
-          :is="item.node_id || item.file_uuid ? 'a' : 'div'"
+          :is="item.node_id || item.file_uuid ? 'router-link' : 'div'"
           v-for="item in searchStore.results"
           :key="`${item.source_type}-${item.node_id || item.file_uuid || item.title}`"
-          :href="item.node_id ? detailHref(item) : (item.file_uuid ? fileDetailHref(item) : undefined)"
-          :target="item.node_id || item.file_uuid ? '_blank' : undefined"
-          :rel="item.node_id || item.file_uuid ? 'noopener noreferrer' : undefined"
+          :to="item.node_id ? detailRoute(item) : (item.file_uuid ? fileDetailRoute(item) : '')"
           class="result-card"
           :class="{ disabled: !item.node_id && !item.file_uuid }"
         >
@@ -247,18 +245,16 @@ function jumpToPage() {
   changePage(jumpPage.value);
 }
 
-function detailHref(item) {
-  if (!item.node_id) return "";
-  return router.resolve({ name: "Detail", params: { nodeId: item.node_id } }).href;
+function detailRoute(item) {
+  return { name: "Detail", params: { nodeId: item.node_id } };
 }
 
-function fileDetailHref(item) {
-  if (!item.file_uuid) return "";
-  return router.resolve({
+function fileDetailRoute(item) {
+  return {
     name: "DetailByFile",
     params: { fileUuid: item.file_uuid },
     query: { source_type: item.source_type },
-  }).href;
+  };
 }
 
 function formatOptionLabel(key, value) {

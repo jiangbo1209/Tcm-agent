@@ -21,3 +21,7 @@ export function searchGraph(q, page = 1, size = 10) {
 export function getFileUrl(nodeId, mode = "view") {
   return request.get(`/graph/file-url/${nodeId}`, { params: { mode } });
 }
+
+export function getFileUrlByUuid(fileUuid, sourceType, mode = "view") {
+  return request.get("/graph/file-url-by-uuid", { params: { file_uuid: fileUuid, source_type: sourceType, mode } });
+}
