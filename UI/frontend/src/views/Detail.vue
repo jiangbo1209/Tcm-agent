@@ -94,8 +94,6 @@ const paperRows = computed(() => {
     ["期刊", p.journal],
     ["年份", p.pub_year],
     ["关键词", p.keywords],
-    ["来源", p.source_site],
-    ["匹配标题", p.matched_title],
     ["文件", p.file_name],
   ]
     .filter(([, v]) => v != null && String(v).trim() !== "")

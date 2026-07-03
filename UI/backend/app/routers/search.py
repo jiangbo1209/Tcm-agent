@@ -95,6 +95,7 @@ def smart_search(
                 publish_year=_parse_year(item.get("publish_year")),
                 keywords=_format_list_text(item.get("keywords")),
                 abstract=item.get("abstract"),
+                journal=item.get("journal"),
                 tcm_diagnosis=item.get("tcm_diagnosis"),
                 western_diagnosis=item.get("western_diagnosis"),
                 score=item.get("score"),

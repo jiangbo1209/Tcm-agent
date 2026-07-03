@@ -306,18 +306,23 @@ class GraphRepository:
             "topics": Counter(),
             "years": Counter(),
             "journals": Counter(),
+            "paper_types": Counter(),
         }
 
         for row in rows:
             source = self._clean_facet_value(row.get("source_type"))
             year = self._clean_facet_value(row.get("publish_year"))
             journal = self._clean_facet_value(row.get("journal"))
+            paper_type_raw = self._clean_facet_value(row.get("paper_type"))
             if source:
                 counters["source_types"][source] += 1
             if year:
                 counters["years"][year] += 1
             if journal:
                 counters["journals"][journal] += 1
+            paper_type_label = self._normalize_paper_type(paper_type_raw)
+            if paper_type_label:
+                counters["paper_types"][paper_type_label] += 1
 
             for topic in self._split_listish_facet(row.get("keywords_text")):
                 counters["topics"][topic] += 1
@@ -349,6 +354,17 @@ class GraphRepository:
         if len(text_value) >= 4 and text_value[:4].isdigit():
             return (int(text_value[:4]), text_value)
         return (9999, text_value)
+
+    @staticmethod
+    def _normalize_paper_type(value: str | None) -> str | None:
+        if not value:
+            return None
+        v = value.strip().lower()
+        if v in ("journal", "期刊论文", "newspaper"):
+            return "期刊论文"
+        if v in ("master", "phd", "硕士论文", "博士论文"):
+            return "学位论文"
+        return None
 
     @classmethod
     def _split_listish_facet(cls, value: Any) -> list[str]:
@@ -414,6 +430,22 @@ class GraphRepository:
                 params[param_name] = value
                 placeholders.append(f":{param_name}")
             clauses.append(f"{column} IN ({', '.join(placeholders)})")
+
+        paper_type_values = self._normalize_filter_values(filters.get("paper_types"))
+        if paper_type_values:
+            expanded_db_values = []
+            for val in paper_type_values:
+                if val == "期刊论文":
+                    expanded_db_values.extend(["journal", "期刊论文"])
+                elif val == "学位论文":
+                    expanded_db_values.extend(["master", "phd", "硕士论文", "博士论文"])
+            if expanded_db_values:
+                placeholders = []
+                for idx, v in enumerate(expanded_db_values):
+                    pname = f"pt_{idx}"
+                    params[pname] = v
+                    placeholders.append(f":{pname}")
+                clauses.append(f"paper_type IN ({', '.join(placeholders)})")
 
         contains_filters = {
             "topics": "topic_text",
@@ -520,7 +552,7 @@ class GraphRepository:
 
         sql = text(f"""
             SELECT source_type, node_id, file_uuid, title, authors, publish_year,
-                   keywords, abstract, tcm_diagnosis, western_diagnosis, score
+                   keywords, abstract, journal, paper_type, tcm_diagnosis, western_diagnosis, score
             FROM (
                 SELECT 'paper' AS source_type,
                     n.id AS node_id,
@@ -531,6 +563,7 @@ class GraphRepository:
                     lm_p.keywords AS keywords,
                     lm_p.abstract AS abstract,
                     lm_p.journal AS journal,
+                    lm_p.paper_type AS paper_type,
                     lm_p.keywords::text AS keywords_text,
                     COALESCE(lm_p.title, '') || ' ' || COALESCE(lm_p.keywords::text, '') || ' ' || COALESCE(lm_p.abstract, '') AS topic_text,
                     NULL AS tcm_diagnosis, NULL AS western_diagnosis,
@@ -549,6 +582,7 @@ class GraphRepository:
                     NULL AS authors, lm_r.pub_year AS publish_year,
                     NULL AS keywords, NULL AS abstract,
                     lm_r.journal AS journal,
+                    lm_r.paper_type AS paper_type,
                     lm_r.keywords::text AS keywords_text,
                     COALESCE(lm_r.title, '') || ' ' || COALESCE(lm_r.keywords::text, '') || ' ' || COALESCE(mc.tcm_diagnosis, '') || ' ' || COALESCE(mc.western_diagnosis, '') AS topic_text,
                     mc.tcm_diagnosis AS tcm_diagnosis, mc.western_diagnosis AS western_diagnosis,
@@ -571,6 +605,7 @@ class GraphRepository:
                 SELECT 'paper' AS source_type,
                     lm_p.pub_year AS publish_year,
                     lm_p.journal AS journal,
+                    lm_p.paper_type AS paper_type,
                     lm_p.keywords::text AS keywords_text,
                     COALESCE(lm_p.title, '') || ' ' || COALESCE(lm_p.keywords::text, '') || ' ' || COALESCE(lm_p.abstract, '') AS topic_text
                 FROM lit_metadata lm_p
@@ -579,6 +614,7 @@ class GraphRepository:
                 SELECT 'record' AS source_type,
                     lm_r.pub_year AS publish_year,
                     lm_r.journal AS journal,
+                    lm_r.paper_type AS paper_type,
                     lm_r.keywords::text AS keywords_text,
                     COALESCE(lm_r.title, '') || ' ' || COALESCE(lm_r.keywords::text, '') || ' ' || COALESCE(mc.tcm_diagnosis, '') || ' ' || COALESCE(mc.western_diagnosis, '') AS topic_text
                 FROM case_metadata mc
@@ -609,7 +645,7 @@ class GraphRepository:
 
         sql = text(f"""
             SELECT source_type, node_id, file_uuid, title, authors, publish_year,
-                   keywords, abstract, tcm_diagnosis, western_diagnosis, score
+                   keywords, abstract, journal, paper_type, tcm_diagnosis, western_diagnosis, score
             FROM (
                 SELECT 'paper' AS source_type,
                     n.id AS node_id,
@@ -620,6 +656,7 @@ class GraphRepository:
                     lm_p.keywords AS keywords,
                     lm_p.abstract AS abstract,
                     lm_p.journal AS journal,
+                    lm_p.paper_type AS paper_type,
                     lm_p.keywords::text AS keywords_text,
                     COALESCE(lm_p.title, '') || ' ' || COALESCE(lm_p.keywords::text, '') || ' ' || COALESCE(lm_p.abstract, '') AS topic_text,
                     NULL AS tcm_diagnosis, NULL AS western_diagnosis,
@@ -637,6 +674,7 @@ class GraphRepository:
                     NULL AS authors, lm_r.pub_year AS publish_year,
                     NULL AS keywords, NULL AS abstract,
                     lm_r.journal AS journal,
+                    lm_r.paper_type AS paper_type,
                     lm_r.keywords::text AS keywords_text,
                     COALESCE(lm_r.title, '') || ' ' || COALESCE(lm_r.keywords::text, '') || ' ' || COALESCE(mc.tcm_diagnosis, '') || ' ' || COALESCE(mc.western_diagnosis, '') AS topic_text,
                     mc.tcm_diagnosis AS tcm_diagnosis, mc.western_diagnosis AS western_diagnosis,
@@ -658,6 +696,7 @@ class GraphRepository:
                 SELECT 'paper' AS source_type,
                     lm_p.pub_year AS publish_year,
                     lm_p.journal AS journal,
+                    lm_p.paper_type AS paper_type,
                     lm_p.keywords::text AS keywords_text,
                     COALESCE(lm_p.title, '') || ' ' || COALESCE(lm_p.keywords::text, '') || ' ' || COALESCE(lm_p.abstract, '') AS topic_text
                 FROM lit_metadata lm_p
@@ -668,6 +707,7 @@ class GraphRepository:
                 SELECT 'record' AS source_type,
                     lm_r.pub_year AS publish_year,
                     lm_r.journal AS journal,
+                    lm_r.paper_type AS paper_type,
                     lm_r.keywords::text AS keywords_text,
                     COALESCE(lm_r.title, '') || ' ' || COALESCE(lm_r.keywords::text, '') || ' ' || COALESCE(mc.tcm_diagnosis, '') || ' ' || COALESCE(mc.western_diagnosis, '') AS topic_text
                 FROM case_metadata mc
@@ -697,11 +737,12 @@ class GraphRepository:
     ) -> list[dict[str, Any]]:
         filter_sql, filter_params = self._build_search_filter_sql(source_type, filters)
         sql = text(f"""
-            SELECT source_type, publish_year, journal, keywords_text
+            SELECT source_type, publish_year, journal, paper_type, keywords_text
             FROM (
                 SELECT 'paper' AS source_type,
                     lm_p.pub_year AS publish_year,
                     lm_p.journal AS journal,
+                    lm_p.paper_type AS paper_type,
                     lm_p.keywords::text AS keywords_text,
                     COALESCE(lm_p.title, '') || ' ' || COALESCE(lm_p.keywords::text, '') || ' ' || COALESCE(lm_p.abstract, '') AS topic_text
                 FROM lit_metadata lm_p
@@ -710,6 +751,7 @@ class GraphRepository:
                 SELECT 'record' AS source_type,
                     lm_r.pub_year AS publish_year,
                     lm_r.journal AS journal,
+                    lm_r.paper_type AS paper_type,
                     lm_r.keywords::text AS keywords_text,
                     COALESCE(lm_r.title, '') || ' ' || COALESCE(lm_r.keywords::text, '') || ' ' || COALESCE(mc.tcm_diagnosis, '') || ' ' || COALESCE(mc.western_diagnosis, '') AS topic_text
                 FROM case_metadata mc
@@ -731,11 +773,12 @@ class GraphRepository:
         like_pattern = f"%{keyword}%"
         filter_sql, filter_params = self._build_search_filter_sql(source_type, filters)
         sql = text(f"""
-            SELECT source_type, publish_year, journal, keywords_text
+            SELECT source_type, publish_year, journal, paper_type, keywords_text
             FROM (
                 SELECT 'paper' AS source_type,
                     lm_p.pub_year AS publish_year,
                     lm_p.journal AS journal,
+                    lm_p.paper_type AS paper_type,
                     lm_p.keywords::text AS keywords_text,
                     COALESCE(lm_p.title, '') || ' ' || COALESCE(lm_p.keywords::text, '') || ' ' || COALESCE(lm_p.abstract, '') AS topic_text
                 FROM lit_metadata lm_p
@@ -746,6 +789,7 @@ class GraphRepository:
                 SELECT 'record' AS source_type,
                     lm_r.pub_year AS publish_year,
                     lm_r.journal AS journal,
+                    lm_r.paper_type AS paper_type,
                     lm_r.keywords::text AS keywords_text,
                     COALESCE(lm_r.title, '') || ' ' || COALESCE(lm_r.keywords::text, '') || ' ' || COALESCE(mc.tcm_diagnosis, '') || ' ' || COALESCE(mc.western_diagnosis, '') AS topic_text
                 FROM case_metadata mc
