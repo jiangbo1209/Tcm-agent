@@ -7,7 +7,7 @@ from pathlib import Path
 from sqlalchemy import create_engine
 from sqlalchemy.orm import sessionmaker
 
-_DB_DIR = Path(__file__).resolve().parents[1]
+_DB_DIR = Path(__file__).resolve().parents[2]
 _DB_PATH = _DB_DIR / "tcm.db"
 DATABASE_URL = f"sqlite:///{_DB_PATH}"
 

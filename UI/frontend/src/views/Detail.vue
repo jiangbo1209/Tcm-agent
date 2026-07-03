@@ -88,7 +88,7 @@
 <script setup>
 import { ref, computed, onMounted, watch } from "vue";
 import { useRoute } from "vue-router";
-import { getNodeDetail, getFileUrl } from "../api/graph";
+import { getNodeDetail, getDetailByFile, getFileUrl } from "../api/graph";
 
 const route = useRoute();
 
@@ -97,7 +97,12 @@ const error = ref("");
 const detail = ref(null);
 
 const nodeId = computed(() => route.params.nodeId);
-const graphRoute = computed(() => nodeId.value ? { name: "Graph", query: { seed: nodeId.value } } : { name: "Search" });
+const fileUuid = computed(() => route.params.fileUuid);
+const sourceType = computed(() => route.query.source_type);
+const graphRoute = computed(() => {
+  if (nodeId.value) return { name: "Graph", query: { seed: nodeId.value } };
+  return { name: "Search" };
+});
 
 const metaText = computed(() => {
   if (!detail.value) return "";
@@ -143,14 +148,19 @@ const recordRows = computed(() =>
     .filter(f => f.value != null && String(f.value).trim() !== "")
 );
 
-async function loadDetail(id) {
-  if (!id) return;
+async function loadDetail(id, fileUuid = null, sourceType = null) {
+  if (!id && !fileUuid) return;
   loading.value = true;
   error.value = "";
   detail.value = null;
   try {
-    const { data } = await getNodeDetail(id);
-    detail.value = data;
+    let resp;
+    if (fileUuid && sourceType) {
+      resp = await getDetailByFile(fileUuid, sourceType);
+    } else {
+      resp = await getNodeDetail(id);
+    }
+    detail.value = resp.data;
   } catch (e) {
     error.value = e.response?.data?.error || e.response?.data?.detail || "详情加载失败";
   } finally {
@@ -175,8 +185,10 @@ async function downloadFile() {
   } catch { error.value = "暂未挂载原始文献文件"; }
 }
 
-onMounted(() => loadDetail(nodeId.value));
-watch(nodeId, (id) => loadDetail(id));
+onMounted(() => loadDetail(nodeId.value, fileUuid.value, sourceType.value));
+watch(() => [route.params.nodeId, route.params.fileUuid, route.query.source_type], ([nid, fid, stype]) => {
+  loadDetail(nid, fid, stype);
+});
 </script>
 
 <style scoped>

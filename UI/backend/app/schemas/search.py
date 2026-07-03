@@ -25,6 +25,7 @@ class SearchRequest(BaseModel):
 class SearchResultItem(BaseModel):
     source_type: str
     node_id: str | None = None
+    file_uuid: str | None = None
     title: str | None = None
     authors: str | None = None
     publish_year: int | None = None

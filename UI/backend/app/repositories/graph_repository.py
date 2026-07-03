@@ -10,6 +10,7 @@ from sqlalchemy import String, case, func, or_, text
 from sqlalchemy.orm import Session
 
 from app.config import PostgresSettings, SearchSettings
+from app.models.graph import CoreFile, Edge, LitMetadata, MedCase, Node
 from app.models.search_history import SearchBackendMode
 
 
@@ -25,7 +26,7 @@ class GraphRepository:
         self._fulltext_cache: dict[str, bool] = {}
 
     def _get_session(self) -> Session:
-        from UI.backend.app.core.database_pg import PgSession
+        from app.core.database_pg import PgSession
         return PgSession()
 
     def _title_coalesce(self, model):
@@ -229,6 +230,26 @@ class GraphRepository:
                 .first()
             )
             return self._record_to_dict(row) if row else None
+
+    def fetch_paper_detail_by_file_uuid(self, file_uuid: str) -> dict[str, Any] | None:
+        with self._get_session() as session:
+            row = session.query(LitMetadata).filter(LitMetadata.file_uuid == file_uuid).first()
+            return self._lit_to_dict(row) if row else None
+
+    def fetch_record_detail_by_file_uuid(self, file_uuid: str) -> dict[str, Any] | None:
+        with self._get_session() as session:
+            row = (
+                session.query(MedCase, LitMetadata.title.label("literature_title"))
+                .join(LitMetadata, MedCase.file_uuid == LitMetadata.file_uuid)
+                .filter(MedCase.file_uuid == file_uuid)
+                .first()
+            )
+            if row:
+                return self._record_to_dict(row)
+            mc = session.query(MedCase).filter(MedCase.file_uuid == file_uuid).first()
+            if mc:
+                return self._record_to_dict((mc, None))
+            return None
 
     def search_graph(
         self,
@@ -484,11 +505,12 @@ class GraphRepository:
         filter_sql, filter_params = self._build_search_filter_sql(source_type, filters)
 
         sql = text(f"""
-            SELECT source_type, node_id, title, authors, publish_year,
+            SELECT source_type, node_id, file_uuid, title, authors, publish_year,
                    keywords, abstract, tcm_diagnosis, western_diagnosis, score
             FROM (
                 SELECT 'paper' AS source_type,
                     n.id AS node_id,
+                    lm_p.file_uuid AS file_uuid,
                     COALESCE(lm_p.title, lm_p.matched_title, lm_p.cleaned_title, lm_p.original_name) AS title,
                     lm_p.authors AS authors,
                     lm_p.pub_year AS publish_year,
@@ -508,6 +530,7 @@ class GraphRepository:
                 UNION ALL
                 SELECT 'record' AS source_type,
                     n.id AS node_id,
+                    COALESCE(mc.file_uuid, lm_r.file_uuid) AS file_uuid,
                     COALESCE(lm_r.title, lm_r.matched_title, lm_r.cleaned_title, lm_r.original_name) AS title,
                     NULL AS authors, lm_r.pub_year AS publish_year,
                     NULL AS keywords, NULL AS abstract,
@@ -571,11 +594,12 @@ class GraphRepository:
         filter_sql, filter_params = self._build_search_filter_sql(source_type, filters)
 
         sql = text(f"""
-            SELECT source_type, node_id, title, authors, publish_year,
+            SELECT source_type, node_id, file_uuid, title, authors, publish_year,
                    keywords, abstract, tcm_diagnosis, western_diagnosis, score
             FROM (
                 SELECT 'paper' AS source_type,
                     n.id AS node_id,
+                    lm_p.file_uuid AS file_uuid,
                     COALESCE(lm_p.title, lm_p.matched_title, lm_p.cleaned_title, lm_p.original_name) AS title,
                     lm_p.authors AS authors,
                     lm_p.pub_year AS publish_year,
@@ -594,6 +618,7 @@ class GraphRepository:
                 UNION ALL
                 SELECT 'record' AS source_type,
                     n.id AS node_id,
+                    COALESCE(mc.file_uuid, lm_r.file_uuid) AS file_uuid,
                     COALESCE(lm_r.title, lm_r.matched_title, lm_r.cleaned_title, lm_r.original_name) AS title,
                     NULL AS authors, lm_r.pub_year AS publish_year,
                     NULL AS keywords, NULL AS abstract,

@@ -48,6 +48,12 @@ const routes = [
         component: () => import("../views/Detail.vue"),
         meta: { requiresProfessional: true },
       },
+      {
+        path: "detail-by-file/:fileUuid",
+        name: "DetailByFile",
+        component: () => import("../views/Detail.vue"),
+        meta: { requiresProfessional: true },
+      },
     ],
   },
 ];

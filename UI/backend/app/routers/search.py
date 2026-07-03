@@ -89,6 +89,7 @@ def smart_search(
             SearchResultItem(
                 source_type=item.get("source_type", ""),
                 node_id=item.get("node_id"),
+                file_uuid=item.get("file_uuid"),
                 title=item.get("title"),
                 authors=_format_list_text(item.get("authors")),
                 publish_year=_parse_year(item.get("publish_year")),

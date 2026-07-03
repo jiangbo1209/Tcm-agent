@@ -233,6 +233,34 @@ class GraphService:
             "record": record_summary,
         }
 
+    def get_detail_by_file_uuid(self, file_uuid: str, source_type: str) -> dict[str, Any] | None:
+        if not file_uuid:
+            return None
+        node_payload = {"id": file_uuid, "node_type": source_type, "title": None,
+                        "metric_value": None, "publish_year": None, "age": None, "top_k_value": None}
+        if source_type == "paper":
+            paper = self._repository.fetch_paper_detail_by_file_uuid(file_uuid)
+            paper_payload = self._map_paper_detail(paper) if paper else None
+            if paper:
+                title = paper.get("title") or paper.get("matched_title") or paper.get("cleaned_title") or paper.get("original_name")
+                node_payload["title"] = title
+                node_payload["publish_year"] = paper.get("pub_year")
+            return {"node": node_payload, "detail_type": "paper", "paper": paper_payload}
+        record = self._repository.fetch_record_detail_by_file_uuid(file_uuid)
+        if record:
+            title = record.get("literature_title") or file_uuid
+            node_payload["title"] = title
+        record_fields = self._build_record_fields(record, node_payload.get("title") or "")
+        record_summary = None
+        if record:
+            record_summary = {
+                "diagnosis": record.get("western_diagnosis"),
+                "syndrome": record.get("tcm_diagnosis"),
+                "treatment_principle": record.get("treatment_principle"),
+                "prescription": record.get("prescription"),
+            }
+        return {"node": node_payload, "detail_type": "record", "record_fields": record_fields, "record": record_summary}
+
     def search_graph(self, keyword: str, page: int, size: int) -> dict[str, Any]:
         normalized = keyword.strip()
         if not normalized:
