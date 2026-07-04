@@ -45,12 +45,13 @@ npm run dev
 
 ### 测试账号
 
-创建专业用户（可访问智能搜索）：
+通过 CSV 文件批量创建用户：
 
 ```bash
+# 1. 准备 users.csv（参考 UI/backend/users.csv.example）
+# 2. 执行导入
 cd UI/backend
-conda run -n Tcm-agent python create_professional_user.py
-# 默认账号: admin / admin123
+conda run -n Tcm-agent python create_professional_user.py users.csv
 ```
 
 ## 核心业务数据流（Data Workflow）

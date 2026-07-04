@@ -33,7 +33,7 @@
       </router-link>
 
       <router-link
-        v-if="authStore.isProfessional"
+        v-if="authStore.isProfessional || authStore.isAdmin"
         to="/search"
         class="nav-item"
         :class="{ active: $route.path.startsWith('/search') }"
@@ -44,6 +44,19 @@
           <line x1="21" y1="21" x2="16.65" y2="16.65"></line>
         </svg>
         <span v-if="!isCollapsed">智能搜索</span>
+      </router-link>
+
+      <router-link
+        v-if="authStore.isAdmin"
+        to="/admin"
+        class="nav-item"
+        :class="{ active: $route.path.startsWith('/admin') }"
+        :title="isCollapsed ? '数据管理' : undefined"
+      >
+        <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+          <path d="M14.7 6.3a1 1 0 0 0 0 1.4l1.6 1.6a1 1 0 0 0 1.4 0l3.77-3.77a6 6 0 0 1-7.94 7.94l-6.91 6.91a2.12 2.12 0 0 1-3-3l6.91-6.91a6 6 0 0 1 7.94-7.94l-3.76 3.76z"></path>
+        </svg>
+        <span v-if="!isCollapsed">数据管理</span>
       </router-link>
 
     </nav>
@@ -80,7 +93,7 @@
     <div class="sidebar-footer">
       <div class="user-info">
         <div class="user-avatar">{{ avatarLetter }}</div>
-        <span v-if="!isCollapsed" class="user-name">{{ authStore.user?.role === 'professional' ? '专业用户' : '普通用户' }}</span>
+        <span v-if="!isCollapsed" class="user-name">{{ userRoleLabel }}</span>
       </div>
       <button class="btn-logout" :class="{ compact: isCollapsed }" :title="isCollapsed ? '退出' : undefined" @click="handleLogout">
         <span v-if="!isCollapsed">退出</span>
@@ -106,6 +119,14 @@ const chatStore = useChatStore();
 const isCollapsed = ref(false);
 
 const avatarLetter = computed(() => "U");
+
+const userRoleLabel = computed(() => {
+  switch (authStore.user?.role) {
+    case "admin": return "管理员";
+    case "professional": return "专业用户";
+    default: return "普通用户";
+  }
+});
 
 onMounted(() => {
   chatStore.fetchConversations();

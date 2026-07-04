@@ -107,6 +107,35 @@ class MedCase(GraphBase):
     )
 
 
+class GuidelineMetadata(GraphBase):
+    __tablename__ = "guideline_metadata"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    file_uuid: Mapped[str] = mapped_column(String, ForeignKey("core_file.file_uuid"), nullable=False)
+    original_name: Mapped[str] = mapped_column(String(512), nullable=False)
+    storage_path: Mapped[str] = mapped_column(Text, nullable=False)
+    cleaned_title: Mapped[str] = mapped_column(Text, nullable=False)
+    title: Mapped[str] = mapped_column(Text, nullable=False)
+    authors: Mapped[list] = mapped_column(Text, nullable=False, default=list)
+    abstract: Mapped[str | None] = mapped_column(Text, nullable=True)
+    keywords: Mapped[list] = mapped_column(Text, nullable=False, default=list)
+    paper_type: Mapped[str | None] = mapped_column(String(64), nullable=True)
+    source_site: Mapped[str] = mapped_column(String(64), nullable=False)
+    source_url: Mapped[str | None] = mapped_column(Text, nullable=True)
+    journal: Mapped[str | None] = mapped_column(String(256), nullable=True)
+    pub_year: Mapped[str | None] = mapped_column(String(16), nullable=True)
+    matched_title: Mapped[str] = mapped_column(Text, nullable=False)
+    is_exact_match: Mapped[bool] = mapped_column(Boolean, nullable=False, default=True)
+    crawl_status: Mapped[str] = mapped_column(String(32), nullable=False)
+    error_message: Mapped[str | None] = mapped_column(Text, nullable=True)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), nullable=False, server_default=text("NOW()")
+    )
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), nullable=False, server_default=text("NOW()")
+    )
+
+
 class Node(GraphBase):
     __tablename__ = "nodes"
 

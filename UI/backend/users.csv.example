@@ -1,0 +1,9 @@
+# 用户批量导入模板
+# 格式: username,email,password,role
+# role 可选值: admin, professional, normal
+# 以 # 开头的行会被忽略
+#
+admin,admin@tcm.com,admin123,admin
+prof_user1,prof1@tcm.com,pass123,professional
+prof_user2,prof2@tcm.com,pass123,professional
+normal_user1,normal1@tcm.com,pass123,normal

@@ -42,6 +42,12 @@ const routes = [
         component: () => import("../views/Graph.vue"),
         meta: { requiresProfessional: true },
       },
+      {
+        path: "admin",
+        name: "Admin",
+        component: () => import("../views/AdminDataEdit.vue"),
+        meta: { requiresAdmin: true },
+      },
     ],
   },
   {
@@ -75,6 +81,10 @@ router.beforeEach((to, from, next) => {
   }
 
   if (to.meta.requiresProfessional && authStore.user?.role !== "professional") {
+    return next("/");
+  }
+
+  if (to.meta.requiresAdmin && authStore.user?.role !== "admin") {
     return next("/");
   }
 
