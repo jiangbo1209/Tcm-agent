@@ -31,9 +31,9 @@ _TABLE_MAP: dict[str, type] = {
 
 _EDITABLE_FIELDS: dict[str, list[str]] = {
     "lit": [
-        "title", "cleaned_title", "authors", "abstract", "keywords",
+        "title", "authors", "abstract", "keywords",
         "paper_type", "source_site", "source_url", "journal", "pub_year",
-        "matched_title", "is_exact_match", "ai_summary",
+        "matched_title", "ai_summary",
     ],
     "case": [
         "age", "bmi", "menstruation", "infertility", "lifestyle",
@@ -43,9 +43,9 @@ _EDITABLE_FIELDS: dict[str, list[str]] = {
         "efficacy", "adverse_reactions", "commentary",
     ],
     "guideline": [
-        "title", "cleaned_title", "authors", "abstract", "keywords",
+        "title", "authors", "abstract", "keywords",
         "paper_type", "source_site", "source_url", "journal", "pub_year",
-        "matched_title", "is_exact_match",
+        "matched_title",
     ],
 }
 

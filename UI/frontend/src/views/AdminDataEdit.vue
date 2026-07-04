@@ -158,12 +158,6 @@
               <template v-else-if="field === 'commentary' || field.length > 20">
                 <textarea v-model="editForm[field]" rows="4" class="field-textarea"></textarea>
               </template>
-              <template v-else-if="field === 'is_exact_match'">
-                <select v-model="editForm[field]" class="field-select">
-                  <option :value="true">是</option>
-                  <option :value="false">否</option>
-                </select>
-              </template>
               <template v-else>
                 <input v-model="editForm[field]" type="text" class="field-input" />
               </template>
@@ -462,8 +456,6 @@ async function saveEdit() {
       const strVal = (value || "").replaceAll("，", ",").trim();
       if (strVal === "") { fields[key] = []; continue; }
       fields[key] = strVal.split(",").map(s => s.trim()).filter(s => s.length > 0);
-    } else if (key === "is_exact_match") {
-      fields[key] = value;
     } else {
       fields[key] = value === "" ? null : value;
     }
@@ -481,7 +473,7 @@ async function saveEdit() {
     editFormOriginal.value = { ...editForm.value };
     editUpdatedAt.value = updated.updated_at || "";
     saveStatus.value = "已保存";
-    setTimeout(() => { saveStatus.value = ""; }, 2000);
+    setTimeout(() => { saveStatus.value = ""; handleCloseEdit(); }, 500);
   } catch (e) {
     if (e.response?.status === 409) {
       saveStatus.value = "冲突：该记录已被其他人修改，请关闭后刷新重试";
