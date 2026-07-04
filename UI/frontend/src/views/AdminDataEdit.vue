@@ -5,13 +5,7 @@
     </div>
 
     <div class="table-tabs">
-      <button
-        v-for="tab in tabs"
-        :key="tab.key"
-        class="tab-btn"
-        :class="{ active: activeTable === tab.key }"
-        @click="switchTable(tab.key)"
-      >
+      <button v-for="tab in tabs" :key="tab.key" class="tab-btn" :class="{ active: activeTable === tab.key }" @click="switchTable(tab.key)">
         {{ tab.label }}
         <span class="tab-count" v-if="tab.count !== null">({{ tab.count }})</span>
       </button>
@@ -19,45 +13,84 @@
 
     <div class="toolbar">
       <div class="search-bar">
-        <input
-          v-model="searchQuery"
-          type="text"
-          class="search-input"
-          :placeholder="searchPlaceholder"
-          @keyup.enter="doSearch"
-        />
+        <input v-model="searchQuery" type="text" class="search-input" :placeholder="searchPlaceholder" @keyup.enter="doSearch" />
         <button class="btn-search" @click="doSearch">搜索</button>
         <button v-if="searchQuery" class="btn-clear" @click="clearSearch">清除</button>
       </div>
-      <div class="toolbar-info" v-if="total > 0">
-        共 {{ total }} 条记录
+    </div>
+
+    <div class="filters" v-if="activeTable !== 'case'">
+      <div class="filter-group">
+        <label>数据状态</label>
+        <select v-model="filterCrawlStatus" class="filter-select" @change="doSearch">
+          <option value="">全部</option>
+          <option value="success">success</option>
+          <option value="partial">partial</option>
+          <option value="failed">failed</option>
+        </select>
+      </div>
+      <div class="filter-group filter-year-group">
+        <label>年份</label>
+        <span class="year-label">{{ yearSliderMin }} — {{ yearSliderMax }}</span>
+        <div class="range-slider" ref="sliderTrack">
+          <div class="range-fill" :style="rangeFillStyle"></div>
+          <input
+            type="range"
+            class="range-thumb range-thumb-min"
+            :min="yearRange.minYear || 1900"
+            :max="yearRange.maxYear || 2100"
+            v-model.number="yearSliderMin"
+            @input="onYearSliderChange"
+          />
+          <input
+            type="range"
+            class="range-thumb range-thumb-max"
+            :min="yearRange.minYear || 1900"
+            :max="yearRange.maxYear || 2100"
+            v-model.number="yearSliderMax"
+            @input="onYearSliderChange"
+          />
+        </div>
+        <button
+          v-if="yearSliderDirty"
+          class="btn-reset-year"
+          @click="resetYearFilter"
+          title="重置年份筛选"
+        >重置</button>
       </div>
     </div>
 
     <div v-if="loading" class="loading">加载中...</div>
 
-    <div v-else-if="records.length === 0" class="empty">
-      {{ searchQuery ? '没有匹配的记录' : '暂无数据' }}
-    </div>
+    <div v-else-if="records.length === 0" class="empty">暂无数据</div>
 
     <div v-else class="record-list">
       <div
-        v-for="record in records"
-        :key="record.id"
+        v-for="record in records" :key="record.id"
         class="record-card"
-        :class="{ expanded: expandedId === record.id }"
+        :class="{
+          'needs-review': isNeedsReview(record),
+          expanded: expandedId === record.id,
+        }"
       >
         <div class="record-summary" @click="toggleExpand(record.id)">
           <div class="record-title">
             <span class="record-id">#{{ record.id }}</span>
+            <span class="flag-dot" v-if="record.crawl_status === 'partial'" :title="record.error_message || '数据状态不完整'">⬤</span>
+            <span class="flag-dot bad" v-if="record._bad_abstract" title="摘要异常">⬤</span>
             {{ getRecordTitle(record) }}
           </div>
           <div class="record-meta">
             <span class="meta-tag" v-if="record.source_site">{{ record.source_site }}</span>
             <span class="meta-tag" v-if="record.pub_year">{{ record.pub_year }}</span>
-            <span class="meta-tag" v-if="record.crawl_status">{{ record.crawl_status }}</span>
+            <span class="meta-tag status-tag" :class="'status-' + record.crawl_status" v-if="record.crawl_status">
+              {{ record.crawl_status }}
+            </span>
           </div>
           <button class="btn-edit" @click.stop="startEdit(record)">编辑</button>
+        </div>
+        <div v-if="record.crawl_status === 'partial' && record.error_message" class="record-error">
+          {{ record.error_message }}
         </div>
 
         <div v-if="expandedId === record.id" class="record-detail">
@@ -84,54 +117,54 @@
       <button :disabled="page >= totalPages" @click="goPage(page + 1)">下一页</button>
     </div>
 
-    <div v-if="editingRecord" class="modal-overlay" @click.self="cancelEdit">
-      <div class="modal-content">
-        <div class="modal-header">
-          <h2>编辑记录 #{{ editingRecord.id }}</h2>
-          <button class="modal-close" @click="cancelEdit">&times;</button>
-        </div>
-        <div class="modal-body">
-          <div class="edit-field" v-for="field in editableFields" :key="field">
-            <label>{{ field }}</label>
-            <template v-if="isJsonField(field)">
-              <textarea
-                v-model="editForm[field]"
-                rows="3"
-                class="field-textarea"
-                :class="{ error: fieldErrors[field] }"
-              ></textarea>
-              <span class="field-hint" :class="{ error: fieldErrors[field] }">
-                {{ fieldErrors[field] || 'JSON 格式，如 ["值1", "值2"]' }}
-              </span>
-            </template>
-            <template v-else-if="field === 'abstract' || field === 'ai_summary' || field === 'commentary' || field.length > 20">
-              <textarea
-                v-model="editForm[field]"
-                rows="4"
-                class="field-textarea"
-              ></textarea>
-            </template>
-            <template v-else-if="field === 'is_exact_match'">
-              <select v-model="editForm[field]" class="field-select">
-                <option :value="true">是</option>
-                <option :value="false">否</option>
-              </select>
-            </template>
-            <template v-else>
-              <input
-                v-model="editForm[field]"
-                type="text"
-                class="field-input"
-              />
-            </template>
+    <div v-if="editingRecord" class="split-overlay">
+      <div class="split-pane">
+        <div class="split-left">
+          <div class="pane-header">
+            <span>PDF 预览 — {{ editingRecord.original_name }}</span>
+            <button class="pane-close" @click="handleCloseEdit">&times;</button>
+          </div>
+          <div class="pdf-container">
+            <iframe v-if="pdfUrl" :src="pdfUrl" class="pdf-frame" frameborder="0"></iframe>
+            <div v-else-if="pdfLoading" class="pdf-loading">加载 PDF...</div>
+            <div v-else class="pdf-error" v-text="pdfError || '无法加载 PDF'"></div>
           </div>
         </div>
-        <div class="modal-footer">
-          <span class="save-status" v-if="saveStatus">{{ saveStatus }}</span>
-          <button class="btn-cancel" @click="cancelEdit" :disabled="saving">取消</button>
-          <button class="btn-save" @click="saveEdit" :disabled="saving">
-            {{ saving ? '保存中...' : '保存' }}
-          </button>
+        <div class="split-right">
+          <div class="pane-header">
+            <span>编辑 — #{{ editingRecord.id }}</span>
+            <div class="pane-actions">
+              <span v-if="saveStatus" class="save-inline">{{ saveStatus }}</span>
+              <button class="btn-cancel-pane" @click="handleCloseEdit">取消</button>
+              <button class="btn-save-pane" :disabled="saving" @click="saveEdit">
+                {{ saving ? '保存中...' : '保存' }}
+              </button>
+            </div>
+          </div>
+          <div class="edit-body">
+            <div class="edit-field" v-for="field in editableFields" :key="field">
+              <label>{{ field }}</label>
+              <template v-if="isJsonField(field)">
+                <textarea v-model="editForm[field]" rows="2" class="field-textarea"></textarea>
+                <span class="field-hint">多个值用英文逗号分隔，如：张三, 李四</span>
+              </template>
+              <template v-else-if="field === 'abstract' || field === 'ai_summary'">
+                <textarea v-model="editForm[field]" rows="8" class="field-textarea field-textarea-lg"></textarea>
+              </template>
+              <template v-else-if="field === 'commentary' || field.length > 20">
+                <textarea v-model="editForm[field]" rows="4" class="field-textarea"></textarea>
+              </template>
+              <template v-else-if="field === 'is_exact_match'">
+                <select v-model="editForm[field]" class="field-select">
+                  <option :value="true">是</option>
+                  <option :value="false">否</option>
+                </select>
+              </template>
+              <template v-else>
+                <input v-model="editForm[field]" type="text" class="field-input" />
+              </template>
+            </div>
+          </div>
         </div>
       </div>
     </div>
@@ -139,8 +172,8 @@
 </template>
 
 <script setup>
-import { ref, computed, onMounted } from "vue";
-import { fetchAdminList, fetchAdminRecord, updateAdminRecord } from "../api/admin";
+import { ref, computed, onMounted, onBeforeUnmount } from "vue";
+import { fetchAdminList, updateAdminRecord, fetchFileUrl } from "../api/admin";
 
 const tabs = [
   { key: "lit", label: "文献元数据 (lit_metadata)", count: null },
@@ -157,14 +190,34 @@ const page = ref(1);
 const total = ref(0);
 const pageSize = 20;
 const expandedId = ref(null);
+const yearRange = ref({ minYear: null, maxYear: null });
+
+const filterCrawlStatus = ref("");
+const yearSliderMin = ref(0);
+const yearSliderMax = ref(0);
+const yearSliderDirty = ref(false);
+let yearSliderTimer = null;
 
 const editingRecord = ref(null);
 const editForm = ref({});
+const editFormOriginal = ref({});
 const saving = ref(false);
 const saveStatus = ref("");
 const fieldErrors = ref({});
+const pdfUrl = ref("");
+const pdfLoading = ref(false);
+const pdfError = ref("");
 
 const totalPages = computed(() => Math.max(1, Math.ceil(total.value / pageSize)));
+
+const rangeFillStyle = computed(() => {
+  const r = yearRange.value;
+  const total = (r.maxYear || 2100) - (r.minYear || 1900);
+  if (total <= 0) return { left: "0%", width: "100%" };
+  const left = ((yearSliderMin.value - (r.minYear || 1900)) / total) * 100;
+  const right = ((yearSliderMax.value - (r.minYear || 1900)) / total) * 100;
+  return { left: left + "%", width: (right - left) + "%" };
+});
 
 const searchPlaceholder = computed(() => {
   switch (activeTable.value) {
@@ -176,17 +229,15 @@ const searchPlaceholder = computed(() => {
 const displayFields = computed(() => {
   const record = records.value.find(r => r.id === expandedId.value);
   if (!record) return [];
-  const exclude = ["id", "created_at", "updated_at"];
-  return Object.keys(record)
-    .filter(k => !exclude.includes(k))
-    .map(k => ({ key: k, label: k }));
+  const exclude = ["id", "created_at", "updated_at", "_bad_abstract"];
+  return Object.keys(record).filter(k => !exclude.includes(k)).map(k => ({ key: k, label: k }));
 });
 
 function getRecordTitle(record) {
   if (activeTable.value === "case") {
-    return record.tcm_diagnosis || record.western_diagnosis || record.original_name || `记录 #${record.id}`;
+    return record.tcm_diagnosis || record.western_diagnosis || record.original_name || `#${record.id}`;
   }
-  return record.title || record.original_name || `记录 #${record.id}`;
+  return record.title || record.original_name || `#${record.id}`;
 }
 
 function formatFieldValue(val) {
@@ -201,13 +252,71 @@ function isJsonField(key) {
   return ["authors", "keywords"].includes(key);
 }
 
+function isNeedsReview(record) {
+  return record.crawl_status === "partial";
+}
+
+function onYearSliderChange() {
+  if (yearSliderMin.value > yearSliderMax.value) {
+    const tmp = yearSliderMin.value;
+    yearSliderMin.value = yearSliderMax.value;
+    yearSliderMax.value = tmp;
+  }
+  yearSliderDirty.value = true;
+  clearTimeout(yearSliderTimer);
+  yearSliderTimer = setTimeout(() => doSearch(), 500);
+}
+
+function resetYearFilter() {
+  yearSliderMin.value = yearRange.value.minYear || 1900;
+  yearSliderMax.value = yearRange.value.maxYear || 2100;
+  yearSliderDirty.value = false;
+  page.value = 1;
+  loadData();
+}
+
+function hasUnsavedChanges() {
+  if (!editingRecord.value) return false;
+  for (const key of Object.keys(editForm.value)) {
+    if (editForm.value[key] !== editFormOriginal.value[key]) return true;
+  }
+  return false;
+}
+
+async function loadPdf(fileUuid) {
+  pdfUrl.value = "";
+  pdfLoading.value = true;
+  pdfError.value = "";
+  try {
+    const res = await fetchFileUrl(fileUuid);
+    pdfUrl.value = res.data.url || "";
+    if (!pdfUrl.value) pdfError.value = "获取文件地址为空";
+  } catch (e) {
+    pdfError.value = "获取 PDF 预览失败: " + (e.response?.data?.detail || e.message);
+  } finally {
+    pdfLoading.value = false;
+  }
+}
+
 async function loadData() {
   loading.value = true;
   try {
-    const res = await fetchAdminList(activeTable.value, page.value, searchQuery.value);
+    const params = { page: page.value, q: searchQuery.value };
+    if (filterCrawlStatus.value) params.crawlStatus = filterCrawlStatus.value;
+    if (yearSliderDirty.value) {
+      params.yearMin = yearSliderMin.value;
+      params.yearMax = yearSliderMax.value;
+    }
+
+    const res = await fetchAdminList(activeTable.value, params);
     records.value = res.data.records;
     total.value = res.data.total;
     editableFields.value = res.data.editable_fields || [];
+    yearRange.value = { minYear: res.data.year_min, maxYear: res.data.year_max };
+    if (!yearSliderDirty.value && yearRange.value.minYear) {
+      yearSliderMin.value = yearRange.value.minYear;
+      yearSliderMax.value = yearRange.value.maxYear;
+    }
     tabs.find(t => t.key === activeTable.value).count = res.data.total;
   } catch (e) {
     console.error("Failed to load records:", e);
@@ -222,6 +331,10 @@ function switchTable(key) {
   page.value = 1;
   records.value = [];
   total.value = 0;
+  filterCrawlStatus.value = "";
+  yearSliderDirty.value = false;
+  yearSliderMin.value = 0;
+  yearSliderMax.value = 0;
   loadData();
 }
 
@@ -249,23 +362,34 @@ function toggleExpand(id) {
 function startEdit(record) {
   editingRecord.value = record;
   editForm.value = {};
+  editFormOriginal.value = {};
   fieldErrors.value = {};
   for (const field of editableFields.value) {
     let val = record[field];
-    if (isJsonField(field) && (typeof val === "object" || Array.isArray(val))) {
-      editForm.value[field] = JSON.stringify(val, null, 2);
+    if (isJsonField(field) && Array.isArray(val)) {
+      const str = val.join(", ");
+      editForm.value[field] = str;
+      editFormOriginal.value[field] = str;
     } else {
-      editForm.value[field] = val ?? "";
+      const str = val ?? "";
+      editForm.value[field] = str;
+      editFormOriginal.value[field] = str;
     }
   }
   saveStatus.value = "";
+  loadPdf(record.file_uuid);
 }
 
-function cancelEdit() {
+function handleCloseEdit() {
+  if (hasUnsavedChanges()) {
+    if (!confirm("有未保存的修改，确定关闭吗？")) return;
+  }
   editingRecord.value = null;
   editForm.value = {};
+  editFormOriginal.value = {};
   fieldErrors.value = {};
   saveStatus.value = "";
+  pdfUrl.value = "";
 }
 
 async function saveEdit() {
@@ -275,15 +399,8 @@ async function saveEdit() {
   for (const [key, value] of Object.entries(editForm.value)) {
     if (isJsonField(key)) {
       const strVal = (value || "").trim();
-      if (strVal === "" || strVal === "[]") {
-        fields[key] = [];
-        continue;
-      }
-      try {
-        fields[key] = JSON.parse(strVal);
-      } catch {
-        fieldErrors.value[key] = "JSON 格式错误";
-      }
+      if (strVal === "") { fields[key] = []; continue; }
+      fields[key] = strVal.split(",").map(s => s.trim()).filter(s => s.length > 0);
     } else if (key === "is_exact_match") {
       fields[key] = value;
     } else {
@@ -299,12 +416,10 @@ async function saveEdit() {
     const res = await updateAdminRecord(activeTable.value, editingRecord.value.id, fields);
     const updated = res.data.record;
     const idx = records.value.findIndex(r => r.id === updated.id);
-    if (idx >= 0) {
-      records.value[idx] = { ...records.value[idx], ...updated };
-    }
-    editingRecord.value = null;
-    editForm.value = {};
-    saveStatus.value = "";
+    if (idx >= 0) Object.assign(records.value[idx], updated);
+    editFormOriginal.value = { ...editForm.value };
+    saveStatus.value = "已保存";
+    setTimeout(() => { saveStatus.value = ""; }, 2000);
   } catch (e) {
     saveStatus.value = "保存失败: " + (e.response?.data?.detail || e.message);
   } finally {
@@ -312,426 +427,122 @@ async function saveEdit() {
   }
 }
 
+function handleKeydown(e) {
+  if (e.key === "Escape" && editingRecord.value) {
+    handleCloseEdit();
+  }
+}
+
 onMounted(() => {
   loadData();
+  window.addEventListener("keydown", handleKeydown);
+});
+
+onBeforeUnmount(() => {
+  window.removeEventListener("keydown", handleKeydown);
 });
 </script>
 
 <style scoped>
-.admin-page {
-  max-width: 1100px;
-  margin: 0 auto;
-  padding: 24px 32px;
-  height: 100vh;
-  overflow-y: auto;
-}
+.admin-page { max-width: 1100px; margin: 0 auto; padding: 24px 32px; height: 100vh; overflow-y: auto; }
+.admin-header h1 { font-size: 22px; font-weight: 600; color: #1a1a2e; margin: 0 0 4px; }
 
-.admin-header h1 {
-  font-size: 22px;
-  font-weight: 600;
-  color: #1a1a2e;
-  margin: 0 0 4px;
-}
+.table-tabs { display: flex; gap: 4px; margin: 20px 0 12px; border-bottom: 2px solid #e8e8e8; }
+.tab-btn { padding: 8px 16px; border: none; background: transparent; font-size: 13px; color: #666; cursor: pointer; border-bottom: 2px solid transparent; margin-bottom: -2px; transition: color 0.2s, border-color 0.2s; }
+.tab-btn:hover { color: #1a1a2e; }
+.tab-btn.active { color: #1a1a2e; font-weight: 600; border-bottom-color: #00796b; }
+.tab-count { font-weight: 400; color: #999; font-size: 12px; }
 
-.table-tabs {
-  display: flex;
-  gap: 4px;
-  margin: 20px 0 16px;
-  border-bottom: 2px solid #e8e8e8;
-}
+.toolbar { display: flex; align-items: center; justify-content: space-between; gap: 16px; margin-bottom: 12px; }
+.search-bar { display: flex; gap: 8px; flex: 1; max-width: 480px; }
+.search-input { flex: 1; padding: 8px 12px; border: 1px solid #d0d0d0; border-radius: 6px; font-size: 13px; outline: none; transition: border-color 0.2s; }
+.search-input:focus { border-color: #00796b; }
+.btn-search { padding: 8px 16px; border: none; border-radius: 6px; background: #00796b; color: #fff; font-size: 13px; cursor: pointer; }
+.btn-search:hover { background: #00695c; }
+.btn-clear { padding: 8px 12px; border: 1px solid #d0d0d0; border-radius: 6px; background: #fff; font-size: 13px; cursor: pointer; color: #666; }
 
-.tab-btn {
-  padding: 8px 16px;
-  border: none;
-  background: transparent;
-  font-size: 13px;
-  color: #666;
-  cursor: pointer;
-  border-bottom: 2px solid transparent;
-  margin-bottom: -2px;
-  transition: color 0.2s, border-color 0.2s;
-}
+.filters { display: flex; align-items: center; gap: 20px; padding: 10px 0; margin-bottom: 12px; border-bottom: 1px solid #eee; flex-wrap: wrap; }
+.filter-group { display: flex; align-items: center; gap: 6px; font-size: 12px; color: #666; }
+.filter-group label { white-space: nowrap; font-weight: 500; }
+.filter-select { padding: 4px 8px; border: 1px solid #d0d0d0; border-radius: 4px; font-size: 12px; outline: none; }
+.filter-year { width: 70px; padding: 4px 8px; border: 1px solid #d0d0d0; border-radius: 4px; font-size: 12px; outline: none; }
+.filter-year-group { gap: 10px; }
+.year-label { font-size: 12px; color: #333; font-weight: 600; min-width: 70px; white-space: nowrap; }
+.range-slider { position: relative; width: 180px; height: 24px; display: flex; align-items: center; }
+.range-fill { position: absolute; height: 4px; background: #00796b; border-radius: 2px; pointer-events: none; }
+.range-thumb { position: absolute; width: 180px; height: 4px; background: transparent; pointer-events: none; -webkit-appearance: none; appearance: none; outline: none; }
+.range-thumb::-webkit-slider-thumb { -webkit-appearance: none; appearance: none; width: 16px; height: 16px; border-radius: 50%; background: #00796b; border: 2px solid #fff; box-shadow: 0 1px 3px rgba(0,0,0,0.3); cursor: pointer; pointer-events: all; }
+.range-thumb::-moz-range-thumb { width: 16px; height: 16px; border-radius: 50%; background: #00796b; border: 2px solid #fff; box-shadow: 0 1px 3px rgba(0,0,0,0.3); cursor: pointer; pointer-events: all; }
+.range-thumb-max::-webkit-slider-thumb { z-index: 2; }
+.range-thumb-min::-webkit-slider-thumb { z-index: 2; }
+.btn-reset-year { padding: 2px 8px; border: 1px solid #d0d0d0; border-radius: 4px; background: #fff; font-size: 11px; color: #e65100; cursor: pointer; white-space: nowrap; }
+.btn-reset-year:hover { background: #fff3e0; border-color: #e65100; }
+.filter-check { display: flex; align-items: center; gap: 4px; cursor: pointer; }
+.filter-check input { margin: 0; }
+.filter-hint { color: #aaa; font-size: 11px; }
 
-.tab-btn:hover {
-  color: #1a1a2e;
-}
+.loading, .empty { text-align: center; padding: 48px 0; color: #999; font-size: 14px; }
 
-.tab-btn.active {
-  color: #1a1a2e;
-  font-weight: 600;
-  border-bottom-color: #00796b;
-}
+.record-list { display: flex; flex-direction: column; gap: 8px; }
+.record-card { border: 1px solid #e8e8e8; border-radius: 8px; overflow: hidden; transition: border-color 0.2s; }
+.record-card:hover { border-color: #b0b0b0; }
+.record-card.needs-review { border-left: 3px solid #ef6c00; }
+.record-summary { display: flex; align-items: center; gap: 12px; padding: 12px 16px; cursor: pointer; }
+.record-error { padding: 0 16px 10px 16px; font-size: 12px; color: #e65100; line-height: 1.5; }
+.record-title { flex: 1; font-size: 14px; color: #1a1a2e; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; display: flex; align-items: center; gap: 6px; }
+.record-id { color: #999; font-size: 12px; }
+.flag-dot { font-size: 8px; color: #ef6c00; flex-shrink: 0; }
+.flag-dot.bad { color: #e53935; }
+.record-meta { display: flex; gap: 6px; flex-shrink: 0; align-items: center; }
+.meta-tag { padding: 2px 8px; background: #f0f0f0; border-radius: 4px; font-size: 11px; color: #666; white-space: nowrap; }
+.status-tag.status-partial { background: #fff3e0; color: #e65100; }
+.status-tag.status-failed { background: #ffebee; color: #c62828; }
+.btn-edit { padding: 4px 12px; border: 1px solid #d0d0d0; border-radius: 4px; background: #fff; font-size: 12px; color: #00796b; cursor: pointer; flex-shrink: 0; }
+.btn-edit:hover { background: #e0f2f1; }
 
-.tab-count {
-  font-weight: 400;
-  color: #999;
-  font-size: 12px;
-}
+.record-detail { border-top: 1px solid #e8e8e8; padding: 16px; background: #fafafa; }
+.field-table { width: 100%; border-collapse: collapse; }
+.field-table tr { border-bottom: 1px solid #e8e8e8; }
+.field-table tr:last-child { border-bottom: none; }
+.field-label { padding: 6px 12px 6px 0; font-size: 12px; color: #888; white-space: nowrap; vertical-align: top; width: 140px; font-weight: 500; }
+.field-value { padding: 6px 0; font-size: 13px; color: #333; word-break: break-all; white-space: pre-wrap; }
+.ai-summary-text { max-height: 160px; overflow-y: auto; line-height: 1.6; }
 
-.toolbar {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 16px;
-  margin-bottom: 16px;
-}
+.pagination { display: flex; justify-content: center; align-items: center; gap: 16px; margin-top: 24px; padding-bottom: 32px; }
+.pagination button { padding: 6px 16px; border: 1px solid #d0d0d0; border-radius: 6px; background: #fff; font-size: 13px; cursor: pointer; }
+.pagination button:disabled { color: #ccc; cursor: default; }
+.pagination button:hover:not(:disabled) { border-color: #00796b; color: #00796b; }
+.page-info { font-size: 13px; color: #666; }
 
-.search-bar {
-  display: flex;
-  gap: 8px;
-  flex: 1;
-  max-width: 480px;
-}
+.split-overlay { position: fixed; inset: 0; background: rgba(0,0,0,0.5); z-index: 1000; display: flex; align-items: center; justify-content: center; }
+.split-pane { width: 96vw; height: 94vh; max-width: 1600px; background: #fff; border-radius: 12px; display: flex; overflow: hidden; box-shadow: 0 8px 40px rgba(0,0,0,0.2); }
+.split-left { width: 48%; display: flex; flex-direction: column; border-right: 1px solid #e8e8e8; }
+.split-right { flex: 1; display: flex; flex-direction: column; min-width: 0; }
+.pane-header { display: flex; align-items: center; justify-content: space-between; padding: 10px 16px; border-bottom: 1px solid #e8e8e8; font-size: 13px; font-weight: 500; color: #333; background: #fafafa; flex-shrink: 0; }
+.pane-close { width: 28px; height: 28px; border: none; background: transparent; font-size: 20px; color: #999; cursor: pointer; border-radius: 4px; display: flex; align-items: center; justify-content: center; }
+.pane-close:hover { background: #f0f0f0; color: #333; }
+.pane-actions { display: flex; align-items: center; gap: 8px; }
+.pdf-container { flex: 1; background: #525659; overflow: hidden; position: relative; }
+.pdf-frame { width: 100%; height: 100%; border: none; }
+.pdf-loading, .pdf-error { position: absolute; inset: 0; display: flex; align-items: center; justify-content: center; color: #ccc; font-size: 14px; }
 
-.search-input {
-  flex: 1;
-  padding: 8px 12px;
-  border: 1px solid #d0d0d0;
-  border-radius: 6px;
-  font-size: 13px;
-  outline: none;
-  transition: border-color 0.2s;
-}
+.edit-body { flex: 1; overflow-y: auto; padding: 16px 20px; }
+.edit-field { margin-bottom: 14px; }
+.edit-field label { display: block; font-size: 12px; font-weight: 500; color: #666; margin-bottom: 4px; }
+.field-input, .field-textarea, .field-select { width: 100%; padding: 8px 10px; border: 1px solid #d0d0d0; border-radius: 6px; font-size: 13px; outline: none; font-family: inherit; box-sizing: border-box; }
+.field-input:focus, .field-textarea:focus, .field-select:focus { border-color: #00796b; }
+.field-input.error, .field-textarea.error { border-color: #e53935; }
+.field-hint { display: block; font-size: 11px; color: #999; margin-top: 2px; }
+.field-hint.error { color: #e53935; }
+.field-textarea { resize: vertical; min-height: 60px; }
+.field-textarea-lg { min-height: 140px; }
+.field-select { width: auto; min-width: 100px; }
 
-.search-input:focus {
-  border-color: #00796b;
-}
-
-.btn-search {
-  padding: 8px 16px;
-  border: none;
-  border-radius: 6px;
-  background: #00796b;
-  color: #fff;
-  font-size: 13px;
-  cursor: pointer;
-}
-
-.btn-search:hover {
-  background: #00695c;
-}
-
-.btn-clear {
-  padding: 8px 12px;
-  border: 1px solid #d0d0d0;
-  border-radius: 6px;
-  background: #fff;
-  font-size: 13px;
-  cursor: pointer;
-  color: #666;
-}
-
-.toolbar-info {
-  font-size: 13px;
-  color: #888;
-}
-
-.loading, .empty {
-  text-align: center;
-  padding: 48px 0;
-  color: #999;
-  font-size: 14px;
-}
-
-.record-list {
-  display: flex;
-  flex-direction: column;
-  gap: 8px;
-}
-
-.record-card {
-  border: 1px solid #e8e8e8;
-  border-radius: 8px;
-  overflow: hidden;
-  transition: border-color 0.2s;
-}
-
-.record-card:hover {
-  border-color: #b0b0b0;
-}
-
-.record-summary {
-  display: flex;
-  align-items: center;
-  gap: 12px;
-  padding: 12px 16px;
-  cursor: pointer;
-}
-
-.record-title {
-  flex: 1;
-  font-size: 14px;
-  color: #1a1a2e;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-
-.record-id {
-  color: #999;
-  font-size: 12px;
-  margin-right: 8px;
-}
-
-.record-meta {
-  display: flex;
-  gap: 6px;
-  flex-shrink: 0;
-}
-
-.meta-tag {
-  padding: 2px 8px;
-  background: #f0f0f0;
-  border-radius: 4px;
-  font-size: 11px;
-  color: #666;
-  white-space: nowrap;
-}
-
-.btn-edit {
-  padding: 4px 12px;
-  border: 1px solid #d0d0d0;
-  border-radius: 4px;
-  background: #fff;
-  font-size: 12px;
-  color: #00796b;
-  cursor: pointer;
-  flex-shrink: 0;
-}
-
-.btn-edit:hover {
-  background: #e0f2f1;
-}
-
-.record-detail {
-  border-top: 1px solid #e8e8e8;
-  padding: 16px;
-  background: #fafafa;
-}
-
-.field-table {
-  width: 100%;
-  border-collapse: collapse;
-}
-
-.field-table tr {
-  border-bottom: 1px solid #e8e8e8;
-}
-
-.field-table tr:last-child {
-  border-bottom: none;
-}
-
-.field-label {
-  padding: 6px 12px 6px 0;
-  font-size: 12px;
-  color: #888;
-  white-space: nowrap;
-  vertical-align: top;
-  width: 140px;
-  font-weight: 500;
-}
-
-.field-value {
-  padding: 6px 0;
-  font-size: 13px;
-  color: #333;
-  word-break: break-all;
-  white-space: pre-wrap;
-}
-
-.ai-summary-text {
-  max-height: 160px;
-  overflow-y: auto;
-  line-height: 1.6;
-}
-
-.pagination {
-  display: flex;
-  justify-content: center;
-  align-items: center;
-  gap: 16px;
-  margin-top: 24px;
-  padding-bottom: 32px;
-}
-
-.pagination button {
-  padding: 6px 16px;
-  border: 1px solid #d0d0d0;
-  border-radius: 6px;
-  background: #fff;
-  font-size: 13px;
-  cursor: pointer;
-}
-
-.pagination button:disabled {
-  color: #ccc;
-  cursor: default;
-}
-
-.pagination button:hover:not(:disabled) {
-  border-color: #00796b;
-  color: #00796b;
-}
-
-.page-info {
-  font-size: 13px;
-  color: #666;
-}
-
-.modal-overlay {
-  position: fixed;
-  inset: 0;
-  background: rgba(0, 0, 0, 0.4);
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  z-index: 1000;
-}
-
-.modal-content {
-  background: #fff;
-  border-radius: 12px;
-  width: 680px;
-  max-height: 80vh;
-  display: flex;
-  flex-direction: column;
-  box-shadow: 0 8px 32px rgba(0, 0, 0, 0.15);
-}
-
-.modal-header {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  padding: 16px 20px;
-  border-bottom: 1px solid #e8e8e8;
-}
-
-.modal-header h2 {
-  font-size: 16px;
-  font-weight: 600;
-  margin: 0;
-  color: #1a1a2e;
-}
-
-.modal-close {
-  width: 28px;
-  height: 28px;
-  border: none;
-  background: transparent;
-  font-size: 20px;
-  color: #999;
-  cursor: pointer;
-  border-radius: 4px;
-}
-
-.modal-close:hover {
-  background: #f0f0f0;
-  color: #333;
-}
-
-.modal-body {
-  padding: 20px;
-  overflow-y: auto;
-  flex: 1;
-}
-
-.edit-field {
-  margin-bottom: 14px;
-}
-
-.edit-field label {
-  display: block;
-  font-size: 12px;
-  font-weight: 500;
-  color: #666;
-  margin-bottom: 4px;
-}
-
-.field-input, .field-textarea, .field-select {
-  width: 100%;
-  padding: 8px 10px;
-  border: 1px solid #d0d0d0;
-  border-radius: 6px;
-  font-size: 13px;
-  outline: none;
-  font-family: inherit;
-  box-sizing: border-box;
-}
-
-.field-input:focus, .field-textarea:focus, .field-select:focus {
-  border-color: #00796b;
-}
-
-.field-input.error, .field-textarea.error {
-  border-color: #e53935;
-}
-
-.field-hint {
-  display: block;
-  font-size: 11px;
-  color: #999;
-  margin-top: 2px;
-}
-
-.field-hint.error {
-  color: #e53935;
-}
-
-.field-textarea {
-  resize: vertical;
-  min-height: 60px;
-}
-
-.field-select {
-  width: auto;
-  min-width: 100px;
-}
-
-.modal-footer {
-  display: flex;
-  align-items: center;
-  justify-content: flex-end;
-  gap: 10px;
-  padding: 14px 20px;
-  border-top: 1px solid #e8e8e8;
-}
-
-.save-status {
-  flex: 1;
-  font-size: 12px;
-  color: #e53935;
-}
-
-.btn-cancel, .btn-save {
-  padding: 8px 20px;
-  border-radius: 6px;
-  font-size: 13px;
-  cursor: pointer;
-}
-
-.btn-cancel {
-  border: 1px solid #d0d0d0;
-  background: #fff;
-  color: #666;
-}
-
-.btn-cancel:hover {
-  background: #f0f0f0;
-}
-
-.btn-save {
-  border: none;
-  background: #00796b;
-  color: #fff;
-}
-
-.btn-save:hover {
-  background: #00695c;
-}
-
-.btn-save:disabled {
-  opacity: 0.6;
-  cursor: default;
-}
+.save-inline { font-size: 12px; color: #2e7d32; margin-right: 8px; }
+.btn-cancel-pane, .btn-save-pane { padding: 6px 16px; border-radius: 6px; font-size: 13px; cursor: pointer; }
+.btn-cancel-pane { border: 1px solid #d0d0d0; background: #fff; color: #666; }
+.btn-cancel-pane:hover { background: #f0f0f0; }
+.btn-save-pane { border: none; background: #00796b; color: #fff; margin-left: 0; }
+.btn-save-pane:hover { background: #00695c; }
+.btn-save-pane:disabled { opacity: 0.6; cursor: default; }
 </style>
