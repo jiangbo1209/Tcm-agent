@@ -473,7 +473,7 @@ async function saveEdit() {
     editFormOriginal.value = { ...editForm.value };
     editUpdatedAt.value = updated.updated_at || "";
     saveStatus.value = "已保存";
-    setTimeout(() => { saveStatus.value = ""; handleCloseEdit(); }, 500);
+    setTimeout(() => { saveStatus.value = ""; handleCloseEdit(); }, 1500);
   } catch (e) {
     if (e.response?.status === 409) {
       saveStatus.value = "冲突：该记录已被其他人修改，请关闭后刷新重试";
@@ -585,8 +585,8 @@ onBeforeUnmount(() => {
 .resize-handle { width: 5px; cursor: col-resize; background: #e0e0e0; flex-shrink: 0; transition: background 0.15s; }
 .resize-handle:hover { background: #00796b; }
 .pane-header { display: flex; align-items: center; justify-content: space-between; padding: 10px 16px; border-bottom: 1px solid #e8e8e8; font-size: 13px; font-weight: 500; color: #333; background: #fafafa; flex-shrink: 0; }
-.pane-close { width: 28px; height: 28px; border: none; background: transparent; font-size: 20px; color: #999; cursor: pointer; border-radius: 4px; display: flex; align-items: center; justify-content: center; }
-.pane-close:hover { background: #f0f0f0; color: #333; }
+.pane-close { width: 32px; height: 32px; border: none; background: #00796b; font-size: 22px; color: #fff; cursor: pointer; border-radius: 6px; display: flex; align-items: center; justify-content: center; transition: background 0.15s; }
+.pane-close:hover { background: #00695c; }
 .pane-actions { display: flex; align-items: center; gap: 8px; }
 .pdf-container { flex: 1; background: #525659; overflow: hidden; position: relative; }
 .pdf-frame { width: 100%; height: 100%; border: none; }
