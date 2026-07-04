@@ -21,6 +21,32 @@ from app.utils.text import clean_text, split_authors, split_keywords, strip_html
 WANFANG_BASE_URL = "https://s.wanfangdata.com.cn"
 COOKIE_TTL_SEC = 600
 
+_CONFERENCE_KEYWORDS = (
+    "大会", "会议", "研讨会", "论坛", "学术",
+    "学会", "委员会", "分会", "专业委员会", "联合会",
+    "交流会", "年会", "峰会", "培训班", "研修班",
+    "大学", "学院", "研究院", "研究中心",
+)
+_CONFERENCE_KEYWORD_RE = re.compile("|".join(_CONFERENCE_KEYWORDS))
+
+
+def _filter_authors(authors: list[str]) -> list[str]:
+    if not authors:
+        return []
+    result: list[str] = []
+    for a in authors:
+        stripped = a.strip().strip("[]'\"")
+        if not stripped:
+            continue
+        if len(stripped) <= 1:
+            continue
+        if len(stripped) > 10:
+            continue
+        if len(stripped) > 6 and _CONFERENCE_KEYWORD_RE.search(stripped):
+            continue
+        result.append(a.strip())
+    return result
+
 
 class _CookieStore:
     def __init__(self, filepath: Path) -> None:
@@ -256,6 +282,14 @@ class WanfangCrawler(BaseCrawler):
                     if m:
                         year_text = m.group(1)
                         break
+                # Fallback: conference papers often show bare year in author area
+                if not year_text:
+                    for ae in author_els:
+                        txt = strip_html(await ae.inner_text()).strip()
+                        m = re.search(r"(\d{4})", txt)
+                        if m:
+                            year_text = m.group(1)
+                            break
 
                 # Paper type
                 type_el = await item.query_selector(".author-area .essay-type")
@@ -280,7 +314,7 @@ class WanfangCrawler(BaseCrawler):
                     source_site="wanfang",
                     raw_data={
                         "title": title_text,
-                        "authors": ", ".join(authors),
+                        "authors": ", ".join(_filter_authors(authors)),
                         "abstract": abstract,
                         "keywords": ", ".join(keywords),
                         "journal": journal,
@@ -365,7 +399,7 @@ class WanfangCrawler(BaseCrawler):
 
         return PaperMetadata(
             title=strip_html(str(raw.get("title") or result.title)) or result.title,
-            authors=split_authors(raw.get("authors") or ""),
+            authors=_filter_authors(split_authors(raw.get("authors") or "")),
             abstract=clean_text(raw.get("abstract") or "") or None,
             keywords=split_keywords(raw.get("keywords") or ""),
             paper_type=raw.get("paper_type"),
@@ -373,24 +407,30 @@ class WanfangCrawler(BaseCrawler):
             source_url=result.detail_url,
             raw_data=raw,
             journal=clean_text(raw.get("journal") or "") or None,
-            pub_year=clean_text(raw.get("pub_year") or "") or None,
+            pub_year=(lambda v: v[:4] if v else None)(clean_text(raw.get("pub_year") or "")),
         )
 
     def _parse_detail_html(self, html: str) -> dict[str, str]:
         detail: dict[str, str] = {}
+        clean_html = re.sub(
+            r"<(script|style|noscript)[^>]*>.*?</\1>",
+            "", html, flags=re.DOTALL | re.IGNORECASE,
+        )
         patterns = {
             "title": r'<h1[^>]*>(.*?)</h1>',
-            "authors": r'(?:作者|Author)[：:]\s*<[^>]*>(.*?)</[^>]*>',
-            "abstract": r'(?:摘要|Abstract)[：:]\s*<[^>]*>(.*?)</[^>]*>',
-            "keywords": r'(?:关键词|Keywords?)[：:]\s*<[^>]*>(.*?)</[^>]*>',
-            "journal": r'(?:期刊|刊名|Journal|来源|母体文献)[：:]\s*<[^>]*>(.*?)</[^>]*>',
-            "pub_year": r'(?:年份|出版年|Year|发表时间)[：:]\s*<[^>]*>(.*?)</[^>]*>',
-            "paper_type": r'(?:文献类型|资源类型|Type)[：:]\s*<[^>]*>(.*?)</[^>]*>',
+            "authors": r'(?:作者|Author)\s*[：:]\s*<[^>]*>(.*?)</[^>]*>',
+            "abstract": r'(?:摘要|Abstract)\s*[：:]\s*<[^>]*>(.*?)</[^>]*>',
+            "keywords": r'(?:关键词|Keywords?)\s*[：:]\s*<[^>]*>(.*?)</[^>]*>',
+            "journal": r'(?:母体文献|会议名称|期刊|刊名|Journal|来源)\s*[：:]\s*<[^>]*>(.*?)</[^>]*>',
+            "pub_year": r'(?:会议时间|发表时间|出版日期|年份|出版年|Year)\s*[：:]\s*<[^>]*>(.*?)</[^>]*>',
+            "paper_type": r'(?:文献类型|资源类型|Type)\s*[：:]\s*<[^>]*>(.*?)</[^>]*>',
         }
         for field, pattern in patterns.items():
-            m = re.search(pattern, html, re.DOTALL | re.IGNORECASE)
+            m = re.search(pattern, clean_html, re.DOTALL | re.IGNORECASE)
             if m:
-                detail[field] = clean_text(strip_html(m.group(1))) or ""
+                value = clean_text(strip_html(m.group(1)))
+                if value:
+                    detail[field] = value
         return detail
 
     async def close(self) -> None:
