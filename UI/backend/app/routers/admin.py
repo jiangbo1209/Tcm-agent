@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import logging
+import re
 from datetime import datetime, timezone
 from typing import Any
 
@@ -47,6 +48,44 @@ _EDITABLE_FIELDS: dict[str, list[str]] = {
         "matched_title", "is_exact_match",
     ],
 }
+
+_REQUIRED_FIELDS: dict[str, list[str]] = {
+    "lit": ["title", "authors", "abstract", "keywords", "paper_type", "journal", "pub_year"],
+    "guideline": ["title", "authors", "abstract", "keywords", "paper_type", "journal", "pub_year"],
+}
+
+
+def _is_complete(record: Any, table: str, updates: dict[str, Any] | None = None) -> bool:
+    required = _REQUIRED_FIELDS.get(table, [])
+    if not required:
+        return True
+    updates = updates or {}
+    for field in required:
+        value = updates[field] if field in updates else getattr(record, field, None)
+        if not value:
+            return False
+        if isinstance(value, list) and len(value) == 0:
+            return False
+        if field == "paper_type" and value == "unknown":
+            return False
+    return True
+
+
+def _clean_pdf_text(text: str) -> str:
+    """Remove spurious line breaks introduced by PDF copy-paste.
+
+    Only removes line wraps (newline without preceding punctuation),
+    preserves legitimate line breaks that follow punctuation.
+    """
+    text = text.replace("\r\n", "\n").replace("\r", "\n")
+    # Remove trailing spaces before newlines
+    text = re.sub(r" *\n", "\n", text)
+    # Remove single \n NOT preceded by sentence-ending punctuation and NOT part of \n\n
+    # This targets PDF wraps (line break without punctuation)
+    text = re.sub(r"(?<![.!?。！？…：:；;\n])\n(?!\n)", " ", text)
+    # Collapse multiple spaces
+    text = re.sub(r" {2,}", " ", text)
+    return text.strip()
 
 
 class AdminUpdateRequest(BaseModel):
@@ -191,10 +230,16 @@ def update_record(
         col = model.__table__.columns.get(key)
         if col is None:
             continue
+        if key == "abstract" and isinstance(value, str):
+            value = _clean_pdf_text(value)
         updates[key] = value
 
     if not updates:
         raise HTTPException(status_code=400, detail="No valid editable fields provided")
+
+    if record.crawl_status == "partial" and _is_complete(record, table, updates):
+        updates["crawl_status"] = "success"
+        updates["error_message"] = None
 
     now = datetime.now(timezone.utc)
     updates["updated_at"] = now

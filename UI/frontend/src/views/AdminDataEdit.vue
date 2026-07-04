@@ -122,7 +122,7 @@
 
     <div v-if="editingRecord" class="split-overlay">
       <div class="split-pane">
-        <div class="split-left">
+        <div class="split-left" :style="{ width: leftWidth + '%' }">
           <div class="pane-header">
             <span>PDF 预览 — {{ editingRecord.original_name }}</span>
             <button class="pane-close" @click="handleCloseEdit">&times;</button>
@@ -133,6 +133,7 @@
             <div v-else class="pdf-error" v-text="pdfError || '无法加载 PDF'"></div>
           </div>
         </div>
+        <div class="resize-handle" @mousedown="startResize"></div>
         <div class="split-right">
           <div class="pane-header">
             <span>编辑 — #{{ editingRecord.id }}</span>
@@ -212,6 +213,10 @@ const fieldErrors = ref({});
 const pdfUrl = ref("");
 const pdfLoading = ref(false);
 const pdfError = ref("");
+
+const leftWidth = ref((5 / 7) * 100); // 默认 PDF:编辑栏 = 5:2
+const resizing = ref(false);
+let dragOverlay = null;
 
 const totalPages = computed(() => Math.max(1, Math.ceil(total.value / pageSize)));
 
@@ -410,7 +415,43 @@ function handleCloseEdit() {
   fieldErrors.value = {};
   saveStatus.value = "";
   pdfUrl.value = "";
+  leftWidth.value = (5 / 7) * 100;
 }
+
+function startResize(e) {
+  if (resizing.value) return;
+  e.preventDefault();
+  resizing.value = true;
+
+  // 创建一个透明全屏遮罩，覆盖在 iframe 之上，确保鼠标事件不被 iframe 吞掉
+  dragOverlay = document.createElement("div");
+  dragOverlay.style.cssText =
+    "position:fixed;inset:0;z-index:2147483647;cursor:col-resize;background:transparent;";
+  dragOverlay.addEventListener("mousemove", onResize);
+  dragOverlay.addEventListener("mouseup", stopResize);
+  dragOverlay.addEventListener("mouseleave", stopResize);
+  document.body.appendChild(dragOverlay);
+}
+
+function stopResize() {
+  if (!resizing.value) return;
+  resizing.value = false;
+  if (dragOverlay) {
+    dragOverlay.removeEventListener("mousemove", onResize);
+    dragOverlay.removeEventListener("mouseup", stopResize);
+    dragOverlay.removeEventListener("mouseleave", stopResize);
+    document.body.removeChild(dragOverlay);
+    dragOverlay = null;
+  }
+}
+
+function onResize(e) {
+  if (!resizing.value) return;
+  const pct = (e.clientX / window.innerWidth) * 100;
+  leftWidth.value = Math.max(20, Math.min(80, pct));
+}
+
+onBeforeUnmount(stopResize);
 
 async function saveEdit() {
   const fields = {};
@@ -418,7 +459,7 @@ async function saveEdit() {
 
   for (const [key, value] of Object.entries(editForm.value)) {
     if (isJsonField(key)) {
-      const strVal = (value || "").trim();
+      const strVal = (value || "").replaceAll("，", ",").trim();
       if (strVal === "") { fields[key] = []; continue; }
       fields[key] = strVal.split(",").map(s => s.trim()).filter(s => s.length > 0);
     } else if (key === "is_exact_match") {
@@ -545,10 +586,12 @@ onBeforeUnmount(() => {
 .btn-jump:hover { border-color: #00796b; color: #00796b; }
 .page-info { font-size: 13px; color: #666; }
 
-.split-overlay { position: fixed; inset: 0; background: rgba(0,0,0,0.5); z-index: 1000; display: flex; align-items: center; justify-content: center; }
-.split-pane { width: 96vw; height: 94vh; max-width: 1600px; background: #fff; border-radius: 12px; display: flex; overflow: hidden; box-shadow: 0 8px 40px rgba(0,0,0,0.2); }
-.split-left { width: 48%; display: flex; flex-direction: column; border-right: 1px solid #e8e8e8; }
-.split-right { flex: 1; display: flex; flex-direction: column; min-width: 0; }
+.split-overlay { position: fixed; inset: 0; background: rgba(0,0,0,0.5); z-index: 1000; }
+.split-pane { width: 100%; height: 100%; background: #fff; display: flex; overflow: hidden; }
+.split-left { display: flex; flex-direction: column; min-width: 200px; }
+.split-right { flex: 1; display: flex; flex-direction: column; min-width: 300px; }
+.resize-handle { width: 5px; cursor: col-resize; background: #e0e0e0; flex-shrink: 0; transition: background 0.15s; }
+.resize-handle:hover { background: #00796b; }
 .pane-header { display: flex; align-items: center; justify-content: space-between; padding: 10px 16px; border-bottom: 1px solid #e8e8e8; font-size: 13px; font-weight: 500; color: #333; background: #fafafa; flex-shrink: 0; }
 .pane-close { width: 28px; height: 28px; border: none; background: transparent; font-size: 20px; color: #999; cursor: pointer; border-radius: 4px; display: flex; align-items: center; justify-content: center; }
 .pane-close:hover { background: #f0f0f0; color: #333; }

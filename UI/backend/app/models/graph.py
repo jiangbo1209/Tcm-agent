@@ -12,6 +12,7 @@ from sqlalchemy import (
     ForeignKey,
     Index,
     Integer,
+    JSON,
     Numeric,
     String,
     Text,
@@ -50,9 +51,9 @@ class LitMetadata(GraphBase):
     storage_path: Mapped[str] = mapped_column(Text, nullable=False)
     cleaned_title: Mapped[str] = mapped_column(Text, nullable=False)
     title: Mapped[str] = mapped_column(Text, nullable=False)
-    authors: Mapped[list] = mapped_column(Text, nullable=False, default=list)
+    authors: Mapped[list] = mapped_column(JSON, nullable=False, default=list)
     abstract: Mapped[str | None] = mapped_column(Text, nullable=True)
-    keywords: Mapped[list] = mapped_column(Text, nullable=False, default=list)
+    keywords: Mapped[list] = mapped_column(JSON, nullable=False, default=list)
     paper_type: Mapped[str | None] = mapped_column(String(64), nullable=True)
     source_site: Mapped[str] = mapped_column(String(64), nullable=False)
     source_url: Mapped[str | None] = mapped_column(Text, nullable=True)
@@ -116,9 +117,9 @@ class GuidelineMetadata(GraphBase):
     storage_path: Mapped[str] = mapped_column(Text, nullable=False)
     cleaned_title: Mapped[str] = mapped_column(Text, nullable=False)
     title: Mapped[str] = mapped_column(Text, nullable=False)
-    authors: Mapped[list] = mapped_column(Text, nullable=False, default=list)
+    authors: Mapped[list] = mapped_column(JSON, nullable=False, default=list)
     abstract: Mapped[str | None] = mapped_column(Text, nullable=True)
-    keywords: Mapped[list] = mapped_column(Text, nullable=False, default=list)
+    keywords: Mapped[list] = mapped_column(JSON, nullable=False, default=list)
     paper_type: Mapped[str | None] = mapped_column(String(64), nullable=True)
     source_site: Mapped[str] = mapped_column(String(64), nullable=False)
     source_url: Mapped[str | None] = mapped_column(Text, nullable=True)
