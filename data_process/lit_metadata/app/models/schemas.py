@@ -50,6 +50,8 @@ class LitMetadataCreate(BaseModel):
     is_exact_match: bool
     crawl_status: str
     error_message: str | None = None
+    ai_summary: str | None = None
+    ai_summary_status: str = "pending"
 
 
 class ProcessingSummary(BaseModel):

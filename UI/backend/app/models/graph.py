@@ -62,6 +62,10 @@ class LitMetadata(GraphBase):
     is_exact_match: Mapped[bool] = mapped_column(Boolean, nullable=False, default=True)
     crawl_status: Mapped[str] = mapped_column(String(32), nullable=False)
     error_message: Mapped[str | None] = mapped_column(Text, nullable=True)
+    ai_summary: Mapped[str | None] = mapped_column(Text, nullable=True)
+    ai_summary_status: Mapped[str] = mapped_column(
+        String(32), nullable=False, server_default=text("'pending'")
+    )
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), nullable=False, server_default=text("NOW()")
     )
