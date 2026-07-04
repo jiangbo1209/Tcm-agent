@@ -15,6 +15,7 @@ from app.config import get_database_config, get_minio_config, get_search_config
 from app.core.minio_utils import MinioClient
 from app.core.database import engine
 from app.models.base import Base
+from app.models.graph import GraphBase
 from app.repositories.graph_repository import GraphRepository
 from app.routers.chat import router as chat_router
 from app.routers.graph import router as graph_router
@@ -25,6 +26,7 @@ from app.routers.users import router as users_router
 from app.services.graph_service import GraphService
 
 Base.metadata.create_all(bind=engine)
+GraphBase.metadata.create_all(bind=engine)
 
 app = FastAPI(title="TCM Agent API", version="2.0.0")
 

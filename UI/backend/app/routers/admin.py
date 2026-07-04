@@ -12,7 +12,7 @@ from sqlalchemy import Integer, func, or_, select, update
 from sqlalchemy.orm import Session
 
 from app.auth.dependencies import require_admin
-from app.core.database_pg import get_pg_db
+from app.core.database import get_db
 from app.models.graph import GuidelineMetadata, LitMetadata, MedCase
 from app.models.user import User
 
@@ -107,7 +107,7 @@ def list_records(
     crawl_status: str | None = Query(None, description="Filter by crawl_status"),
     year_min: int | None = Query(None, description="Min pub_year"),
     year_max: int | None = Query(None, description="Max pub_year"),
-    db: Session = Depends(get_pg_db),
+    db: Session = Depends(get_db),
     _admin: User = Depends(require_admin),
 ):
     model = _get_model(table)
@@ -160,7 +160,7 @@ def _get_year_range(model, db: Session) -> dict[str, int | None]:
 def get_record(
     table: str,
     record_id: int,
-    db: Session = Depends(get_pg_db),
+    db: Session = Depends(get_db),
     _admin: User = Depends(require_admin),
 ):
     model = _get_model(table)
@@ -175,7 +175,7 @@ def update_record(
     table: str,
     record_id: int,
     body: AdminUpdateRequest,
-    db: Session = Depends(get_pg_db),
+    db: Session = Depends(get_db),
     _admin: User = Depends(require_admin),
 ):
     model = _get_model(table)

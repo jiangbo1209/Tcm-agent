@@ -1,17 +1,27 @@
-"""SQLite database engine and session management."""
+"""PostgreSQL database engine and session management."""
 
 from __future__ import annotations
 
-from pathlib import Path
-
 from sqlalchemy import create_engine
+from sqlalchemy.engine import URL
 from sqlalchemy.orm import sessionmaker
 
-_DB_DIR = Path(__file__).resolve().parents[2]
-_DB_PATH = _DB_DIR / "tcm.db"
-DATABASE_URL = f"sqlite:///{_DB_PATH}"
+from app.config import get_database_config
 
-engine = create_engine(DATABASE_URL, connect_args={"check_same_thread": False}, echo=False)
+
+def _build_pg_url() -> URL:
+    cfg = get_database_config()
+    return URL.create(
+        "postgresql+psycopg2",
+        username=cfg.user,
+        password=cfg.password,
+        host=cfg.host,
+        port=cfg.port,
+        database=cfg.database,
+    )
+
+
+engine = create_engine(_build_pg_url(), pool_pre_ping=True, echo=False)
 SessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=engine)
 
 

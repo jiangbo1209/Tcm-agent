@@ -26,8 +26,8 @@ class GraphRepository:
         self._fulltext_cache: dict[str, bool] = {}
 
     def _get_session(self) -> Session:
-        from app.core.database_pg import PgSession
-        return PgSession()
+        from app.core.database import SessionLocal
+        return SessionLocal()
 
     def _title_coalesce(self, model):
         return func.coalesce(
