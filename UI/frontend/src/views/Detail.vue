@@ -9,7 +9,6 @@
           {{ detail.detail_type === "record" ? "病案" : "文献" }}
         </span>
         <h1>{{ detail.node?.title || "未命名" }}</h1>
-        <p v-if="metaText" class="detail-meta">{{ metaText }}</p>
       </header>
 
       <template v-if="detail.detail_type === 'paper' && detail.paper">
@@ -73,17 +72,6 @@ const nodeId = computed(() => route.params.nodeId);
 const fileUuid = computed(() => route.params.fileUuid);
 const sourceType = computed(() => route.query.source_type);
 const hasFileUuid = computed(() => !!fileUuid.value && !!sourceType.value);
-
-const metaText = computed(() => {
-  if (!detail.value) return "";
-  const n = detail.value.node;
-  if (n?.node_type === "paper") {
-    const p = detail.value.paper;
-    return `作者：${p?.authors || "-"} · 年份：${p?.pub_year || n.publish_year || "-"}`;
-  }
-  const r = detail.value.record;
-  return r ? `病案 · 诊断：${r.syndrome || r.diagnosis || "-"}` : "";
-});
 
 const canAccessFile = computed(() => !!detail.value?.paper?.file_name);
 
