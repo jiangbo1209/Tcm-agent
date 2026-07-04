@@ -8,7 +8,7 @@ from typing import Any
 
 from fastapi import APIRouter, Depends, HTTPException, Query
 from pydantic import BaseModel
-from sqlalchemy import Integer, func, or_, select
+from sqlalchemy import Integer, func, or_, select, update
 from sqlalchemy.orm import Session
 
 from app.auth.dependencies import require_admin
@@ -51,6 +51,7 @@ _EDITABLE_FIELDS: dict[str, list[str]] = {
 
 class AdminUpdateRequest(BaseModel):
     fields: dict[str, Any]
+    updated_at: str | None = None
 
 
 def _get_model(table: str) -> type:
@@ -208,9 +209,26 @@ def update_record(
     if not updates:
         raise HTTPException(status_code=400, detail="No valid editable fields provided")
 
-    updates["updated_at"] = datetime.now(timezone.utc)
-    for key, value in updates.items():
-        setattr(record, key, value)
+    now = datetime.now(timezone.utc)
+    updates["updated_at"] = now
+
+    if body.updated_at:
+        expected_dt = datetime.fromisoformat(body.updated_at)
+        result = db.execute(
+            update(model)
+            .where(model.id == record_id, model.updated_at == expected_dt)
+            .values(**updates)
+        )
+        if result.rowcount == 0:
+            db.rollback()
+            raise HTTPException(
+                status_code=409,
+                detail="该记录已被其他人修改，请刷新后重试",
+            )
+    else:
+        for key, value in updates.items():
+            setattr(record, key, value)
+
     db.commit()
     db.refresh(record)
     return {"record": _serialize(record, table), "updated_fields": list(updates.keys())}

@@ -201,6 +201,7 @@ let yearSliderTimer = null;
 const editingRecord = ref(null);
 const editForm = ref({});
 const editFormOriginal = ref({});
+const editUpdatedAt = ref("");
 const saving = ref(false);
 const saveStatus = ref("");
 const fieldErrors = ref({});
@@ -363,6 +364,7 @@ function startEdit(record) {
   editingRecord.value = record;
   editForm.value = {};
   editFormOriginal.value = {};
+  editUpdatedAt.value = record.updated_at || "";
   fieldErrors.value = {};
   for (const field of editableFields.value) {
     let val = record[field];
@@ -387,6 +389,7 @@ function handleCloseEdit() {
   editingRecord.value = null;
   editForm.value = {};
   editFormOriginal.value = {};
+  editUpdatedAt.value = "";
   fieldErrors.value = {};
   saveStatus.value = "";
   pdfUrl.value = "";
@@ -413,15 +416,20 @@ async function saveEdit() {
   saving.value = true;
   saveStatus.value = "";
   try {
-    const res = await updateAdminRecord(activeTable.value, editingRecord.value.id, fields);
+    const res = await updateAdminRecord(activeTable.value, editingRecord.value.id, fields, editUpdatedAt.value);
     const updated = res.data.record;
     const idx = records.value.findIndex(r => r.id === updated.id);
     if (idx >= 0) Object.assign(records.value[idx], updated);
     editFormOriginal.value = { ...editForm.value };
+    editUpdatedAt.value = updated.updated_at || "";
     saveStatus.value = "已保存";
     setTimeout(() => { saveStatus.value = ""; }, 2000);
   } catch (e) {
-    saveStatus.value = "保存失败: " + (e.response?.data?.detail || e.message);
+    if (e.response?.status === 409) {
+      saveStatus.value = "冲突：该记录已被其他人修改，请关闭后刷新重试";
+    } else {
+      saveStatus.value = "保存失败: " + (e.response?.data?.detail || e.message);
+    }
   } finally {
     saving.value = false;
   }
@@ -444,7 +452,7 @@ onBeforeUnmount(() => {
 </script>
 
 <style scoped>
-.admin-page { max-width: 1100px; margin: 0 auto; padding: 24px 32px; height: 100vh; overflow-y: auto; }
+.admin-page { width: 100%; padding: 24px 32px; height: 100vh; overflow-y: scroll; }
 .admin-header h1 { font-size: 22px; font-weight: 600; color: #1a1a2e; margin: 0 0 4px; }
 
 .table-tabs { display: flex; gap: 4px; margin: 20px 0 12px; border-bottom: 2px solid #e8e8e8; }
