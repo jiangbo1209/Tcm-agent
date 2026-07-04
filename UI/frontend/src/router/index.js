@@ -48,6 +48,12 @@ const routes = [
         component: () => import("../views/AdminDataEdit.vue"),
         meta: { requiresAdmin: true },
       },
+      {
+        path: "users",
+        name: "Users",
+        component: () => import("../views/UserManagement.vue"),
+        meta: { requiresAdmin: true },
+      },
     ],
   },
   {

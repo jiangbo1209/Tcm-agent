@@ -21,6 +21,7 @@ from app.routers.graph import router as graph_router
 from app.routers.history import router as history_router
 from app.routers.search import router as search_router
 from app.routers.admin import router as admin_router
+from app.routers.users import router as users_router
 from app.services.graph_service import GraphService
 
 Base.metadata.create_all(bind=engine)
@@ -57,6 +58,7 @@ app.include_router(search_router)
 app.include_router(history_router)
 app.include_router(graph_router)
 app.include_router(admin_router)
+app.include_router(users_router)
 
 
 @app.exception_handler(HTTPException)
