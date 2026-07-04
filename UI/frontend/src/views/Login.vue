@@ -66,7 +66,7 @@ async function handleLogin() {
     const user = { id: payload.sub, role: payload.role };
 
     authStore.setAuth(token, user);
-    router.push("/");
+    router.push(user.role === "admin" ? "/admin" : "/");
   } catch (e) {
     error.value = e.response?.data?.error || "登录失败，请重试";
   } finally {

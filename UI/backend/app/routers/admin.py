@@ -99,17 +99,6 @@ def _apply_filters(model: type, stmt, crawl_status: str | None, year_min: int | 
     return stmt
 
 
-def _get_bad_abstract_label(abstract: str | None) -> str | None:
-    if not abstract:
-        return None
-    stripped = abstract.strip().lstrip("【】「」《》\"'")
-    if stripped.startswith("正") and len(stripped) > 1 and stripped[1] != " ":
-        return "flag_abstract"
-    if stripped.startswith("目的") or stripped.startswith("方法") or stripped.startswith("结果") or stripped.startswith("结论"):
-        return "flag_abstract"
-    return None
-
-
 @router.get("/{table}")
 def list_records(
     table: str,
@@ -140,9 +129,7 @@ def list_records(
 
     records = []
     for r in rows:
-        rec = _serialize(r, table)
-        rec["_bad_abstract"] = _get_bad_abstract_label(r.abstract if hasattr(r, "abstract") else None)
-        records.append(rec)
+        records.append(_serialize(r, table))
 
     year_range = _get_year_range(model, db)
 

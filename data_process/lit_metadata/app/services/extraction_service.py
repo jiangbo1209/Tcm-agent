@@ -399,6 +399,10 @@ class ExtractionService:
             missing_fields.append("keywords")
         if not metadata.paper_type or metadata.paper_type == "unknown":
             missing_fields.append("paper_type")
+        if not metadata.journal:
+            missing_fields.append("journal")
+        if not metadata.pub_year:
+            missing_fields.append("pub_year")
 
         if not missing_fields:
             return "success", None

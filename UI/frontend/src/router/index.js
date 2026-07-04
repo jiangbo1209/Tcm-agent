@@ -82,6 +82,10 @@ router.beforeEach((to, from, next) => {
     return next("/login");
   }
 
+  if (to.path === "/" && authStore.user?.role === "admin") {
+    return next("/admin");
+  }
+
   if (to.meta.guest && authStore.isLoggedIn) {
     return next("/");
   }

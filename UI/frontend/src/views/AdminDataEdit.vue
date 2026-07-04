@@ -17,6 +17,9 @@
         <button class="btn-search" @click="doSearch">搜索</button>
         <button v-if="searchQuery" class="btn-clear" @click="clearSearch">清除</button>
       </div>
+      <button v-if="totalPages > 1" class="btn-random" @click="randomPage" title="随机跳转到其他页面，避免多人同时修改同一条记录">
+        随机跳转
+      </button>
     </div>
 
     <div class="filters" v-if="activeTable !== 'case'">
@@ -68,16 +71,12 @@
       <div
         v-for="record in records" :key="record.id"
         class="record-card"
-        :class="{
-          'needs-review': isNeedsReview(record),
-          expanded: expandedId === record.id,
-        }"
+        :class="{ expanded: expandedId === record.id }"
       >
         <div class="record-summary" @click="toggleExpand(record.id)">
           <div class="record-title">
             <span class="record-id">#{{ record.id }}</span>
             <span class="flag-dot" v-if="record.crawl_status === 'partial'" :title="record.error_message || '数据状态不完整'">⬤</span>
-            <span class="flag-dot bad" v-if="record._bad_abstract" title="摘要异常">⬤</span>
             {{ getRecordTitle(record) }}
           </div>
           <div class="record-meta">
@@ -114,6 +113,10 @@
     <div class="pagination" v-if="total > pageSize">
       <button :disabled="page <= 1" @click="goPage(page - 1)">上一页</button>
       <span class="page-info">第 {{ page }} / {{ totalPages }} 页</span>
+      <div class="page-jump">
+        <input v-model.number="jumpToPage" type="number" min="1" :max="totalPages" class="page-jump-input" placeholder="页码" @keyup.enter="goPage(jumpToPage)" />
+        <button class="btn-jump" @click="goPage(jumpToPage)">跳转</button>
+      </div>
       <button :disabled="page >= totalPages" @click="goPage(page + 1)">下一页</button>
     </div>
 
@@ -190,6 +193,7 @@ const page = ref(1);
 const total = ref(0);
 const pageSize = 20;
 const expandedId = ref(null);
+const jumpToPage = ref(null);
 const yearRange = ref({ minYear: null, maxYear: null });
 
 const filterCrawlStatus = ref("");
@@ -230,7 +234,7 @@ const searchPlaceholder = computed(() => {
 const displayFields = computed(() => {
   const record = records.value.find(r => r.id === expandedId.value);
   if (!record) return [];
-  const exclude = ["id", "created_at", "updated_at", "_bad_abstract"];
+  const exclude = ["id", "created_at", "updated_at"];
   return Object.keys(record).filter(k => !exclude.includes(k)).map(k => ({ key: k, label: k }));
 });
 
@@ -251,10 +255,6 @@ function formatFieldValue(val) {
 
 function isJsonField(key) {
   return ["authors", "keywords"].includes(key);
-}
-
-function isNeedsReview(record) {
-  return record.crawl_status === "partial";
 }
 
 function onYearSliderChange() {
@@ -350,8 +350,25 @@ function clearSearch() {
   loadData();
 }
 
+function randomPage() {
+  if (totalPages.value <= 1) return;
+  let target;
+  if (totalPages.value === 2) {
+    target = page.value === 1 ? 2 : 1;
+  } else {
+    do {
+      target = Math.floor(Math.random() * totalPages.value) + 1;
+    } while (target === page.value);
+  }
+  page.value = target;
+  loadData();
+  expandedId.value = null;
+}
+
 function goPage(p) {
-  page.value = p;
+  const num = Math.max(1, Math.min(totalPages.value, Number(p) || 1));
+  page.value = num;
+  jumpToPage.value = null;
   loadData();
   expandedId.value = null;
 }
@@ -462,6 +479,8 @@ onBeforeUnmount(() => {
 .tab-count { font-weight: 400; color: #999; font-size: 12px; }
 
 .toolbar { display: flex; align-items: center; justify-content: space-between; gap: 16px; margin-bottom: 12px; }
+.btn-random { padding: 8px 16px; border: 1px dashed #00796b; border-radius: 6px; background: #fff; color: #00796b; font-size: 13px; cursor: pointer; white-space: nowrap; }
+.btn-random:hover { background: #e0f2f1; }
 .search-bar { display: flex; gap: 8px; flex: 1; max-width: 480px; }
 .search-input { flex: 1; padding: 8px 12px; border: 1px solid #d0d0d0; border-radius: 6px; font-size: 13px; outline: none; transition: border-color 0.2s; }
 .search-input:focus { border-color: #00796b; }
@@ -494,7 +513,6 @@ onBeforeUnmount(() => {
 .record-list { display: flex; flex-direction: column; gap: 8px; }
 .record-card { border: 1px solid #e8e8e8; border-radius: 8px; overflow: hidden; transition: border-color 0.2s; }
 .record-card:hover { border-color: #b0b0b0; }
-.record-card.needs-review { border-left: 3px solid #ef6c00; }
 .record-summary { display: flex; align-items: center; gap: 12px; padding: 12px 16px; cursor: pointer; }
 .record-error { padding: 0 16px 10px 16px; font-size: 12px; color: #e65100; line-height: 1.5; }
 .record-title { flex: 1; font-size: 14px; color: #1a1a2e; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; display: flex; align-items: center; gap: 6px; }
@@ -520,6 +538,11 @@ onBeforeUnmount(() => {
 .pagination button { padding: 6px 16px; border: 1px solid #d0d0d0; border-radius: 6px; background: #fff; font-size: 13px; cursor: pointer; }
 .pagination button:disabled { color: #ccc; cursor: default; }
 .pagination button:hover:not(:disabled) { border-color: #00796b; color: #00796b; }
+.page-jump { display: flex; align-items: center; gap: 4px; }
+.page-jump-input { width: 60px; padding: 5px 8px; border: 1px solid #d0d0d0; border-radius: 6px; font-size: 13px; text-align: center; outline: none; }
+.page-jump-input:focus { border-color: #00796b; }
+.btn-jump { padding: 6px 12px; border: 1px solid #d0d0d0; border-radius: 6px; background: #fff; font-size: 13px; cursor: pointer; }
+.btn-jump:hover { border-color: #00796b; color: #00796b; }
 .page-info { font-size: 13px; color: #666; }
 
 .split-overlay { position: fixed; inset: 0; background: rgba(0,0,0,0.5); z-index: 1000; display: flex; align-items: center; justify-content: center; }
