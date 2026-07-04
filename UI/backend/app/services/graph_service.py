@@ -233,6 +233,34 @@ class GraphService:
             "record": record_summary,
         }
 
+    def get_detail_by_file_uuid(self, file_uuid: str, source_type: str) -> dict[str, Any] | None:
+        if not file_uuid:
+            return None
+        node_payload = {"id": file_uuid, "node_type": source_type, "title": None,
+                        "metric_value": None, "publish_year": None, "age": None, "top_k_value": None}
+        if source_type == "paper":
+            paper = self._repository.fetch_paper_detail_by_file_uuid(file_uuid)
+            paper_payload = self._map_paper_detail(paper) if paper else None
+            if paper:
+                title = paper.get("title") or paper.get("matched_title") or paper.get("cleaned_title") or paper.get("original_name")
+                node_payload["title"] = title
+                node_payload["publish_year"] = paper.get("pub_year")
+            return {"node": node_payload, "detail_type": "paper", "paper": paper_payload}
+        record = self._repository.fetch_record_detail_by_file_uuid(file_uuid)
+        if record:
+            title = record.get("literature_title") or file_uuid
+            node_payload["title"] = title
+        record_fields = self._build_record_fields(record, node_payload.get("title") or "")
+        record_summary = None
+        if record:
+            record_summary = {
+                "diagnosis": record.get("western_diagnosis"),
+                "syndrome": record.get("tcm_diagnosis"),
+                "treatment_principle": record.get("treatment_principle"),
+                "prescription": record.get("prescription"),
+            }
+        return {"node": node_payload, "detail_type": "record", "record_fields": record_fields, "record": record_summary}
+
     def search_graph(self, keyword: str, page: int, size: int) -> dict[str, Any]:
         normalized = keyword.strip()
         if not normalized:
@@ -270,11 +298,22 @@ class GraphService:
     def get_file_url(self, node_id: str, download: bool) -> dict[str, Any]:
         if not self._minio_client:
             raise RuntimeError("minio client is not configured")
-
         reference = self._repository.get_file_reference_by_node_id(node_id)
         if not reference:
             raise ValueError("node not found")
+        return self._build_file_url_payload(reference, download)
 
+    def get_file_url_by_file_uuid(self, file_uuid: str, source_type: str, download: bool) -> dict[str, Any]:
+        if not self._minio_client:
+            raise RuntimeError("minio client is not configured")
+        reference = self._repository.get_file_reference_by_file_uuid(file_uuid)
+        if not reference:
+            raise ValueError("file not found")
+        reference["node_type"] = source_type
+        return self._build_file_url_payload(reference, download)
+
+    def _build_file_url_payload(self, reference: dict[str, Any], download: bool) -> dict[str, Any]:
+        node_id = str(reference.get("node_id") or "")
         node_type = str(reference.get("node_type") or "").strip().lower()
         if node_type != "paper":
             raise ValueError("only paper nodes can generate file url")
@@ -318,7 +357,7 @@ class GraphService:
         )
 
         return {
-            "node_id": str(reference.get("node_id") or node_id),
+            "node_id": node_id,
             "node_type": node_type,
             "bucket": self._minio_client.bucket_name,
             "object_name": object_name,

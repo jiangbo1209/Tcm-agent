@@ -1,34 +1,5 @@
 <template>
   <div class="detail-page">
-    <div class="detail-topbar">
-      <button class="btn-ghost" @click="$router.back()">
-        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-          <line x1="19" y1="12" x2="5" y2="12"></line>
-          <polyline points="12 19 5 12 12 5"></polyline>
-        </svg>
-        返回
-      </button>
-      <router-link
-        class="btn-primary"
-        :class="{ disabled: !nodeId }"
-        :to="graphRoute"
-        :aria-disabled="!nodeId"
-      >
-        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-          <circle cx="12" cy="12" r="2"></circle>
-          <circle cx="5" cy="6" r="2"></circle>
-          <circle cx="19" cy="6" r="2"></circle>
-          <circle cx="5" cy="18" r="2"></circle>
-          <circle cx="19" cy="18" r="2"></circle>
-          <line x1="7" y1="6" x2="10" y2="10"></line>
-          <line x1="17" y1="6" x2="14" y2="10"></line>
-          <line x1="7" y1="18" x2="10" y2="14"></line>
-          <line x1="17" y1="18" x2="14" y2="14"></line>
-        </svg>
-        查看知识图谱
-      </router-link>
-    </div>
-
     <div v-if="loading" class="detail-state">加载中...</div>
     <div v-else-if="error" class="detail-state error">{{ error }}</div>
 
@@ -38,7 +9,6 @@
           {{ detail.detail_type === "record" ? "病案" : "文献" }}
         </span>
         <h1>{{ detail.node?.title || "未命名" }}</h1>
-        <p v-if="metaText" class="detail-meta">{{ metaText }}</p>
       </header>
 
       <template v-if="detail.detail_type === 'paper' && detail.paper">
@@ -59,6 +29,7 @@
           <button class="btn-ghost" @click="viewFile" :disabled="!canAccessFile">查看原文</button>
           <button class="btn-ghost" @click="downloadFile" :disabled="!canAccessFile">下载</button>
         </div>
+        <div v-if="fileError" class="detail-state error file-error">{{ fileError }}</div>
       </template>
 
       <template v-else-if="detail.detail_type === 'record'">
@@ -88,27 +59,19 @@
 <script setup>
 import { ref, computed, onMounted, watch } from "vue";
 import { useRoute } from "vue-router";
-import { getNodeDetail, getFileUrl } from "../api/graph";
+import { getNodeDetail, getDetailByFile, getFileUrl, getFileUrlByUuid } from "../api/graph";
 
 const route = useRoute();
 
 const loading = ref(false);
 const error = ref("");
+const fileError = ref("");
 const detail = ref(null);
 
 const nodeId = computed(() => route.params.nodeId);
-const graphRoute = computed(() => nodeId.value ? { name: "Graph", query: { seed: nodeId.value } } : { name: "Search" });
-
-const metaText = computed(() => {
-  if (!detail.value) return "";
-  const n = detail.value.node;
-  if (n?.node_type === "paper") {
-    const p = detail.value.paper;
-    return `作者：${p?.authors || "-"} · 年份：${p?.pub_year || n.publish_year || "-"}`;
-  }
-  const r = detail.value.record;
-  return r ? `病案 · 诊断：${r.syndrome || r.diagnosis || "-"}` : "";
-});
+const fileUuid = computed(() => route.params.fileUuid);
+const sourceType = computed(() => route.query.source_type);
+const hasFileUuid = computed(() => !!fileUuid.value && !!sourceType.value);
 
 const canAccessFile = computed(() => !!detail.value?.paper?.file_name);
 
@@ -119,8 +82,6 @@ const paperRows = computed(() => {
     ["期刊", p.journal],
     ["年份", p.pub_year],
     ["关键词", p.keywords],
-    ["来源", p.source_site],
-    ["匹配标题", p.matched_title],
     ["文件", p.file_name],
   ]
     .filter(([, v]) => v != null && String(v).trim() !== "")
@@ -143,14 +104,20 @@ const recordRows = computed(() =>
     .filter(f => f.value != null && String(f.value).trim() !== "")
 );
 
-async function loadDetail(id) {
-  if (!id) return;
+async function loadDetail(id, fid, stype) {
+  if (!id && !(fid && stype)) return;
   loading.value = true;
   error.value = "";
+  fileError.value = "";
   detail.value = null;
   try {
-    const { data } = await getNodeDetail(id);
-    detail.value = data;
+    let resp;
+    if (fid && stype) {
+      resp = await getDetailByFile(fid, stype);
+    } else {
+      resp = await getNodeDetail(id);
+    }
+    detail.value = resp.data;
   } catch (e) {
     error.value = e.response?.data?.error || e.response?.data?.detail || "详情加载失败";
   } finally {
@@ -159,31 +126,49 @@ async function loadDetail(id) {
 }
 
 async function viewFile() {
+  fileError.value = "";
   try {
-    const { data } = await getFileUrl(nodeId.value, "view");
-    window.open(data.url, "_blank");
-  } catch { error.value = "暂未挂载原始文献文件"; }
+    let resp;
+    if (hasFileUuid.value) {
+      resp = await getFileUrlByUuid(fileUuid.value, sourceType.value, "view");
+    } else {
+      resp = await getFileUrl(nodeId.value, "view");
+    }
+    window.open(resp.data.url, "_blank");
+  } catch {
+    fileError.value = "暂未挂载原始文献文件";
+  }
 }
 
 async function downloadFile() {
+  fileError.value = "";
   try {
-    const { data } = await getFileUrl(nodeId.value, "download");
+    let resp;
+    if (hasFileUuid.value) {
+      resp = await getFileUrlByUuid(fileUuid.value, sourceType.value, "download");
+    } else {
+      resp = await getFileUrl(nodeId.value, "download");
+    }
     const a = document.createElement("a");
-    a.href = data.url;
-    a.download = data.file_name || "";
+    a.href = resp.data.url;
+    a.download = resp.data.file_name || "";
     a.click();
-  } catch { error.value = "暂未挂载原始文献文件"; }
+  } catch {
+    fileError.value = "暂未挂载原始文献文件";
+  }
 }
 
-onMounted(() => loadDetail(nodeId.value));
-watch(nodeId, (id) => loadDetail(id));
+onMounted(() => loadDetail(nodeId.value, fileUuid.value, sourceType.value));
+watch(() => [route.params.nodeId, route.params.fileUuid, route.query.source_type], ([nid, fid, stype]) => {
+  loadDetail(nid, fid, stype);
+});
 </script>
 
 <style scoped>
-.detail-page { flex: 1; overflow-y: auto; padding: 24px; max-width: 860px; margin: 0 auto; width: 100%; }
-.detail-topbar { display: flex; align-items: center; justify-content: space-between; margin-bottom: 24px; }
+.detail-page { min-height: 100vh; overflow-y: auto; padding: 32px 24px; max-width: 860px; margin: 0 auto; width: 100%; background: var(--bg); }
 .detail-state { text-align: center; padding: 60px 20px; color: var(--ink-500); font-size: 15px; }
 .detail-state.error { color: var(--danger); }
+.file-error { padding: 8px 0 0; font-size: 13px; text-align: left; }
 .detail-header { margin-bottom: 28px; }
 .detail-header h1 { margin: 10px 0 8px; font-size: 24px; font-weight: 600; color: var(--ink-900); line-height: 1.4; }
 .detail-meta { font-size: 14px; color: var(--ink-500); }
@@ -205,7 +190,4 @@ watch(nodeId, (id) => loadDetail(id));
 .field-item { border: 1px solid rgba(27,42,47,0.08); border-radius: 10px; padding: 12px 14px; background: var(--panel); }
 .field-name { font-size: 12px; color: var(--ink-500); margin-bottom: 4px; }
 .field-value { font-size: 14px; color: var(--ink-900); line-height: 1.6; white-space: pre-wrap; word-break: break-word; }
-.btn-primary { display: inline-flex; align-items: center; gap: 8px; padding: 10px 20px; border: none; border-radius: var(--radius); background: linear-gradient(150deg, var(--teal), var(--teal-deep)); color: #fff; font-size: 14px; font-weight: 600; text-decoration: none; cursor: pointer; transition: transform 0.16s, box-shadow 0.16s; }
-.btn-primary:hover { transform: translateY(-1px); box-shadow: 0 8px 20px rgba(0,121,107,0.3); }
-.btn-primary.disabled { opacity: 0.5; cursor: not-allowed; transform: none; box-shadow: none; pointer-events: none; }
 </style>

@@ -7,7 +7,7 @@ from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
 from sqlalchemy.orm import Session
 
 from app.auth.service import decode_token
-from UI.backend.app.core.database import get_db
+from app.core.database import get_db
 from app.models.user import User
 
 security = HTTPBearer()
@@ -49,5 +49,16 @@ def require_professional(
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,
             detail="需要专业用户权限才能访问此功能",
+        )
+    return current_user
+
+
+def require_admin(
+    current_user: User = Depends(get_current_user),
+) -> User:
+    if current_user.role != "admin":
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="需要管理员权限才能访问此功能",
         )
     return current_user

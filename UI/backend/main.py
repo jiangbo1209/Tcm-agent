@@ -13,16 +13,20 @@ logging.basicConfig(level=logging.INFO)
 from app.auth.router import router as auth_router
 from app.config import get_database_config, get_minio_config, get_search_config
 from app.core.minio_utils import MinioClient
-from UI.backend.app.core.database import engine
+from app.core.database import engine
 from app.models.base import Base
+from app.models.graph import GraphBase
 from app.repositories.graph_repository import GraphRepository
 from app.routers.chat import router as chat_router
 from app.routers.graph import router as graph_router
 from app.routers.history import router as history_router
 from app.routers.search import router as search_router
+from app.routers.admin import router as admin_router
+from app.routers.users import router as users_router
 from app.services.graph_service import GraphService
 
 Base.metadata.create_all(bind=engine)
+GraphBase.metadata.create_all(bind=engine)
 
 app = FastAPI(title="TCM Agent API", version="2.0.0")
 
@@ -55,6 +59,8 @@ app.include_router(chat_router)
 app.include_router(search_router)
 app.include_router(history_router)
 app.include_router(graph_router)
+app.include_router(admin_router)
+app.include_router(users_router)
 
 
 @app.exception_handler(HTTPException)
@@ -70,4 +76,4 @@ def health_check():
 if __name__ == "__main__":
     import uvicorn
 
-    uvicorn.run("main:app", host="0.0.0.0", port=8000, reload=True)
+    uvicorn.run("main:app", host="0.0.0.0", port=8011, reload=True)

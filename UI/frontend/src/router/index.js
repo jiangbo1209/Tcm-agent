@@ -43,12 +43,30 @@ const routes = [
         meta: { requiresProfessional: true },
       },
       {
-        path: "detail/:nodeId",
-        name: "Detail",
-        component: () => import("../views/Detail.vue"),
-        meta: { requiresProfessional: true },
+        path: "admin",
+        name: "Admin",
+        component: () => import("../views/AdminDataEdit.vue"),
+        meta: { requiresAdmin: true },
+      },
+      {
+        path: "users",
+        name: "Users",
+        component: () => import("../views/UserManagement.vue"),
+        meta: { requiresAdmin: true },
       },
     ],
+  },
+  {
+    path: "/detail/:nodeId",
+    name: "Detail",
+    component: () => import("../views/Detail.vue"),
+    meta: { requiresAuth: true, requiresProfessional: true },
+  },
+  {
+    path: "/detail-by-file/:fileUuid",
+    name: "DetailByFile",
+    component: () => import("../views/Detail.vue"),
+    meta: { requiresAuth: true, requiresProfessional: true },
   },
 ];
 
@@ -64,11 +82,19 @@ router.beforeEach((to, from, next) => {
     return next("/login");
   }
 
+  if (to.path === "/" && authStore.user?.role === "admin") {
+    return next("/admin");
+  }
+
   if (to.meta.guest && authStore.isLoggedIn) {
     return next("/");
   }
 
   if (to.meta.requiresProfessional && authStore.user?.role !== "professional") {
+    return next("/");
+  }
+
+  if (to.meta.requiresAdmin && authStore.user?.role !== "admin") {
     return next("/");
   }
 

@@ -11,7 +11,11 @@ from app.models.search_history import SearchBackendMode
 
 
 class PostgresSettings(BaseSettings):
-    model_config = SettingsConfigDict(env_prefix="", extra="ignore")
+    model_config = SettingsConfigDict(
+        env_prefix="", extra="ignore",
+        env_file=(".env", "../.env", "../../.env"),
+        env_file_encoding="utf-8",
+    )
 
     host: str = Field(default="127.0.0.1", alias="POSTGRES_HOST")
     port: int = Field(default=5432, alias="POSTGRES_PORT")
@@ -21,7 +25,11 @@ class PostgresSettings(BaseSettings):
 
 
 class MinioSettings(BaseSettings):
-    model_config = SettingsConfigDict(env_prefix="MINIO_", extra="ignore")
+    model_config = SettingsConfigDict(
+        env_prefix="MINIO_", extra="ignore",
+        env_file=(".env", "../.env", "../../.env"),
+        env_file_encoding="utf-8",
+    )
 
     endpoint: str = "localhost:9000"
     root_user: str = ""

@@ -56,6 +56,10 @@ class LitMetadata(Base):
     is_exact_match: Mapped[bool] = mapped_column(Boolean, nullable=False, default=True)
     crawl_status: Mapped[str] = mapped_column(String(32), nullable=False, index=True)
     error_message: Mapped[str | None] = mapped_column(Text, nullable=True)
+    ai_summary: Mapped[str | None] = mapped_column(Text, nullable=True)
+    ai_summary_status: Mapped[str] = mapped_column(
+        String(32), nullable=False, server_default="pending"
+    )
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True),
         nullable=False,

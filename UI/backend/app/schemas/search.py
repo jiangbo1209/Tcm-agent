@@ -9,6 +9,7 @@ from pydantic import BaseModel, Field
 
 class SearchFilters(BaseModel):
     source_types: list[str] = Field(default_factory=list)
+    paper_types: list[str] = Field(default_factory=list)
     topics: list[str] = Field(default_factory=list)
     years: list[str] = Field(default_factory=list)
     journals: list[str] = Field(default_factory=list)
@@ -25,11 +26,13 @@ class SearchRequest(BaseModel):
 class SearchResultItem(BaseModel):
     source_type: str
     node_id: str | None = None
+    file_uuid: str | None = None
     title: str | None = None
     authors: str | None = None
     publish_year: int | None = None
     keywords: str | None = None
     abstract: str | None = None
+    journal: str | None = None
     tcm_diagnosis: str | None = None
     western_diagnosis: str | None = None
     score: float | None = None

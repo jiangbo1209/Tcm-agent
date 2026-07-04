@@ -1,38 +1,99 @@
-"""快速创建专业用户用于测试。"""
+"""批量创建/更新用户账号。
 
-import sys
+用法:
+    python create_professional_user.py users.csv
+
+CSV 格式 (无表头):
+    username,email,password,role
+    # role 可选: admin, professional, normal
+    # 以 # 开头的行会被忽略
+"""
+
+import csv
 import os
+import sys
 
 sys.path.insert(0, os.path.dirname(__file__))
 
-from UI.backend.app.core.database import SessionLocal, engine
+from app.core.database import SessionLocal, engine
 from app.models.base import Base
 from app.models.user import User
 from app.auth.service import get_password_hash
 
+VALID_ROLES = {"admin", "professional", "normal"}
+
 Base.metadata.create_all(bind=engine)
 
-USERNAME = os.getenv("PRO_USERNAME", "admin")
-EMAIL = os.getenv("PRO_EMAIL", "admin@tcm.com")
-PASSWORD = os.getenv("PRO_PASSWORD", "admin123")
 
-db = SessionLocal()
-try:
-    existing = db.query(User).filter(User.username == USERNAME).first()
+def upsert_user(db, username: str, email: str, password: str, role: str):
+    role = role.strip().lower()
+    if role not in VALID_ROLES:
+        print(f"  跳过: 无效角色 '{role}'")
+        return
+
+    existing = db.query(User).filter(User.username == username).first()
     if existing:
-        existing.role = "professional"
-        existing.hashed_password = get_password_hash(PASSWORD)
+        existing.role = role
+        existing.email = email
+        existing.hashed_password = get_password_hash(password)
         db.commit()
-        print(f"已将用户 '{USERNAME}' 升级为专业用户，密码已重置")
+        print(f"  更新: {username} -> 角色={role}, 密码已重置")
     else:
         user = User(
-            username=USERNAME,
-            email=EMAIL,
-            hashed_password=get_password_hash(PASSWORD),
-            role="professional",
+            username=username,
+            email=email,
+            hashed_password=get_password_hash(password),
+            role=role,
         )
         db.add(user)
         db.commit()
-        print(f"专业用户创建成功: {USERNAME} / {PASSWORD}")
-finally:
-    db.close()
+        print(f"  创建: {username} / {password}  角色={role}")
+
+
+def main():
+    if len(sys.argv) < 2:
+        print("用法: python create_professional_user.py <文件.csv>", file=sys.stderr)
+        sys.exit(1)
+
+    csv_path = sys.argv[1]
+    if not os.path.isfile(csv_path):
+        print(f"错误: 文件不存在 '{csv_path}'", file=sys.stderr)
+        sys.exit(1)
+
+    db = SessionLocal()
+    try:
+        created = 0
+        updated = 0
+        skipped = 0
+        with open(csv_path, newline="", encoding="utf-8") as f:
+            reader = csv.reader(f)
+            for row in reader:
+                line = ",".join(row).strip()
+                if not line or line.startswith("#"):
+                    continue
+
+                if len(row) < 4:
+                    print(f"  跳过: 列数不足 (需要4列): {line[:60]}")
+                    skipped += 1
+                    continue
+
+                username, email, password, role = row[0].strip(), row[1].strip(), row[2].strip(), row[3].strip()
+                if not username or not email or not password:
+                    print(f"  跳过: 必填字段为空: {line[:60]}")
+                    skipped += 1
+                    continue
+
+                before = db.query(User).filter(User.username == username).first() is not None
+                upsert_user(db, username, email, password, role)
+                if before:
+                    updated += 1
+                else:
+                    created += 1
+
+        print(f"\n完成: 新建 {created}, 更新 {updated}, 跳过 {skipped}")
+    finally:
+        db.close()
+
+
+if __name__ == "__main__":
+    main()

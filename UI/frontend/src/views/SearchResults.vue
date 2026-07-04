@@ -43,14 +43,14 @@
 
       <div v-else class="results-list">
         <component
-          :is="item.node_id ? 'a' : 'div'"
+          :is="item.node_id || item.file_uuid ? 'a' : 'div'"
           v-for="item in searchStore.results"
-          :key="`${item.source_type}-${item.node_id || item.title}`"
-          :href="item.node_id ? detailHref(item) : undefined"
-          :target="item.node_id ? '_blank' : undefined"
-          :rel="item.node_id ? 'noopener noreferrer' : undefined"
+          :key="`${item.source_type}-${item.node_id || item.file_uuid || item.title}`"
+          :href="item.node_id ? detailHref(item) : (item.file_uuid ? fileDetailHref(item) : undefined)"
+          :target="item.node_id || item.file_uuid ? '_blank' : undefined"
+          :rel="item.node_id || item.file_uuid ? 'noopener noreferrer' : undefined"
           class="result-card"
-          :class="{ disabled: !item.node_id }"
+          :class="{ disabled: !item.node_id && !item.file_uuid }"
         >
           <div class="result-type-badge" :class="item.source_type">
             {{ item.source_type === "record" ? "病案" : "文献" }}
@@ -59,6 +59,7 @@
           <p class="result-meta-text">
             <template v-if="item.source_type === 'paper'">
               {{ item.authors || "未知作者" }}
+              <span v-if="item.journal"> · {{ item.journal }}</span>
               <span v-if="item.publish_year"> · {{ item.publish_year }}</span>
             </template>
             <template v-else>
@@ -107,6 +108,7 @@ const currentPage = ref(1);
 const jumpPage = ref(1);
 const selectedFilters = reactive({
   source_types: [],
+  paper_types: [],
   topics: [],
   years: [],
   journals: [],
@@ -115,12 +117,14 @@ const expandedFilterGroups = reactive({});
 
 const filterDefinitions = [
   { key: "source_types", label: "来源类别" },
+  { key: "paper_types", label: "文献类型" },
   { key: "topics", label: "主题" },
   { key: "years", label: "年度" },
   { key: "journals", label: "期刊" },
 ];
 
-const sourceLabels = { paper: "文献", record: "病案" };
+const sourceLabels = { paper: "文献", record: "病案" }; 
+const paperTypeLabels = { "期刊论文": "期刊论文", "学位论文": "学位论文" };
 
 const activeFilterCount = computed(() =>
   Object.values(selectedFilters).reduce((sum, values) => sum + values.length, 0)
@@ -136,6 +140,12 @@ const filterGroups = computed(() =>
           { value: "paper", label: "paper", count: counts.paper || 0 },
           { value: "record", label: "record", count: counts.record || 0 },
         ],
+      };
+    }
+    if (def.key === "paper_types") {
+      return {
+        ...def,
+        options: (searchStore.facets.paper_types || []).filter(option => option.value),
       };
     }
     return {
@@ -252,8 +262,18 @@ function detailHref(item) {
   return router.resolve({ name: "Detail", params: { nodeId: item.node_id } }).href;
 }
 
+function fileDetailHref(item) {
+  if (!item.file_uuid) return "";
+  return router.resolve({
+    name: "DetailByFile",
+    params: { fileUuid: item.file_uuid },
+    query: { source_type: item.source_type },
+  }).href;
+}
+
 function formatOptionLabel(key, value) {
   if (key === "source_types") return sourceLabels[value] || value;
+  if (key === "paper_types") return paperTypeLabels[value] || value;
   return value;
 }
 </script>

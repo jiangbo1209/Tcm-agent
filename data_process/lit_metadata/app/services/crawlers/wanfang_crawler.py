@@ -345,6 +345,8 @@ class WanfangCrawler(BaseCrawler):
             not raw.get("authors")
             or not raw.get("abstract")
             or not raw.get("keywords")
+            or not raw.get("journal")
+            or not raw.get("pub_year")
         ) and result.detail_url:
             page = await self._acquire_page()
             try:

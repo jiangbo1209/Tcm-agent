@@ -54,22 +54,42 @@ def get_graph_expand(
 @router.get("/node-detail", response_model=NodeDetailResponse)
 def get_graph_node_detail(
     request: Request,
-    node_id: str = Query(..., description="Selected node id for detail panel"),
+    node_id: str = Query(None, description="Selected node id for detail panel"),
+    file_uuid: str = Query(None, description="File UUID for direct detail lookup"),
+    source_type: str = Query(None, description="Source type: paper | record"),
 ):
-    normalized_node_id = node_id.strip()
-    if not normalized_node_id:
-        raise HTTPException(status_code=400, detail="node_id is required")
+    normalized_node_id = (node_id or "").strip()
+    normalized_file_uuid = (file_uuid or "").strip()
+    normalized_source_type = (source_type or "").strip()
 
+    if normalized_node_id:
+        return _load_detail_by_node_id(request, normalized_node_id)
+    if normalized_file_uuid and normalized_source_type in ("paper", "record"):
+        return _load_detail_by_file_uuid(request, normalized_file_uuid, normalized_source_type)
+    raise HTTPException(status_code=400, detail="node_id or (file_uuid + source_type) is required")
+
+
+def _load_detail_by_node_id(request: Request, node_id: str):
     service = _get_service(request)
     try:
-        payload = service.get_node_detail(normalized_node_id)
+        payload = service.get_node_detail(node_id)
     except SQLAlchemyError as exc:
-        LOGGER.exception("Failed to query node detail for node_id=%s", normalized_node_id)
+        LOGGER.exception("Failed to query node detail for node_id=%s", node_id)
         raise HTTPException(status_code=500, detail="database query failed") from exc
-
     if not payload:
         raise HTTPException(status_code=404, detail="node not found")
+    return payload
 
+
+def _load_detail_by_file_uuid(request: Request, file_uuid: str, source_type: str):
+    service = _get_service(request)
+    try:
+        payload = service.get_detail_by_file_uuid(file_uuid, source_type)
+    except SQLAlchemyError as exc:
+        LOGGER.exception("Failed to query detail for file_uuid=%s type=%s", file_uuid, source_type)
+        raise HTTPException(status_code=500, detail="database query failed") from exc
+    if not payload:
+        raise HTTPException(status_code=404, detail="detail not found")
     return payload
 
 
@@ -113,4 +133,35 @@ def get_graph_file_url(
         raise HTTPException(status_code=500, detail=str(exc)) from exc
     except S3Error as exc:
         LOGGER.exception("Failed to generate MinIO presigned url for node_id=%s", normalized_node_id)
+        raise HTTPException(status_code=502, detail=f"minio error: {exc.code}") from exc
+
+
+@router.get("/file-url-by-uuid", response_model=FileUrlResponse)
+def get_graph_file_url_by_uuid(
+    request: Request,
+    file_uuid: str = Query(..., description="File UUID from core_file"),
+    source_type: str = Query(..., description="Source type: paper"),
+    mode: str = Query("view", description="view | download"),
+):
+    normalized_file_uuid = file_uuid.strip()
+    if not normalized_file_uuid:
+        raise HTTPException(status_code=400, detail="file_uuid is required")
+
+    normalized_mode = mode.strip().lower()
+    if normalized_mode not in {"view", "download"}:
+        raise HTTPException(status_code=400, detail="mode must be view or download")
+
+    service = _get_service(request)
+    try:
+        return service.get_file_url_by_file_uuid(
+            file_uuid=normalized_file_uuid,
+            source_type=source_type.strip(),
+            download=normalized_mode == "download",
+        )
+    except ValueError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+    except RuntimeError as exc:
+        raise HTTPException(status_code=500, detail=str(exc)) from exc
+    except S3Error as exc:
+        LOGGER.exception("Failed to generate MinIO presigned url for file_uuid=%s", normalized_file_uuid)
         raise HTTPException(status_code=502, detail=f"minio error: {exc.code}") from exc

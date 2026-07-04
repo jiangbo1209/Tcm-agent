@@ -10,7 +10,7 @@ from sqlalchemy import func
 from sqlalchemy.orm import Session
 
 from app.auth.dependencies import get_current_user, require_professional
-from UI.backend.app.core.database import get_db
+from app.core.database import get_db
 from app.models.search_history import SearchHistory
 from app.models.user import User
 from app.repositories.graph_repository import GraphRepository
@@ -89,11 +89,13 @@ def smart_search(
             SearchResultItem(
                 source_type=item.get("source_type", ""),
                 node_id=item.get("node_id"),
+                file_uuid=item.get("file_uuid"),
                 title=item.get("title"),
                 authors=_format_list_text(item.get("authors")),
                 publish_year=_parse_year(item.get("publish_year")),
                 keywords=_format_list_text(item.get("keywords")),
                 abstract=item.get("abstract"),
+                journal=item.get("journal"),
                 tcm_diagnosis=item.get("tcm_diagnosis"),
                 western_diagnosis=item.get("western_diagnosis"),
                 score=item.get("score"),

@@ -10,10 +10,18 @@ export function getNodeDetail(nodeId) {
   return request.get("/graph/node-detail", { params: { node_id: nodeId } });
 }
 
+export function getDetailByFile(fileUuid, sourceType) {
+  return request.get("/graph/node-detail", { params: { file_uuid: fileUuid, source_type: sourceType } });
+}
+
 export function searchGraph(q, page = 1, size = 10) {
   return request.get("/graph/search", { params: { q, page, size } });
 }
 
 export function getFileUrl(nodeId, mode = "view") {
   return request.get(`/graph/file-url/${nodeId}`, { params: { mode } });
+}
+
+export function getFileUrlByUuid(fileUuid, sourceType, mode = "view") {
+  return request.get("/graph/file-url-by-uuid", { params: { file_uuid: fileUuid, source_type: sourceType, mode } });
 }

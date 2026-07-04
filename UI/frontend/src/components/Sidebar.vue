@@ -15,7 +15,7 @@
           </svg>
         </button>
       </div>
-      <button class="btn-new-chat" :class="{ compact: isCollapsed }" :title="isCollapsed ? '新建对话' : undefined" @click="handleNewChat">
+      <button v-if="!authStore.isAdmin" class="btn-new-chat" :class="{ compact: isCollapsed }" :title="isCollapsed ? '新建对话' : undefined" @click="handleNewChat">
         <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
           <line x1="12" y1="5" x2="12" y2="19"></line>
           <line x1="5" y1="12" x2="19" y2="12"></line>
@@ -24,31 +24,62 @@
       </button>
     </div>
 
-    <nav class="sidebar-nav">
-      <router-link to="/" class="nav-item" :class="{ active: $route.path === '/' }" :title="isCollapsed ? '对话助手' : undefined">
+    <nav class="sidebar-nav" :class="{ 'nav-admin': authStore.isAdmin }">
+      <template v-if="!authStore.isAdmin">
+        <router-link to="/" class="nav-item" :class="{ active: $route.path === '/' }" :title="isCollapsed ? '对话助手' : undefined">
+          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+            <path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"></path>
+          </svg>
+          <span v-if="!isCollapsed">对话助手</span>
+        </router-link>
+
+        <router-link
+          v-if="authStore.isProfessional"
+          to="/search"
+          class="nav-item"
+          :class="{ active: $route.path.startsWith('/search') }"
+          :title="isCollapsed ? '智能搜索' : undefined"
+        >
+          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+            <circle cx="11" cy="11" r="8"></circle>
+            <line x1="21" y1="21" x2="16.65" y2="16.65"></line>
+          </svg>
+          <span v-if="!isCollapsed">智能搜索</span>
+        </router-link>
+      </template>
+
+      <router-link
+        v-if="authStore.isAdmin"
+        to="/admin"
+        class="nav-item"
+        :class="{ active: $route.path.startsWith('/admin') }"
+        :title="isCollapsed ? '数据管理' : undefined"
+      >
         <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-          <path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"></path>
+          <path d="M14.7 6.3a1 1 0 0 0 0 1.4l1.6 1.6a1 1 0 0 0 1.4 0l3.77-3.77a6 6 0 0 1-7.94 7.94l-6.91 6.91a2.12 2.12 0 0 1-3-3l6.91-6.91a6 6 0 0 1 7.94-7.94l-3.76 3.76z"></path>
         </svg>
-        <span v-if="!isCollapsed">对话助手</span>
+        <span v-if="!isCollapsed">数据管理</span>
       </router-link>
 
       <router-link
-        v-if="authStore.isProfessional"
-        to="/search"
+        v-if="authStore.isAdmin"
+        to="/users"
         class="nav-item"
-        :class="{ active: $route.path.startsWith('/search') }"
-        :title="isCollapsed ? '智能搜索' : undefined"
+        :class="{ active: $route.path.startsWith('/users') }"
+        :title="isCollapsed ? '成员管理' : undefined"
       >
         <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-          <circle cx="11" cy="11" r="8"></circle>
-          <line x1="21" y1="21" x2="16.65" y2="16.65"></line>
+          <path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"></path>
+          <circle cx="9" cy="7" r="4"></circle>
+          <path d="M23 21v-2a4 4 0 0 0-3-3.87"></path>
+          <path d="M16 3.13a4 4 0 0 1 0 7.75"></path>
         </svg>
-        <span v-if="!isCollapsed">智能搜索</span>
+        <span v-if="!isCollapsed">成员管理</span>
       </router-link>
 
     </nav>
 
-    <div v-if="!isCollapsed" class="sidebar-history">
+    <div v-if="!isCollapsed && !authStore.isAdmin" class="sidebar-history">
       <div class="history-header">
         <span>历史记录</span>
       </div>
@@ -80,7 +111,7 @@
     <div class="sidebar-footer">
       <div class="user-info">
         <div class="user-avatar">{{ avatarLetter }}</div>
-        <span v-if="!isCollapsed" class="user-name">{{ authStore.user?.role === 'professional' ? '专业用户' : '普通用户' }}</span>
+        <span v-if="!isCollapsed" class="user-name">{{ userRoleLabel }}</span>
       </div>
       <button class="btn-logout" :class="{ compact: isCollapsed }" :title="isCollapsed ? '退出' : undefined" @click="handleLogout">
         <span v-if="!isCollapsed">退出</span>
@@ -106,6 +137,14 @@ const chatStore = useChatStore();
 const isCollapsed = ref(false);
 
 const avatarLetter = computed(() => "U");
+
+const userRoleLabel = computed(() => {
+  switch (authStore.user?.role) {
+    case "admin": return "管理员";
+    case "professional": return "专业用户";
+    default: return "普通用户";
+  }
+});
 
 onMounted(() => {
   chatStore.fetchConversations();
@@ -249,6 +288,10 @@ function handleLogout() {
 
 .sidebar.collapsed .sidebar-nav {
   align-items: center;
+}
+
+.sidebar-nav.nav-admin {
+  flex: 1;
 }
 
 .nav-item {
