@@ -31,3 +31,7 @@ node_modules/
 .pytest_cache
 
 .mimocode/
+
+# Migration scripts
+migrate-pack.sh
+migrate-deploy.sh

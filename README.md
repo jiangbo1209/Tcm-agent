@@ -13,15 +13,12 @@
 项目需要 **Python 3.10+**。当前推荐使用 `Tcm-agent` conda 环境，避免系统 `python3` 仍指向 Python 3.8。
 
 ```bash
-# 如环境不存在，先创建
+# 创建环境（包含所有依赖）
 conda env create -f environment.yml
 conda activate Tcm-agent
 
-# 后端依赖
-python -m pip install -r UI/backend/requirements.txt
-
-# 数据处理/建图依赖
-python -m pip install -r data_process/graph_builder/requirements.txt
+# 安装 Playwright 浏览器（如需使用爬虫功能）
+playwright install chromium
 
 # 前端依赖
 cd UI/frontend && npm install
