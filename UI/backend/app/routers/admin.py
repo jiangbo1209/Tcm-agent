@@ -132,9 +132,9 @@ def _apply_filters(model: type, stmt, crawl_status: str | None, year_min: int | 
     if crawl_status:
         stmt = stmt.where(model.crawl_status == crawl_status)
     if year_min is not None:
-        stmt = stmt.where(func.cast(model.pub_year, Integer) >= year_min)
+        stmt = stmt.where(func.cast(func.substring(model.pub_year, 1, 4), Integer) >= year_min)
     if year_max is not None:
-        stmt = stmt.where(func.cast(model.pub_year, Integer) <= year_max)
+        stmt = stmt.where(func.cast(func.substring(model.pub_year, 1, 4), Integer) <= year_max)
     return stmt
 
 
@@ -185,8 +185,8 @@ def list_records(
 
 def _get_year_range(model, db: Session) -> dict[str, int | None]:
     try:
-        min_row = db.execute(select(func.min(func.nullif(func.cast(model.pub_year, Integer), 0)))).scalar()
-        max_row = db.execute(select(func.max(func.nullif(func.cast(model.pub_year, Integer), 0)))).scalar()
+        min_row = db.execute(select(func.min(func.nullif(func.cast(func.substring(model.pub_year, 1, 4), Integer), 0)))).scalar()
+        max_row = db.execute(select(func.max(func.nullif(func.cast(func.substring(model.pub_year, 1, 4), Integer), 0)))).scalar()
         return {
             "min_year": int(min_row) if min_row else None,
             "max_year": int(max_row) if max_row else None,

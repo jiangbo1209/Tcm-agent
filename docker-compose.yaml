@@ -31,99 +31,103 @@ services:
     networks:
       - app-network
 
-  ragflow-mysql:
-    image: mysql:8.0.39
-    container_name: ragflow-mysql
-    environment:
-      MYSQL_ROOT_PASSWORD: ${RAGFLOW_MYSQL_PASSWORD:-ragflow_mysql_pwd}
-      MYSQL_DATABASE: ${RAGFLOW_MYSQL_DB:-rag_flow}
-      MYSQL_USER: ${RAGFLOW_MYSQL_USER:-rag_flow}
-      MYSQL_PASSWORD: ${RAGFLOW_MYSQL_PASSWORD:-ragflow_mysql_pwd}
-    command:
-      --max_connections=1000
-      --character-set-server=utf8mb4
-      --collation-server=utf8mb4_unicode_ci
-      --default-authentication-plugin=mysql_native_password
-      --binlog_expire_logs_seconds=604800
-    volumes:
-      - ./data/ragflow/mysql:/var/lib/mysql
-    networks:
-      - app-network
-    healthcheck:
-      test: ["CMD", "mysqladmin", "ping", "-uroot", "-p${RAGFLOW_MYSQL_PASSWORD:-ragflow_mysql_pwd}"]
-      interval: 10s
-      timeout: 10s
-      retries: 120
-    restart: unless-stopped
-
-  ragflow-redis:
-    image: valkey/valkey:8
-    container_name: ragflow-redis
-    command: ["redis-server", "--requirepass", "${RAGFLOW_REDIS_PASSWORD:-ragflow_redis}", "--maxmemory", "128mb", "--maxmemory-policy", "allkeys-lru"]
-    volumes:
-      - ./data/ragflow/redis:/data
-    networks:
-      - app-network
-    healthcheck:
-      test: ["CMD", "redis-cli", "-a", "${RAGFLOW_REDIS_PASSWORD:-ragflow_redis}", "ping"]
-      interval: 10s
-      timeout: 10s
-      retries: 120
-    restart: unless-stopped
-
-  ragflow-es:
-    image: elasticsearch:8.11.3
-    container_name: ragflow-es
-    environment:
-      - node.name=ragflow-es
-      - ELASTIC_PASSWORD=${RAGFLOW_ES_PASSWORD:-ragflow_es_pwd}
-      - bootstrap.memory_lock=false
-      - discovery.type=single-node
-      - xpack.security.enabled=true
-      - xpack.security.http.ssl.enabled=false
-      - xpack.security.transport.ssl.enabled=false
-    volumes:
-      - ./data/ragflow/es:/usr/share/elasticsearch/data
-    networks:
-      - app-network
-    healthcheck:
-      test: ["CMD-SHELL", "curl http://localhost:9200"]
-      interval: 10s
-      timeout: 10s
-      retries: 120
-    restart: unless-stopped
-
-  ragflow:
-    image: infiniflow/ragflow:latest
-    container_name: ragflow
-    depends_on:
-      - ragflow-mysql
-      - ragflow-redis
-      - ragflow-es
-      - minio
-    ports:
-      - "8012:80"
-      - "8013:9380"
-    environment:
-      RAGFLOW_HOST: 0.0.0.0
-      MYSQL_HOST: ragflow-mysql
-      MYSQL_PORT: 3306
-      MYSQL_USER: ${RAGFLOW_MYSQL_USER:-rag_flow}
-      MYSQL_PASSWORD: ${RAGFLOW_MYSQL_PASSWORD:-ragflow_mysql_pwd}
-      MYSQL_DBNAME: ${RAGFLOW_MYSQL_DB:-rag_flow}
-      REDIS_HOST: ragflow-redis:6379
-      REDIS_PASSWORD: ${RAGFLOW_REDIS_PASSWORD:-ragflow_redis}
-      MINIO_HOST: minio:9000
-      MINIO_USER: ${MINIO_ROOT_USER}
-      MINIO_PASSWORD: ${MINIO_ROOT_PASSWORD}
-      MINIO_BUCKET: ${RAGFLOW_MINIO_BUCKET:-ragflow}
-      ES_HOST: ragflow-es
-      ELASTIC_PASSWORD: ${RAGFLOW_ES_PASSWORD:-ragflow_es_pwd}
-    volumes:
-      - ./data/ragflow/logs:/ragflow/logs
-    networks:
-      - app-network
-    restart: unless-stopped
+  # RAGFlow is disabled for lightweight demos. Keep PostgreSQL and MinIO enabled.
+  # To re-enable RAGFlow later, uncomment ragflow-mysql, ragflow-redis,
+  # ragflow-es, and ragflow below.
+  #
+  # ragflow-mysql:
+  #   image: mysql:8.0.39
+  #   container_name: ragflow-mysql
+  #   environment:
+  #     MYSQL_ROOT_PASSWORD: ${RAGFLOW_MYSQL_PASSWORD:-ragflow_mysql_pwd}
+  #     MYSQL_DATABASE: ${RAGFLOW_MYSQL_DB:-rag_flow}
+  #     MYSQL_USER: ${RAGFLOW_MYSQL_USER:-rag_flow}
+  #     MYSQL_PASSWORD: ${RAGFLOW_MYSQL_PASSWORD:-ragflow_mysql_pwd}
+  #   command:
+  #     --max_connections=1000
+  #     --character-set-server=utf8mb4
+  #     --collation-server=utf8mb4_unicode_ci
+  #     --default-authentication-plugin=mysql_native_password
+  #     --binlog_expire_logs_seconds=604800
+  #   volumes:
+  #     - ./data/ragflow/mysql:/var/lib/mysql
+  #   networks:
+  #     - app-network
+  #   healthcheck:
+  #     test: ["CMD", "mysqladmin", "ping", "-uroot", "-p${RAGFLOW_MYSQL_PASSWORD:-ragflow_mysql_pwd}"]
+  #     interval: 10s
+  #     timeout: 10s
+  #     retries: 120
+  #   restart: unless-stopped
+  #
+  # ragflow-redis:
+  #   image: valkey/valkey:8
+  #   container_name: ragflow-redis
+  #   command: ["redis-server", "--requirepass", "${RAGFLOW_REDIS_PASSWORD:-ragflow_redis}", "--maxmemory", "128mb", "--maxmemory-policy", "allkeys-lru"]
+  #   volumes:
+  #     - ./data/ragflow/redis:/data
+  #   networks:
+  #     - app-network
+  #   healthcheck:
+  #     test: ["CMD", "redis-cli", "-a", "${RAGFLOW_REDIS_PASSWORD:-ragflow_redis}", "ping"]
+  #     interval: 10s
+  #     timeout: 10s
+  #     retries: 120
+  #   restart: unless-stopped
+  #
+  # ragflow-es:
+  #   image: elasticsearch:8.11.3
+  #   container_name: ragflow-es
+  #   environment:
+  #     - node.name=ragflow-es
+  #     - ELASTIC_PASSWORD=${RAGFLOW_ES_PASSWORD:-ragflow_es_pwd}
+  #     - bootstrap.memory_lock=false
+  #     - discovery.type=single-node
+  #     - xpack.security.enabled=true
+  #     - xpack.security.http.ssl.enabled=false
+  #     - xpack.security.transport.ssl.enabled=false
+  #   volumes:
+  #     - ./data/ragflow/es:/usr/share/elasticsearch/data
+  #   networks:
+  #     - app-network
+  #   healthcheck:
+  #     test: ["CMD-SHELL", "curl http://localhost:9200"]
+  #     interval: 10s
+  #     timeout: 10s
+  #     retries: 120
+  #   restart: unless-stopped
+  #
+  # ragflow:
+  #   image: infiniflow/ragflow:latest
+  #   container_name: ragflow
+  #   depends_on:
+  #     - ragflow-mysql
+  #     - ragflow-redis
+  #     - ragflow-es
+  #     - minio
+  #   ports:
+  #     - "8012:80"
+  #     - "8013:9380"
+  #   environment:
+  #     RAGFLOW_HOST: 0.0.0.0
+  #     MYSQL_HOST: ragflow-mysql
+  #     MYSQL_PORT: 3306
+  #     MYSQL_USER: ${RAGFLOW_MYSQL_USER:-rag_flow}
+  #     MYSQL_PASSWORD: ${RAGFLOW_MYSQL_PASSWORD:-ragflow_mysql_pwd}
+  #     MYSQL_DBNAME: ${RAGFLOW_MYSQL_DB:-rag_flow}
+  #     REDIS_HOST: ragflow-redis:6379
+  #     REDIS_PASSWORD: ${RAGFLOW_REDIS_PASSWORD:-ragflow_redis}
+  #     MINIO_HOST: minio:9000
+  #     MINIO_USER: ${MINIO_ROOT_USER}
+  #     MINIO_PASSWORD: ${MINIO_ROOT_PASSWORD}
+  #     MINIO_BUCKET: ${RAGFLOW_MINIO_BUCKET:-ragflow}
+  #     ES_HOST: ragflow-es
+  #     ELASTIC_PASSWORD: ${RAGFLOW_ES_PASSWORD:-ragflow_es_pwd}
+  #   volumes:
+  #     - ./data/ragflow/logs:/ragflow/logs
+  #   networks:
+  #     - app-network
+  #   restart: unless-stopped
 
 networks:
   app-network:
