@@ -46,6 +46,23 @@
           </svg>
           <span v-if="!isCollapsed">智能搜索</span>
         </router-link>
+
+        <router-link
+          v-if="authStore.isProfessional"
+          to="/graph"
+          class="nav-item"
+          :class="{ active: $route.path.startsWith('/graph') }"
+          :title="isCollapsed ? '知识图谱' : undefined"
+        >
+          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+            <circle cx="5" cy="12" r="3"></circle>
+            <circle cx="19" cy="5" r="3"></circle>
+            <circle cx="19" cy="19" r="3"></circle>
+            <line x1="8" y1="11" x2="16" y2="6"></line>
+            <line x1="8" y1="13" x2="16" y2="18"></line>
+          </svg>
+          <span v-if="!isCollapsed">知识图谱</span>
+        </router-link>
       </template>
 
       <router-link
