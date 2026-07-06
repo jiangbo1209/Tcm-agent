@@ -15,6 +15,8 @@ from app.config import get_database_config, get_minio_config, get_search_config
 from app.core.minio_utils import MinioClient
 from app.core.database import engine
 from app.models.base import Base
+from app.models.agent_tool_run import AgentToolRun  # noqa: F401 - register table metadata
+from app.models.conversation_memory import ConversationMemory  # noqa: F401 - register table metadata
 from app.models.graph import GraphBase
 from app.repositories.graph_repository import GraphRepository
 from app.routers.chat import router as chat_router
