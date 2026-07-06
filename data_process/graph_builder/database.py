@@ -40,8 +40,7 @@ def build_nodes(conn: Connection) -> tuple[list[Node], list[Node], dict[str, Nod
         "SELECT lm.file_uuid, lm.title, lm.keywords, lm.abstract, lm.pub_year, "
         "lm.original_name, lm.cleaned_title, lm.matched_title "
         "FROM lit_metadata lm "
-        "JOIN core_file cf ON cf.file_uuid = lm.file_uuid "
-        "WHERE cf.document_type = 0"
+        "JOIN core_file cf ON cf.file_uuid = lm.file_uuid"
     )
     paper_rows = conn.execute(text(paper_sql)).fetchall()
 

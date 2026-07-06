@@ -1,4 +1,13 @@
-"""Text processing and similarity algorithms for graph building."""
+"""Text processing and similarity algorithms for graph building.
+
+This module provides two backends for pairwise Jaccard edge construction:
+
+- ``cpu`` – single-threaded Python reference implementation (always available).
+- ``cuda`` – GPU-accelerated implementation built on cuPy sparse matrix math.
+
+The GPU path is selected automatically when cuPy is importable, and can also be
+chosen explicitly via the ``--device`` CLI flag of ``graph_builder.main``.
+"""
 
 from __future__ import annotations
 
@@ -7,9 +16,22 @@ import json
 import math
 import re
 from collections import defaultdict
+from contextlib import contextmanager
 from typing import Iterable
 
+import numpy
+
 from .models import Edge, Node
+
+
+@contextmanager
+def _suppress_zero_div():
+    """Swallow numpy zero-division warnings; we mask them manually afterward."""
+    old = numpy.seterr(divide="ignore", invalid="ignore")
+    try:
+        yield
+    finally:
+        numpy.seterr(**old)
 
 
 CJK_RE = re.compile(r"[\u4e00-\u9fff]")
@@ -123,7 +145,65 @@ def stable_edge_id(edge_type: str, source_id: str, target_id: str) -> str:
     return hashlib.sha1(raw.encode("utf-8")).hexdigest()
 
 
-def build_pair_edges(nodes: list[Node], edge_type: str, top_k: int, min_score: float) -> list[Edge]:
+# ---------------------------------------------------------------------------
+# Edge construction – dispatch + reference CPU implementation
+# ---------------------------------------------------------------------------
+
+
+def build_pair_edges(
+    nodes: list[Node],
+    edge_type: str,
+    top_k: int,
+    min_score: float,
+    *,
+    device: str = "auto",
+) -> list[Edge]:
+    """Build top-k pairwise similarity edges for a single edge type.
+
+    Parameters
+    ----------
+    nodes:
+        Homogeneous node set (all papers or all records).
+    edge_type:
+        Value written to ``edges.edge_type`` (e.g. ``"paper-paper"``).
+    top_k:
+        Maximum neighbours retained per node.
+    min_score:
+        Minimum Jaccard score for an edge to be kept.
+    device:
+        ``"auto"`` | ``"cpu"`` | ``"cuda"``. ``"auto"`` picks cuPy when it
+        is importable and a CUDA device is reachable, otherwise falls back
+        to the CPU implementation.
+    """
+    backend = _resolve_device(device)
+    if backend == "cuda":
+        return _build_pair_edges_cuda(nodes, edge_type, top_k, min_score)
+    return _build_pair_edges_cpu(nodes, edge_type, top_k, min_score)
+
+
+def _resolve_device(device: str) -> str:
+    if device == "cpu":
+        return "cpu"
+    if device == "cuda":
+        return "cuda"
+    # auto
+    try:
+        import cupy  # noqa: F401
+
+        import cupy  # type: ignore
+
+        cupy.cuda.runtime.getDevice()
+        return "cuda"
+    except Exception:
+        return "cpu"
+
+
+def _build_pair_edges_cpu(
+    nodes: list[Node],
+    edge_type: str,
+    top_k: int,
+    min_score: float,
+) -> list[Edge]:
     edges: dict[tuple[str, str, str], Edge] = {}
 
     for i in range(len(nodes)):
@@ -151,6 +231,116 @@ def build_pair_edges(nodes: list[Node], edge_type: str, top_k: int, min_score: f
                     similarity_score=round(score, 4),
                     raw_score=score,
                 )
+
+    return list(edges.values())
+
+
+# ---------------------------------------------------------------------------
+# GPU implementation (cuPy sparse matrix path)
+# ---------------------------------------------------------------------------
+
+
+def _build_pair_edges_cuda(
+    nodes: list[Node],
+    edge_type: str,
+    top_k: int,
+    min_score: float,
+    *,
+    row_chunk: int = 512,
+) -> list[Edge]:
+    """GPU counterpart of :func:`_build_pair_edges_cpu`.
+
+    Pipeline:
+        1. Build a 0/1 document-term sparse matrix ``X`` on the GPU.
+        2. Compute the intersection matrix in row blocks: ``X[chunk] @ X.T``
+           via cuSPARSE SpMM. Keeping only one chunk resident at a time keeps
+           peak GPU memory at ``row_chunk * n`` floats instead of ``n**2``.
+        3. Union ``U = d[i] + d[j] - I`` (broadcast within the chunk).
+        4. Jaccard ``J = I / U`` (masked where ``I == 0``).
+        5. Per row keep top_k neighbours via sorting on the CPU side.
+        6. De-duplicate unordered pairs (deterministic).
+    """
+    import cupy
+    import cupyx.scipy.sparse as cpsparse
+
+    if not nodes:
+        return []
+
+    # 1. Vocabulary (built on CPU – it is tiny relative to the pair matrix).
+    token_to_col: dict[str, int] = {}
+    rows: list[int] = []
+    cols: list[int] = []
+    for r, node in enumerate(nodes):
+        for tok in node.tokens:
+            c = token_to_col.get(tok)
+            if c is None:
+                c = len(token_to_col)
+                token_to_col[tok] = c
+            rows.append(r)
+            cols.append(c)
+
+    n = len(nodes)
+    vocab = len(token_to_col)
+    if vocab == 0:
+        return []
+
+    data = cupy.ones(len(rows), dtype=cupy.float32)
+    x_gpu = cpsparse.csr_matrix(
+        (data, (cupy.array(rows, dtype=cupy.int32), cupy.array(cols, dtype=cupy.int32))),
+        shape=(n, vocab),
+    )
+    x_gpu_t = x_gpu.tocsc().T  # transpose, used for every chunk
+
+    # Document length (number of tokens per node) -> n vector (kept on host).
+    deg_host = cupy.asnumpy(cupy.asarray(x_gpu.sum(axis=1)).reshape(-1))
+
+    edges: dict[tuple[str, str, str], Edge] = {}
+
+    # 2-5. Process the matrix one row block at a time.
+    for start in range(0, n, row_chunk):
+        end = min(start + row_chunk, n)
+        block = x_gpu[start:end]
+        inter = (block @ x_gpu_t).tocoo()  # shape (chunk, n)
+        if inter.nnz == 0:
+            continue
+
+        src_local = cupy.asnumpy(inter.row)        # 0..chunk-1
+        dst = cupy.asnumpy(inter.col)              # 0..n-1
+        inter_vals = cupy.asnumpy(inter.data)
+
+        mask = (start + src_local) != dst  # drop the diagonal in this block
+        src_local = src_local[mask]
+        dst = dst[mask]
+        inter_vals = inter_vals[mask]
+
+        union = deg_host[start + src_local] + deg_host[dst] - inter_vals
+        with _suppress_zero_div():
+            jaccard = inter_vals / numpy.where(union > 0, union, 1).astype(numpy.float32)
+        keep = jaccard >= min_score
+        src_local = src_local[keep]
+        dst = dst[keep]
+        jaccard = jaccard[keep]
+
+        by_row: dict[int, list[tuple[int, float]]] = defaultdict(list)
+        for s, d, sc in zip(src_local, dst, jaccard):
+            by_row[int(s)].append((int(d), float(sc)))
+
+        for li, nbrs in by_row.items():
+            i = start + li
+            nbrs.sort(key=lambda x: x[1], reverse=True)
+            for j, score in nbrs[:top_k]:
+                src_id, dst_id = normalize_pair(nodes[i].node_id, nodes[j].node_id)
+                key = (edge_type, src_id, dst_id)
+                existing = edges.get(key)
+                if existing is None or score > existing.similarity_score:
+                    edges[key] = Edge(
+                        edge_id=stable_edge_id(edge_type, src_id, dst_id),
+                        source_id=src_id,
+                        target_id=dst_id,
+                        edge_type=edge_type,
+                        similarity_score=round(float(score), 4),
+                        raw_score=float(score),
+                    )
 
     return list(edges.values())
 
@@ -241,3 +431,8 @@ def compute_node_top_k(nodes: list[Node], edges: list[Edge]) -> dict[str, float]
         score = weighted_degree.get(node.node_id, 0.0)
         top_k_value[node.node_id] = round(1.0 + math.log1p(score), 4)
     return top_k_value
+
+
+def is_cuda_available() -> bool:
+    """Convenience probe used by the CLI / engine for reporting."""
+    return _resolve_device("auto") == "cuda"

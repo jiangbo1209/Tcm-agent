@@ -104,3 +104,4 @@ class BuildGraphOptions:
     record_top_k: int
     paper_min_score: float
     record_min_score: float
+    device: str = "auto"  # "auto" | "cpu" | "cuda"

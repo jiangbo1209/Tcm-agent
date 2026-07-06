@@ -91,7 +91,8 @@ function mapNode(raw) {
 }
 
 function mapEdge(raw) {
-  const et = String(raw.edge_type || "paper-paper") === "record-paper" ? "paper-record" : String(raw.edge_type || "paper-paper");
+  const rawType = String(raw.edge_type || "paper-paper");
+  const et = rawType === "record-paper" || rawType === "ref" ? "paper-record" : rawType;
   const score = clamp(Number(raw.similarity_score) || 0, 0, 1);
   const op = mapEdgeOpacity(score);
   let style;
