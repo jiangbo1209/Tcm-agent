@@ -22,12 +22,26 @@ class GuidelineValidationTool:
         self._enabled = enabled
 
     def run(self, question: str, answer: str, evidence: list[Evidence]) -> ValidationResult:
+        base_result = ValidationResult(
+            grounded=bool(evidence),
+            message=(
+                "回答基于知识库检索结果生成。"
+                if evidence
+                else "当前知识库没有检索到足够相关资料，本回答基于普通医学知识生成，请结合医生判断。"
+            ),
+        )
         if not self._enabled:
-            return ValidationResult(passed=True, risk_level="low", issues=[])
+            return base_result
         guidelines = self._guideline_retriever.retrieve(question, answer=answer)
-        return self._guideline_checker.check(
+        checked = self._guideline_checker.check(
             question=question,
             answer=answer,
             guidelines=guidelines,
             evidence=evidence,
         )
+        checked.grounded = base_result.grounded
+        if checked.issues:
+            checked.message = f"{base_result.message} 但指南核对发现需要谨慎表述的内容。"
+        else:
+            checked.message = base_result.message
+        return checked

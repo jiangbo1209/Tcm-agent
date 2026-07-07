@@ -6,7 +6,6 @@ from pydantic import BaseModel, Field
 
 
 class ValidationResult(BaseModel):
-    passed: bool = True
-    risk_level: str = "low"
+    grounded: bool = True
+    message: str = "回答基于知识库检索结果生成。"
     issues: list[str] = Field(default_factory=list)
-    suggested_revision: str = ""

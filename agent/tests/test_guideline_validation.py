@@ -1,3 +1,4 @@
+from agent.schemas.retrieval import Evidence
 from agent.tools.validation.guideline_checker import GuidelineChecker
 from agent.tools.validation.guideline_retriever import GuidelineRetriever
 from agent.tools.validation.tool import GuidelineValidationTool
@@ -7,10 +8,7 @@ class FakeLLMClient:
     def generate(self, prompt: str, system_prompt: str | None = None) -> str:
         return """
         {
-          "passed": false,
-          "risk_level": "high",
-          "issues": ["存在确定性疗效承诺"],
-          "suggested_revision": "建议改为可能有效，并提示就医。"
+          "issues": ["存在确定性疗效承诺"]
         }
         """
 
@@ -40,18 +38,17 @@ class FakeRagflowClient:
         )
 
 
-def test_guideline_checker_can_use_llm_json_result():
+def test_guideline_checker_returns_simple_grounding_result():
     result = GuidelineChecker(llm_client=FakeLLMClient()).check(
         question="这个回答安全吗？",
         answer="这个方案保证有效。",
         guidelines=[],
-        evidence=[],
+        evidence=[Evidence(source_type="paper", title="文献", chunk="证据片段")],
     )
 
-    assert not result.passed
-    assert result.risk_level == "high"
+    assert result.grounded
+    assert result.message == "回答基于知识库检索结果生成。"
     assert result.issues == ["存在确定性疗效承诺"]
-    assert result.suggested_revision
 
 
 def test_guideline_checker_falls_back_to_risk_terms():
@@ -62,8 +59,8 @@ def test_guideline_checker_falls_back_to_risk_terms():
         evidence=[],
     )
 
-    assert not result.passed
-    assert result.risk_level == "medium"
+    assert not result.grounded
+    assert "普通医学知识" in result.message
     assert result.issues
 
 
@@ -97,9 +94,9 @@ def test_guideline_validation_tool_retrieves_guidelines_when_enabled():
     result = tool.run(
         question="这个回答安全吗？",
         answer="这个方案保证有效。",
-        evidence=[],
+        evidence=[Evidence(source_type="paper", title="文献", chunk="证据片段")],
     )
 
     assert fake_ragflow.query_plan.search_type == "guideline"
-    assert not result.passed
-    assert result.risk_level == "high"
+    assert result.grounded
+    assert result.issues == ["存在确定性疗效承诺"]

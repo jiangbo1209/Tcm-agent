@@ -29,7 +29,6 @@ class ReferenceSource(BaseModel):
     dataset_id: str | None = None
     chunk_id: str | None = None
     snippet: str | None = None
-    score: float | None = None
     authors: str | None = None
     journal: str | None = None
     year: str | None = None

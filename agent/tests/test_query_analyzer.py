@@ -16,7 +16,7 @@ class FakeLLMClient:
 
 
 def test_query_analyzer_classifies_case_question():
-    plan = QueryAnalyzer().analyze("不孕症有哪些病案治疗思路？")
+    plan = QueryAnalyzer().analyze("有没有类似不孕症病案可以参考？")
 
     assert plan.intent == "case_question"
     assert plan.source_type == "record"
@@ -29,6 +29,37 @@ def test_query_analyzer_classifies_literature_question():
     assert plan.intent == "literature_question"
     assert plan.source_type == "paper"
     assert plan.search_type == "literature"
+
+
+def test_query_analyzer_classifies_clinical_decision_question():
+    plan = QueryAnalyzer().analyze("胖多囊和瘦多囊的中医辨证分型及治疗方案怎么选择？")
+
+    assert plan.intent == "clinical_decision_question"
+    assert plan.source_type is None
+    assert plan.search_type == "both"
+
+
+def test_query_analyzer_classifies_patient_education_question():
+    plan = QueryAnalyzer().analyze("试管移植后饮食和作息有哪些注意事项？")
+
+    assert plan.intent == "patient_education_question"
+    assert plan.source_type is None
+    assert plan.search_type == "both"
+
+
+def test_query_analyzer_classifies_report_interpretation_question():
+    plan = QueryAnalyzer().analyze("帮我解释一下AMH和性激素检查结果对怀孕有什么影响")
+
+    assert plan.intent == "clinical_decision_question"
+    assert plan.search_type == "both"
+
+
+def test_query_analyzer_classifies_guideline_question():
+    plan = QueryAnalyzer().analyze("备孕期间哪些中药禁忌或慎用？")
+
+    assert plan.intent == "guideline_validation_question"
+    assert plan.source_type == "guideline"
+    assert plan.search_type == "guideline"
 
 
 def test_query_analyzer_can_use_llm_json_plan():

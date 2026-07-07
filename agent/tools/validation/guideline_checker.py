@@ -25,6 +25,7 @@ class GuidelineChecker:
         guidelines: list[Evidence],
         evidence: list[Evidence],
     ) -> ValidationResult:
+        grounded = bool(evidence)
         try:
             prompt = self._render_prompt(
                 "guideline_validation.md",
@@ -34,22 +35,31 @@ class GuidelineChecker:
             )
             raw = self._llm_client.generate(
                 prompt=prompt,
-                system_prompt="你是医疗回答安全校验模块，只输出合法 JSON。",
+                system_prompt="你是医疗回答安全核对模块，只输出合法 JSON。",
             )
             payload = self._extract_json(raw)
-            return ValidationResult(**payload)
+            issues = [str(item) for item in (payload.get("issues") or [])]
+            return ValidationResult(
+                grounded=grounded,
+                message=self._message(grounded),
+                issues=issues,
+            )
         except Exception:
-            return self._rule_based_check(answer)
+            return self._rule_based_check(answer, grounded=grounded)
 
-    def _rule_based_check(self, answer: str) -> ValidationResult:
+    def _rule_based_check(self, answer: str, grounded: bool) -> ValidationResult:
         risk_terms = ("必须治愈", "一定有效", "保证", "无需就医")
-        issues = [f"回答中存在风险表达：{term}" for term in risk_terms if term in answer]
+        issues = [f"回答中存在需要谨慎的表述：{term}" for term in risk_terms if term in answer]
         return ValidationResult(
-            passed=not issues,
-            risk_level="medium" if issues else "low",
+            grounded=grounded,
+            message=self._message(grounded),
             issues=issues,
-            suggested_revision="建议删除确定性疗效承诺，并提示需结合医生诊疗。" if issues else "",
         )
+
+    def _message(self, grounded: bool) -> str:
+        if grounded:
+            return "回答基于知识库检索结果生成。"
+        return "当前知识库没有检索到足够相关资料，本回答基于普通医学知识生成，请结合医生判断。"
 
     def _render_prompt(self, filename: str, **values: str) -> str:
         template = (PROMPT_DIR / filename).read_text(encoding="utf-8")
@@ -64,7 +74,6 @@ class GuidelineChecker:
             "title": item.title,
             "file_uuid": item.file_uuid,
             "chunk": item.chunk,
-            "score": item.score,
             "metadata": item.metadata,
         }
 

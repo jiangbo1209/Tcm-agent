@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import re
 from pathlib import Path
 from typing import Any
 
@@ -17,39 +18,112 @@ CASE_KEYWORDS = (
     "病例",
     "病案",
     "患者",
+    "实际病例",
+    "类似病例",
+    "名老中医",
+    "经验方",
     "医案",
-    "症状",
-    "诊断",
-    "证型",
-    "方药",
-    "处方",
-    "治疗",
+    "复盘",
     "疗效",
-    "不孕",
-    "妊娠",
+    "随访",
 )
 
 LITERATURE_KEYWORDS = (
     "文献",
     "论文",
     "研究",
-    "指南",
-    "共识",
-    "综述",
     "证据",
+    "综述",
+    "meta",
+    "rct",
+    "临床数据",
+    "妊娠率",
+    "成功率",
+    "发生率",
     "机制",
-    "Meta",
-    "RCT",
 )
 
 GUIDELINE_KEYWORDS = (
     "指南",
     "共识",
     "规范",
-    "校验",
-    "风险",
+    "禁忌",
+    "慎用",
+    "安全性",
+    "副作用",
+    "不良反应",
+    "风险等级",
+    "ohss",
+    "何时就医",
     "是否符合",
     "是否越界",
+)
+
+CLINICAL_DECISION_KEYWORDS = (
+    "个体化",
+    "方案",
+    "推荐",
+    "选择",
+    "对比",
+    "优选",
+    "预测",
+    "评估",
+    "剂量",
+    "调整",
+    "促排",
+    "降调",
+    "移植",
+    "黄体支持",
+    "试管",
+    "人工授精",
+    "ivf",
+    "hmg",
+    "gnrh",
+)
+
+HARD_DECISION_KEYWORDS = (
+    "方案",
+    "推荐",
+    "选择",
+    "对比",
+    "优选",
+    "预测",
+    "评估",
+    "剂量",
+    "调整",
+    "追加",
+)
+
+PATIENT_EDUCATION_KEYWORDS = (
+    "通俗",
+    "大白话",
+    "宣教",
+    "注意事项",
+    "饮食",
+    "运动",
+    "生活方式",
+    "作息",
+    "流程",
+    "花费",
+    "能不能",
+    "怎么办",
+    "多久",
+    "服用方法",
+)
+
+REPORT_INTERPRETATION_KEYWORDS = (
+    "报告",
+    "化验",
+    "检查结果",
+    "b超",
+    "amh",
+    "性激素",
+    "精液",
+    "hsg",
+    "造影",
+    "染色体",
+    "核型",
+    "指标",
 )
 
 
@@ -89,16 +163,48 @@ class QueryAnalyzer:
         return self._normalize_plan(plan, fallback_question=question, fallback_top_k=top_k)
 
     def _analyze_with_rules(self, question: str, top_k: int) -> QueryPlan:
+        rewritten_query = self._rewrite_query(question)
         case_hits = self._count_hits(question, CASE_KEYWORDS)
         literature_hits = self._count_hits(question, LITERATURE_KEYWORDS)
         guideline_hits = self._count_hits(question, GUIDELINE_KEYWORDS)
+        decision_hits = self._count_hits(question, CLINICAL_DECISION_KEYWORDS)
+        hard_decision_hits = self._count_hits(question, HARD_DECISION_KEYWORDS)
+        education_hits = self._count_hits(question, PATIENT_EDUCATION_KEYWORDS)
+        report_hits = self._count_hits(question, REPORT_INTERPRETATION_KEYWORDS)
 
-        if guideline_hits > max(case_hits, literature_hits) and guideline_hits > 0:
+        if guideline_hits > 0 and guideline_hits >= max(case_hits, literature_hits, decision_hits):
             return QueryPlan(
                 intent="guideline_validation_question",
                 source_type="guideline",
-                rewritten_query=question,
+                rewritten_query=rewritten_query,
                 search_type="guideline",
+                top_k=top_k,
+            )
+
+        if education_hits > 0 and hard_decision_hits == 0 and report_hits == 0:
+            return QueryPlan(
+                intent="patient_education_question",
+                source_type=None,
+                rewritten_query=rewritten_query,
+                search_type="both",
+                top_k=top_k,
+            )
+
+        if decision_hits > 0 or report_hits > 0:
+            return QueryPlan(
+                intent="clinical_decision_question",
+                source_type=None,
+                rewritten_query=rewritten_query,
+                search_type="both",
+                top_k=top_k,
+            )
+
+        if education_hits > 0:
+            return QueryPlan(
+                intent="patient_education_question",
+                source_type=None,
+                rewritten_query=rewritten_query,
+                search_type="both",
                 top_k=top_k,
             )
 
@@ -106,7 +212,7 @@ class QueryAnalyzer:
             return QueryPlan(
                 intent="case_question",
                 source_type="record",
-                rewritten_query=question,
+                rewritten_query=rewritten_query,
                 search_type="case",
                 top_k=top_k,
             )
@@ -115,7 +221,7 @@ class QueryAnalyzer:
             return QueryPlan(
                 intent="literature_question",
                 source_type="paper",
-                rewritten_query=question,
+                rewritten_query=rewritten_query,
                 search_type="literature",
                 top_k=top_k,
             )
@@ -123,7 +229,7 @@ class QueryAnalyzer:
         return QueryPlan(
             intent="general_medical_question",
             source_type=None,
-            rewritten_query=question,
+            rewritten_query=rewritten_query,
             search_type="both",
             top_k=top_k,
         )
@@ -137,10 +243,15 @@ class QueryAnalyzer:
         if plan.source_type not in valid_source_types:
             plan.source_type = None
         if not plan.rewritten_query.strip():
-            plan.rewritten_query = fallback_question
+            plan.rewritten_query = self._rewrite_query(fallback_question)
         if not plan.top_k:
             plan.top_k = fallback_top_k
         return plan
+
+    def _rewrite_query(self, question: str) -> str:
+        text = re.sub(r"\s+", " ", question).strip()
+        text = re.sub(r"[？?。！!]+$", "", text)
+        return text
 
     def _render_prompt(self, filename: str, **values: str) -> str:
         template = (PROMPT_DIR / filename).read_text(encoding="utf-8")

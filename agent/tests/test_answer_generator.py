@@ -46,6 +46,7 @@ def test_answer_generator_uses_llm_with_grounded_prompt():
 
     assert result.answer == "这是模型生成的回答。[1]"
     assert result.sources == ["[1] 文献：多囊卵巢综合征中医治疗研究（UUID：file-1）"]
+    assert result.references[0].file_uuid == "file-1"
     assert "RAGFlow 检索证据" in fake_llm.prompt
     assert "file-1" in fake_llm.prompt
 

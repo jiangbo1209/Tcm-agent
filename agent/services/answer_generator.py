@@ -118,7 +118,6 @@ class AnswerGenerator:
                     dataset_id=item.dataset_id,
                     chunk_id=item.chunk_id,
                     snippet=self._shorten(item.chunk, max_len=260) if item.chunk else None,
-                    score=item.score,
                     authors=self._metadata_text(metadata, "authors", "author"),
                     journal=self._metadata_text(metadata, "journal", "source"),
                     year=self._metadata_text(metadata, "pub_year", "publish_year", "year"),
@@ -159,6 +158,8 @@ class AnswerGenerator:
         labels = {
             "case_question": "病案/病例问题",
             "literature_question": "文献/指南证据问题",
+            "clinical_decision_question": "临床方案/决策辅助问题",
+            "patient_education_question": "患者宣教问题",
             "general_medical_question": "综合医学问题",
             "guideline_validation_question": "医学指南校验问题",
         }
