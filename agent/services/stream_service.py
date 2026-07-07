@@ -11,6 +11,5 @@ from agent.schemas.stream import StreamEvent
 class StreamService:
     def encode(self, events: Iterable[StreamEvent]) -> Iterable[str]:
         for event in events:
-            payload = json.dumps(event.model_dump(), ensure_ascii=False)
-            yield f"data: {payload}\n\n"
-
+            payload = json.dumps(event.data, ensure_ascii=False)
+            yield f"event: {event.event}\ndata: {payload}\n\n"

@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import json
 from pathlib import Path
+from collections.abc import Iterable
 from typing import Any
 
 from agent.schemas.answer import AnswerResult
@@ -48,6 +49,34 @@ class AnswerGenerator:
             fallback = self._fallback_answer(question, query_plan, evidence, total, sources)
             warning = f"llm_generation_failed: {exc}"
             return AnswerResult(answer=fallback, warnings=[warning], sources=sources, references=references)
+
+    def stream_generate(
+        self,
+        question: str,
+        query_plan: QueryPlan,
+        evidence: list[Evidence],
+        total: int,
+    ) -> tuple[Iterable[str], list[str], list[ReferenceSource], list[str]]:
+        references = self._build_references(evidence)
+        sources = self._build_sources(references)
+        prompt_name = "grounded_answer.md" if evidence else "general_answer.md"
+        prompt = self._render_prompt(
+            prompt_name,
+            question=question,
+            query_plan=self._json(query_plan.model_dump()),
+            evidence=self._json(
+                [self._evidence_for_prompt(item, reference) for item, reference in zip(evidence, references)]
+            ),
+        )
+        try:
+            chunks = self._llm_client.stream_generate(
+                prompt=prompt,
+                system_prompt="你是严谨的医疗 Agent，只能基于给定资料作答，不能编造医学证据。",
+            )
+            return chunks, sources, references, []
+        except Exception as exc:
+            fallback = self._fallback_answer(question, query_plan, evidence, total, sources)
+            return iter([fallback]), sources, references, [f"llm_generation_failed: {exc}"]
 
     def _fallback_answer(
         self,
