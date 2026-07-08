@@ -97,6 +97,14 @@ AGENT_ENABLE_GUIDELINE_VALIDATION=true
 
 ## 调试运行
 
+安装依赖：
+
+```powershell
+pip install -r agent\requirements.txt
+```
+
+启动独立 Agent 服务：
+
 ```powershell
 python -m uvicorn agent.main:app --host 0.0.0.0 --port 8020 --reload
 ```
