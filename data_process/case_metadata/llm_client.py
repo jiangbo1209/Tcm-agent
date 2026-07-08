@@ -22,13 +22,18 @@ LOGGER = logging.getLogger("case_metadata")
 # ==================== Config ====================
 
 RELAY_BASE_URL = (
-    os.getenv("RELAY_BASE_URL")
-    or os.getenv("LLM_BASE_URL")
+    os.getenv("CASE_METADATA_LLM_BASE_URL")
+    or os.getenv("RELAY_BASE_URL")
     or "https://runanytime.hxi.me"
 )
-RELAY_API_KEY = os.getenv("RELAY_API_KEY") or os.getenv("LLM_API_KEY", "")
-GEMINI_MODEL = os.getenv("GEMINI_MODEL") or os.getenv("LLM_MODEL", "gemini-3-flash-preview")
-GEMINI_AUTH_HEADER = os.getenv("GEMINI_AUTH_HEADER") or os.getenv("RELAY_AUTH_HEADER") or "x-goog-api-key"
+RELAY_API_KEY = os.getenv("CASE_METADATA_LLM_API_KEY") or os.getenv("RELAY_API_KEY", "")
+GEMINI_MODEL = os.getenv("CASE_METADATA_LLM_MODEL") or os.getenv("GEMINI_MODEL", "gemini-3-flash-preview")
+GEMINI_AUTH_HEADER = (
+    os.getenv("CASE_METADATA_LLM_AUTH_HEADER")
+    or os.getenv("GEMINI_AUTH_HEADER")
+    or os.getenv("RELAY_AUTH_HEADER")
+    or "x-goog-api-key"
+)
 
 CONNECT_TIMEOUT = 100
 READ_TIMEOUT = 180
@@ -141,7 +146,7 @@ def build_auth_headers() -> dict[str, str]:
 
 def call_gemini_stream(payload: dict[str, Any]) -> str:
     if not RELAY_API_KEY:
-        raise RuntimeError("RELAY_API_KEY not set in environment")
+        raise RuntimeError("CASE_METADATA_LLM_API_KEY not set in environment")
 
     url = build_gemini_endpoint()
     headers = {

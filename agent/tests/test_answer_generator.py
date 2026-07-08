@@ -67,5 +67,5 @@ def test_answer_generator_falls_back_when_llm_fails():
         total=0,
     )
 
-    assert "当前知识库里没有检索到足够相关" in result.answer
+    assert "当前知识库没有检索到足够相关" in result.answer
     assert result.warnings

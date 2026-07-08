@@ -3,8 +3,8 @@
 from __future__ import annotations
 
 import json
-from pathlib import Path
 from collections.abc import Iterable
+from pathlib import Path
 from typing import Any
 
 from agent.schemas.answer import AnswerResult
@@ -14,6 +14,7 @@ from agent.services.llm_client import LLMClient
 
 
 PROMPT_DIR = Path(__file__).resolve().parents[1] / "prompts"
+SYSTEM_PROMPT = "你是严谨的医疗 Agent，只能基于给定资料作答，不能编造医学证据。"
 
 
 class AnswerGenerator:
@@ -29,24 +30,13 @@ class AnswerGenerator:
     ) -> AnswerResult:
         references = self._build_references(evidence)
         sources = self._build_sources(references)
-        prompt_name = "grounded_answer.md" if evidence else "general_answer.md"
-        prompt = self._render_prompt(
-            prompt_name,
-            question=question,
-            query_plan=self._json(query_plan.model_dump()),
-            evidence=self._json(
-                [self._evidence_for_prompt(item, reference) for item, reference in zip(evidence, references)]
-            ),
-        )
+        prompt = self._build_prompt(question, query_plan, evidence, references)
 
         try:
-            answer = self._llm_client.generate(
-                prompt=prompt,
-                system_prompt="你是严谨的医疗 Agent，只能基于给定资料作答，不能编造医学证据。",
-            )
+            answer = self._llm_client.generate(prompt=prompt, system_prompt=SYSTEM_PROMPT)
             return AnswerResult(answer=answer, sources=sources, references=references)
         except Exception as exc:
-            fallback = self._fallback_answer(question, query_plan, evidence, total, sources)
+            fallback = self._fallback_answer(query_plan, evidence, total, sources)
             warning = f"llm_generation_failed: {exc}"
             return AnswerResult(answer=fallback, warnings=[warning], sources=sources, references=references)
 
@@ -59,8 +49,24 @@ class AnswerGenerator:
     ) -> tuple[Iterable[str], list[str], list[ReferenceSource], list[str]]:
         references = self._build_references(evidence)
         sources = self._build_sources(references)
+        prompt = self._build_prompt(question, query_plan, evidence, references)
+
+        try:
+            chunks = self._llm_client.stream_generate(prompt=prompt, system_prompt=SYSTEM_PROMPT)
+            return chunks, sources, references, []
+        except Exception as exc:
+            fallback = self._fallback_answer(query_plan, evidence, total, sources)
+            return iter([fallback]), sources, references, [f"llm_generation_failed: {exc}"]
+
+    def _build_prompt(
+        self,
+        question: str,
+        query_plan: QueryPlan,
+        evidence: list[Evidence],
+        references: list[ReferenceSource],
+    ) -> str:
         prompt_name = "grounded_answer.md" if evidence else "general_answer.md"
-        prompt = self._render_prompt(
+        return self._render_prompt(
             prompt_name,
             question=question,
             query_plan=self._json(query_plan.model_dump()),
@@ -68,19 +74,9 @@ class AnswerGenerator:
                 [self._evidence_for_prompt(item, reference) for item, reference in zip(evidence, references)]
             ),
         )
-        try:
-            chunks = self._llm_client.stream_generate(
-                prompt=prompt,
-                system_prompt="你是严谨的医疗 Agent，只能基于给定资料作答，不能编造医学证据。",
-            )
-            return chunks, sources, references, []
-        except Exception as exc:
-            fallback = self._fallback_answer(question, query_plan, evidence, total, sources)
-            return iter([fallback]), sources, references, [f"llm_generation_failed: {exc}"]
 
     def _fallback_answer(
         self,
-        question: str,
         query_plan: QueryPlan,
         evidence: list[Evidence],
         total: int,
@@ -88,9 +84,10 @@ class AnswerGenerator:
     ) -> str:
         if not evidence:
             return (
-                "当前知识库里没有检索到足够相关的文献、病案或指南依据。\n\n"
+                "当前知识库没有检索到足够相关的文献、病案或指南依据。\n\n"
                 f"问题理解：{self._intent_label(query_plan)}。\n"
-                "建议补充疾病名称、证型、治疗方案、药物或更具体的关键词后再试。"
+                "当前回答生成服务没有正常返回，因此暂时无法给出完整回答。"
+                "建议稍后重试，或检查 LLM_BASE_URL、LLM_API_KEY、LLM_MODEL 配置。"
             )
 
         lines = [

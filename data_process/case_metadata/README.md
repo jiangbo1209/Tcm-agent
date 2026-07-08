@@ -105,9 +105,12 @@ LLM 输出中文键名（语义更准确），入库时映射为英文：
 
 | 变量 | 默认值 | 说明 |
 |------|--------|------|
-| RELAY_BASE_URL | https://x666.me/v1beta/... | Gemini 中转站端点 |
-| RELAY_API_KEY | - | API 密钥 |
-| GEMINI_MODEL | gemini-3-flash-preview | 使用的模型 |
+| CASE_METADATA_LLM_BASE_URL | https://x666.me/ | 病案提取专用 Gemini 中转端点 |
+| CASE_METADATA_LLM_API_KEY | - | 病案提取专用 API 密钥 |
+| CASE_METADATA_LLM_MODEL | gemini-3-flash-preview | 病案提取使用的模型 |
+| CASE_METADATA_LLM_AUTH_HEADER | x-goog-api-key | 可选，请求鉴权 header 名 |
+
+注意：病案提取不再使用通用 `LLM_BASE_URL`、`LLM_API_KEY`、`LLM_MODEL`，这些变量保留给 Agent 千问模型使用。
 
 ## 验证
 
