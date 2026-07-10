@@ -34,7 +34,7 @@ def _parse_endpoint(raw_endpoint: str) -> _ParsedEndpoint:
 class MinioClient:
     """Extended MinIO wrapper with bucket management, upload, and presigned URLs."""
 
-    def __init__(self, config: MinioConfig, *, auto_create_bucket: bool = True) -> None:
+    def __init__(self, config: MinioConfig, *, auto_create_bucket: bool = False) -> None:
         self._config = config
         parsed = _parse_endpoint(config.endpoint)
 
@@ -43,6 +43,7 @@ class MinioClient:
             access_key=config.access_key,
             secret_key=config.secret_key,
             secure=parsed.secure,
+            region=config.region,
         )
 
         if auto_create_bucket:

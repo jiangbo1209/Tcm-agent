@@ -29,7 +29,7 @@ def init_dependencies() -> None:
     _session_factory = async_sessionmaker(_engine, expire_on_commit=False)
 
     minio_config = get_minio_config()
-    _minio_client = MinioClient(minio_config)
+    _minio_client = MinioClient(minio_config, auto_create_bucket=False)
 
 
 async def get_session() -> AsyncGenerator[AsyncSession, None]:

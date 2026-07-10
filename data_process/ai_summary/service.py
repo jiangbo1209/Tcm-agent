@@ -145,13 +145,13 @@ class AiSummaryService:
             pdf_bytes = self._minio.get_object(record.storage_path)
         except Exception as exc:
             elapsed = time.monotonic() - t_start
-            LOGGER.exception("MinIO download failed for %s", record.storage_path)
+            LOGGER.exception("COS download failed for %s", record.storage_path)
             await session.execute(
                 update(LitMetadata)
                 .where(LitMetadata.id == record.id)
                 .values(
                     ai_summary_status="failed",
-                    error_message=f"MinIO download failed: {exc}",
+                    error_message=f"COS download failed: {exc}",
                 )
             )
             await session.commit()

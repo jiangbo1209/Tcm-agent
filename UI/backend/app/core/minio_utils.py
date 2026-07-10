@@ -31,15 +31,16 @@ def _parse_endpoint(raw_endpoint: str) -> ParsedEndpoint:
 class MinioClient:
     """Thin wrapper around MinIO SDK used by backend services."""
 
-    def __init__(self, config: MinioSettings, *, auto_create_bucket: bool = True) -> None:
+    def __init__(self, config: MinioSettings, *, auto_create_bucket: bool = False) -> None:
         self._config = config
         parsed = _parse_endpoint(config.endpoint)
 
         self._client = Minio(
             endpoint=parsed.endpoint,
-            access_key=config.root_user,
-            secret_key=config.root_password,
+            access_key=config.access_key,
+            secret_key=config.secret_key,
             secure=parsed.secure,
+            region=config.region,
         )
 
         if auto_create_bucket:

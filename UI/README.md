@@ -15,7 +15,7 @@ UI/
 │   │   ├── routers/        # API 路由
 │   │   ├── services/       # 业务逻辑层
 │   │   ├── repositories/   # 数据访问层
-│   │   ├── core/           # 工具类（MinIO）
+│   │   ├── core/           # 工具类（S3）
 │   │   └── search/         # 搜索策略配置
 │   ├── requirements.txt
 │   └── create_professional_user.py

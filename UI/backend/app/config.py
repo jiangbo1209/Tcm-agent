@@ -26,15 +26,16 @@ class PostgresSettings(BaseSettings):
 
 class MinioSettings(BaseSettings):
     model_config = SettingsConfigDict(
-        env_prefix="MINIO_", extra="ignore",
+        env_prefix="S3_", extra="ignore",
         env_file=(".env", "../.env", "../../.env"),
         env_file_encoding="utf-8",
     )
 
-    endpoint: str = "localhost:9000"
-    root_user: str = ""
-    root_password: str = ""
+    endpoint: str = "https://cos.ap-beijing.myqcloud.com"
+    access_key: str = ""
+    secret_key: str = ""
     bucket_name: str = "tcm-documents"
+    region: str = "ap-beijing"
 
 
 class SearchSettings(BaseSettings):

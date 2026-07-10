@@ -15,26 +15,6 @@ services:
     networks:
       - app-network
 
-  minio:
-    image: minio/minio
-    command: server /data --console-address ":9001"
-    ports:
-      - "9000:9000"
-      - "9001:9001"
-    env_file:
-      - .env
-    environment:
-      MINIO_ROOT_USER: ${MINIO_ROOT_USER}
-      MINIO_ROOT_PASSWORD: ${MINIO_ROOT_PASSWORD}
-    volumes:
-      - ./data/minio:/data
-    networks:
-      - app-network
-
-  # RAGFlow is disabled for lightweight demos. Keep PostgreSQL and MinIO enabled.
-  # To re-enable RAGFlow later, uncomment ragflow-mysql, ragflow-redis,
-  # ragflow-es, and ragflow below.
-  #
   # ragflow-mysql:
   #   image: mysql:8.0.39
   #   container_name: ragflow-mysql
@@ -104,7 +84,6 @@ services:
   #     - ragflow-mysql
   #     - ragflow-redis
   #     - ragflow-es
-  #     - minio
   #   ports:
   #     - "8012:80"
   #     - "8013:9380"
@@ -117,10 +96,11 @@ services:
   #     MYSQL_DBNAME: ${RAGFLOW_MYSQL_DB:-rag_flow}
   #     REDIS_HOST: ragflow-redis:6379
   #     REDIS_PASSWORD: ${RAGFLOW_REDIS_PASSWORD:-ragflow_redis}
-  #     MINIO_HOST: minio:9000
-  #     MINIO_USER: ${MINIO_ROOT_USER}
-  #     MINIO_PASSWORD: ${MINIO_ROOT_PASSWORD}
-  #     MINIO_BUCKET: ${RAGFLOW_MINIO_BUCKET:-ragflow}
+  #     S3_ENDPOINT: ${S3_ENDPOINT}
+  #     S3_ACCESS_KEY: ${S3_ACCESS_KEY}
+  #     S3_SECRET_KEY: ${S3_SECRET_KEY}
+  #     S3_REGION: ${S3_REGION}
+  #     S3_BUCKET: ${RAGFLOW_S3_BUCKET:-ragflow-bucket}
   #     ES_HOST: ragflow-es
   #     ELASTIC_PASSWORD: ${RAGFLOW_ES_PASSWORD:-ragflow_es_pwd}
   #   volumes:

@@ -200,13 +200,13 @@ class CaseExtractionService:
             LOGGER.info("RESULT | SKIP | %s | reason=already_extracted | elapsed=%.1fs", original_name, elapsed)
             return extraction
 
-        # 1. Download PDF from MinIO
+        # 1. Download PDF from object storage (Tencent COS)
         try:
             pdf_bytes = self._minio.get_object(storage_path)
         except Exception as exc:
             elapsed = time.monotonic() - t_start
-            LOGGER.exception("Failed to download %s from MinIO", storage_path)
-            extraction.error = f"MinIO download failed: {exc}"
+            LOGGER.exception("Failed to download %s from COS", storage_path)
+            extraction.error = f"COS download failed: {exc}"
             LOGGER.info(
                 "RESULT | FAIL | %s | phase=download | elapsed=%.1fs | error=%s",
                 original_name, elapsed, exc,

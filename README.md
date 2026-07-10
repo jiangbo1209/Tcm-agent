@@ -4,7 +4,7 @@
 
 **核心业务痛点**：将海量非结构化的中医文献与临床病案自动化提炼为结构化医疗实体，通过知识图谱进行可视化串联，并最终由 Agent 对话系统为医生/科研人员提供智能问答与辅助诊疗。
 
-**技术栈**：Python、FastAPI、SQLAlchemy、Vue 3、Vite、AntV G6、PostgreSQL、SQLite、MinIO、LLM（大模型）。
+**技术栈**：Python、FastAPI、SQLAlchemy、Vue 3、Vite、AntV G6、PostgreSQL、SQLite、对象存储、LLM（大模型）。
 
 ## 快速启动
 
@@ -54,7 +54,7 @@ conda run -n Tcm-agent python create_professional_user.py users.csv
 ## 核心业务数据流（Data Workflow）
 
 **阶段一：数据处理层（Data Processing）**
-1. 用户上传文档至 MinIO
+1. 用户上传文档至对象存储
 2. 触发后台解析流程
 3. 调用大模型抽取中医实体
 4. 结构化结果写入 PostgreSQL 核心表
@@ -68,13 +68,13 @@ graph TD
     classDef userAction fill:#e3f2fd,stroke:#1565c0,stroke-width:2px,color:#0d47a1;
     classDef db fill:#fff9c4,stroke:#fbc02d,stroke-width:2px,color:#f57f17;
     classDef process fill:#e8f5e9,stroke:#2e7d32,stroke-width:2px,color:#1b5e20;
-    classDef minio fill:#f3e5f5,stroke:#7b1fa2,stroke-width:2px,color:#4a148c;
+    classDef storage fill:#f3e5f5,stroke:#7b1fa2,stroke-width:2px,color:#4a148c;
 
-    %% --- 阶段 1: 文件上传 ---
+    %% --- 阶段 1: 文件上传 ---
 
-    Start((开始)) --> UploadAction[用户上传 PDF 文件]:::userAction
-    UploadAction --> GenUUID[后端生成 UUID]:::process
-    GenUUID --> SaveMinio[保存文件到 MinIO]:::minio
+    Start((开始)) --> UploadAction[用户上传 PDF 文件]:::userAction
+    UploadAction --> GenUUID[后端生成 UUID]:::process
+    GenUUID --> SaveStorage[保存文件到存储桶]:::storage
     SaveMinio --> InsertCoreFile[(插入 CORE_FILE 表<br/>status_metadata=false<br/>status_case=false)]:::db
 
     %% --- 调度/轮询层 ---
@@ -91,7 +91,7 @@ graph TD
     %% --- 阶段 4: 病案解析 ---
 
     Scheduler -- "轮询 status_case=false" --> QueryCase[查询待处理病案]:::process
-    QueryCase --> DownloadPDF[从 MinIO 下载 PDF]:::minio
+    QueryCase --> DownloadPDF[从对象存储 下载 PDF]:::storage
     DownloadPDF --> LLMProcess[调用大模型 API 提取]:::process
     LLMProcess --> ParseJSON[解析 JSON 数据]:::process
     ParseJSON --> InsertCase[(插入 MED_CASE 表)]:::db
@@ -179,11 +179,11 @@ conda run -n Tcm-agent python -m data_process.graph_builder
 ```mermaid
 erDiagram
 
-    %% 1. 文件核心表：MinIO 映射
-    CORE_FILE {
-        string file_uuid PK "主键，自动生成"
-        string original_name "原始文件名"
-        string storage_path "MinIO 中的存储路径"
+    %% 1. 文件核心表：对象存储路径映射
+    CORE_FILE {
+        string file_uuid PK "主键，自动生成"
+        string original_name "原始文件名"
+        string storage_path "对象存储中的存储路径"
         string file_type "文件类型"
         datetime upload_time "上传时间"
         bool status_matadata "文献元数据处理状态"

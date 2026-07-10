@@ -2,7 +2,7 @@
 
 ## 功能
 
-用户上传 PDF 文件 → 选择数据类型 → 后端生成 UUID → 存储到 MinIO → 记录到 PostgreSQL `core_file` 表。
+用户上传 PDF 文件 → 选择数据类型 → 后端生成 UUID → 存储到对象存储 → 记录到 PostgreSQL `core_file` 表。
 
 `document_type` 用于区分数据类型：
 
@@ -53,9 +53,9 @@ python data_process/pdf_upload/pdf_manager_tui.py
 | POST | `/api/files/batch-upload` | 批量上传，可通过 `document_type` 指定类型，同类型同名自动 skip |
 | GET | `/api/files/` | 文件列表（分页） |
 | GET | `/api/files/{uuid}` | 文件详情 |
-| GET | `/api/files/{uuid}/download-url` | 生成 MinIO 下载链接 |
+| GET | `/api/files/{uuid}/download-url` | 生成 COS 下载链接 (预签名 URL) |
 | POST | `/api/files/batch-delete` | 批量删除文件（请求体含 file_uuids 列表） |
-| DELETE | `/api/files/{uuid}` | 删除文件（MinIO + DB 同步） |
+| DELETE | `/api/files/{uuid}` | 删除文件（COS + DB 同步） |
 
 ## 使用示例
 
@@ -97,7 +97,7 @@ curl -X DELETE http://localhost:8001/api/files/{uuid}
 |------|------|------|
 | file_uuid | VARCHAR(36) PK | 自动生成 UUID |
 | original_name | VARCHAR(512) | 原始文件名 |
-| storage_path | VARCHAR(1024) | MinIO 存储路径 |
+| storage_path | VARCHAR(1024) | 对象存储 COS 存储路径 |
 | file_type | VARCHAR(32) | 文件类型 |
 | upload_time | TIMESTAMPTZ | 上传时间 |
 | status_metadata | BOOLEAN | 文献元数据处理状态 |
@@ -114,10 +114,11 @@ curl -X DELETE http://localhost:8001/api/files/{uuid}
 | POSTGRES_USER | postgres | 数据库用户 |
 | POSTGRES_PASSWORD | - | 数据库密码 |
 | POSTGRES_DB | papers_records | 数据库名 |
-| MINIO_ENDPOINT | 172.16.150.45:9000 | MinIO 地址 |
-| MINIO_ROOT_USER | admin | MinIO 用户 |
-| MINIO_ROOT_PASSWORD | - | MinIO 密码 |
-| MINIO_BUCKET_NAME | tcm-documents | 存储桶名 |
+| S3_ENDPOINT | https://cos.ap-beijing.myqcloud.com | 对象存储地址 |
+| S3_ACCESS_KEY | - | 对象存储 SecretId |
+| S3_SECRET_KEY | - | 对象存储 SecretKey |
+| S3_BUCKET | tcm-documents-1387425381 | COS 存储桶名 |
+| S3_REGION | ap-beijing | COS 地域 |
 | UPLOAD_MAX_SIZE_MB | 100 | 最大文件大小 |
 
 ## 测试

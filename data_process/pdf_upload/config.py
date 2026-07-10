@@ -39,7 +39,7 @@ class PostgresConfig(BaseSettings):
 
 class MinioConfig(BaseSettings):
     model_config = SettingsConfigDict(
-        env_prefix="MINIO_",
+        env_prefix="S3_",
         env_file=str(ENV_FILE),
         extra="ignore",
         env_file_encoding="utf-8",
@@ -54,22 +54,13 @@ class MinioConfig(BaseSettings):
         dotenv_settings,
         file_secret_settings,
     ):
-        # Keep project .env authoritative for MinIO. Stale OS-level MinIO
-        # variables can point to a different server account and break startup.
         return init_settings, dotenv_settings, env_settings, file_secret_settings
 
-    endpoint: str = "172.16.150.45:9000"
-    root_user: str = "admin"
-    root_password: str = ""
+    endpoint: str = "https://cos.ap-beijing.myqcloud.com"
+    access_key: str = ""
+    secret_key: str = ""
     bucket_name: str = "tcm-documents"
-
-    @property
-    def access_key(self) -> str:
-        return self.root_user
-
-    @property
-    def secret_key(self) -> str:
-        return self.root_password
+    region: str = "ap-beijing"
 
 
 class UploadConfig(BaseSettings):

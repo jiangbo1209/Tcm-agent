@@ -12,9 +12,10 @@ class MinioObjectStore:
 
         config = MinioConfig(
             endpoint=settings.minio_endpoint,
-            root_user=settings.minio_access_key,
-            root_password=settings.minio_secret_key,
+            access_key=settings.minio_access_key,
+            secret_key=settings.minio_secret_key,
             bucket_name=settings.minio_bucket_name,
+            region=settings.minio_region,
         )
         self._client = MinioClient(config, auto_create_bucket=False)
 

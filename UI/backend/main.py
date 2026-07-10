@@ -33,13 +33,13 @@ app = FastAPI(title="TCM Agent API", version="2.0.0")
 
 def _build_minio_client() -> MinioClient | None:
     config = get_minio_config()
-    if not config.root_user or not config.root_password:
-        logging.warning("MinIO credentials are missing; file URL APIs will be unavailable")
+    if not config.access_key or not config.secret_key:
+        logging.warning("S3 credentials are missing; file URL APIs will be unavailable")
         return None
     try:
-        return MinioClient(config)
+        return MinioClient(config, auto_create_bucket=False)
     except Exception:
-        logging.exception("Failed to initialize MinIO client")
+        logging.exception("Failed to initialize S3 client")
         return None
 
 

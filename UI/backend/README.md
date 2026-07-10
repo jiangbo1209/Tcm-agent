@@ -11,7 +11,7 @@ backend/
 ├── create_professional_user.py # 创建专业用户脚本
 ├── tcm.db                      # SQLite 数据库（运行时自动生成）
 └── app/
-    ├── config.py               # 环境变量配置（PostgreSQL、MinIO、搜索策略）
+    ├── config.py               # 环境变量配置（PostgreSQL、S3/COS、搜索策略）
     ├── database.py             # SQLite 引擎 & Session 管理
     ├── database_pg.py          # PostgreSQL 引擎 & Session 管理
     ├── auth/
@@ -42,7 +42,7 @@ backend/
     ├── repositories/
     │   └── graph_repository.py # 图谱数据访问（SQLAlchemy ORM）
     ├── core/
-    │   └── minio_utils.py      # MinIO 预签名链接
+    │   └── minio_utils.py      # 对象存储预签名链接 (S3 兼容)
     └── search/
         └── settings.py         # 搜索后端策略枚举
 ```
@@ -156,7 +156,8 @@ python create_professional_user.py
 | `POSTGRES_USER` | postgres | PostgreSQL 用户名 |
 | `POSTGRES_PASSWORD` | (空) | PostgreSQL 密码 |
 | `POSTGRES_DB` | postgres | PostgreSQL 数据库名 |
-| `MINIO_ENDPOINT` | localhost:9000 | MinIO 地址 |
-| `MINIO_ACCESS_KEY` | (空) | MinIO Access Key |
-| `MINIO_SECRET_KEY` | (空) | MinIO Secret Key |
-| `MINIO_BUCKET_NAME` | tcm-documents | MinIO Bucket |
+| `S3_ENDPOINT` | https://cos.ap-beijing.myqcloud.com | 对象存储地址 |
+| `S3_ACCESS_KEY` | (空) | SecretId |
+| `S3_SECRET_KEY` | (空) | SecretKey |
+| `S3_BUCKET` | tcm-documents-1387425381 | COS 存储桶名 |
+| `S3_REGION` | ap-beijing | COS 地域 |

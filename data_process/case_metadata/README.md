@@ -4,7 +4,7 @@
 
 从已上传的 PDF 论文中，调用 Gemini 大模型提取中医病案结构化数据，写入 `case_metadata` 表，并更新 `core_file.status_case` 标记。
 
-处理流程：查询待处理记录 → 从 MinIO 下载 PDF → Gemini API 提取 → JSON 解析校验 → 入库 → 更新状态
+处理流程：查询待处理记录 → 从对象存储 COS 下载 PDF → Gemini API 提取 → JSON 解析校验 → 入库 → 更新状态
 
 ## 运行
 
@@ -22,7 +22,7 @@ python -m data_process.case_metadata.run_extraction --limit 20
 
 ## 前置条件
 
-1. PostgreSQL 和 MinIO 服务运行中
+1. PostgreSQL 服务运行中，对象存储已配置
 2. `core_file` 表中有 `document_type=1` 且 `status_case=false` 的记录（即已上传但未提取病案的 PDF）
 3. `.env` 中已配置 Gemini API 密钥
 
@@ -32,7 +32,7 @@ python -m data_process.case_metadata.run_extraction --limit 20
 run_extraction.py 启动
   → 查询 core_file WHERE document_type=1 AND status_case=false
   → 对每条记录：
-    1. 从 MinIO 下载 PDF
+    1. 从对象存储 COS 下载 PDF
     2. base64 编码 PDF，连同 prompt 一起发送给 Gemini
     3. 解析 Gemini 返回的 JSON（20 个中文键名字段）
     4. 校验字段完整性，缺失字段补 null
@@ -129,7 +129,7 @@ SELECT file_uuid, status_case FROM core_file WHERE status_case = true;
 - 处理单条记录前会再次检查 `case_metadata` 是否已存在，防止任务中断后重新运行时重复调用 Gemini。
 - 如果 `case_metadata` 已经存在记录，但 `core_file.status_case=false`，脚本只同步 `status_case=true`，不会重新调用 Gemini。
 - 如果极端并发导致重复插入，唯一索引会阻止重复数据；程序回滚后同步 `status_case=true`，并将该条计为 skipped。
-- Gemini、MinIO 或解析失败时不会写入 `case_metadata`，也不会把 `status_case` 改为 `true`，后续重新运行会继续重试。
+- Gemini、对象存储或解析失败时不会写入 `case_metadata`，也不会把 `status_case` 改为 `true`，后续重新运行会继续重试。
 
 状态规则：
 
