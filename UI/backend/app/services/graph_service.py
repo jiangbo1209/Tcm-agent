@@ -9,8 +9,8 @@ import json
 import math
 from urllib.parse import quote
 
-from app.core.minio_utils import MinioClient
 from app.repositories.graph_repository import GraphRepository
+from app.storage import S3Client
 
 RECORD_COLUMNS = [
     "论文名称",
@@ -38,9 +38,9 @@ RECORD_COLUMNS = [
 
 
 class GraphService:
-    def __init__(self, repository: GraphRepository, minio_client: MinioClient | None = None) -> None:
+    def __init__(self, repository: GraphRepository, s3_client: S3Client | None = None) -> None:
         self._repository = repository
-        self._minio_client = minio_client
+        self._s3_client = s3_client
 
     @staticmethod
     def _to_float(value: Any) -> float | None:
@@ -296,16 +296,16 @@ class GraphService:
         return self._repository.get_search_index_status()
 
     def get_file_url(self, node_id: str, download: bool) -> dict[str, Any]:
-        if not self._minio_client:
-            raise RuntimeError("minio client is not configured")
+        if not self._s3_client:
+            raise RuntimeError("s3 client is not configured")
         reference = self._repository.get_file_reference_by_node_id(node_id)
         if not reference:
             raise ValueError("node not found")
         return self._build_file_url_payload(reference, download)
 
     def get_file_url_by_file_uuid(self, file_uuid: str, source_type: str, download: bool) -> dict[str, Any]:
-        if not self._minio_client:
-            raise RuntimeError("minio client is not configured")
+        if not self._s3_client:
+            raise RuntimeError("s3 client is not configured")
         reference = self._repository.get_file_reference_by_file_uuid(file_uuid)
         if not reference:
             raise ValueError("file not found")
@@ -350,7 +350,7 @@ class GraphService:
             "response-content-disposition": content_disposition,
         }
 
-        presigned_url = self._minio_client.presigned_get_object(
+        presigned_url = self._s3_client.presigned_get_object(
             object_name=object_name,
             expires=timedelta(hours=1),
             response_headers=response_headers,
@@ -359,7 +359,7 @@ class GraphService:
         return {
             "node_id": node_id,
             "node_type": node_type,
-            "bucket": self._minio_client.bucket_name,
+            "bucket": self._s3_client.bucket_name,
             "object_name": object_name,
             "file_name": download_name,
             "download": download,

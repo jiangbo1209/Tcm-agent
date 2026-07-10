@@ -9,7 +9,7 @@ from pydantic import Field
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 from app.models.search_history import SearchBackendMode
-from app.storage.config import S3Config
+from app.storage.config import S3Config, UploadConfig
 
 
 class PostgresSettings(BaseSettings):
@@ -42,22 +42,6 @@ class PostgresSettings(BaseSettings):
         )
 
 
-class MinioSettings(S3Config):
-    """Backwards-compatible alias for :class:`S3Config`.
-
-    The :mod:`app.storage` package owns the canonical S3 configuration.
-    ``MinioSettings`` is kept here so existing call sites (e.g. ``main.py``)
-    continue to work; it inherits all fields and the ``S3_`` env prefix
-    from :class:`S3Config`.
-    """
-
-    model_config = SettingsConfigDict(
-        env_prefix="S3_", extra="ignore",
-        env_file=(".env", "../.env", "../../.env"),
-        env_file_encoding="utf-8",
-    )
-
-
 class SearchSettings(BaseSettings):
     model_config = SettingsConfigDict(env_prefix="SEARCH_", extra="ignore")
 
@@ -80,7 +64,8 @@ class Settings(BaseSettings):
     )
 
     postgres: PostgresSettings = PostgresSettings()
-    minio: MinioSettings = MinioSettings()
+    s3: S3Config = S3Config()
+    upload: UploadConfig = UploadConfig()
     search: SearchSettings = SearchSettings()
     auth: AuthSettings = AuthSettings()
 
@@ -96,8 +81,12 @@ def get_database_config() -> PostgresSettings:
     return get_settings().postgres
 
 
-def get_minio_config() -> MinioSettings:
-    return get_settings().minio
+def get_s3_config() -> S3Config:
+    return get_settings().s3
+
+
+def get_upload_config() -> UploadConfig:
+    return get_settings().upload
 
 
 def get_search_config() -> SearchSettings:

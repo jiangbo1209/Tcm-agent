@@ -41,8 +41,12 @@ backend/
     │   └── graph_service.py    # 图谱业务逻辑（BFS 扩展、详情聚合）
     ├── repositories/
     │   └── graph_repository.py # 图谱数据访问（SQLAlchemy ORM）
-    ├── core/
-    │   └── minio_utils.py      # 对象存储预签名链接 (S3 兼容)
+    ├── storage/                # 对象存储 (S3 / 腾讯云 COS) 客户端 + 上传服务
+    │   ├── s3_client.py
+    │   ├── service.py
+    │   ├── repository.py
+    │   ├── schemas.py
+    │   └── config.py
     └── search/
         └── settings.py         # 搜索后端策略枚举
 ```

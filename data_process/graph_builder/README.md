@@ -4,7 +4,7 @@
 
 ## 模块说明
 
-- [data_process/graph_builder/models.py](data_process/graph_builder/models.py)：`Node`、`Edge`、`BuildGraphOptions` 数据类。
+- [data_process/graph_builder/models.py](data_process/graph_builder/models.py)：`GraphNode`、`GraphEdge`、`BuildGraphOptions` 数据类（节点/边是 builder 内部工作数据，区别于 ORM 的 `Node`/`Edge`）。
 - [data_process/graph_builder/processor.py](data_process/graph_builder/processor.py)：文本清洗、分词、Jaccard 相似度、边生成、`top_k_value` 计算。包含 CPU 与 GPU（cuPy）两种实现，由 `--device` 选择。
 - [data_process/graph_builder/database.py](data_process/graph_builder/database.py)：数据库连接、Schema 创建、源表读取、分批写入。
 - [data_process/graph_builder/engine.py](data_process/graph_builder/engine.py)：建图流程编排。
@@ -116,7 +116,7 @@ python -m data_process.graph_builder.main --device cuda --strategy upsert
 1. 把每个节点的 token 集合编码为 0/1 稀疏矩阵 `X`（n × V）。
 2. 用 cuSPARSE SpMM 计算 `X @ Xᵀ` 得到交集矩阵（n × n），再把每行分块以控制 GPU 显存（默认块大小 512）。
 3. 按公式 `J = inter / (|a| + |b| - inter)` 计算每对非零项的 Jaccard。
-4. 在 CPU 上对每行的候选邻居排序并取 Top K，避免重复边并接入到统一的 `Edge` 数据结构里。
+4. 在 CPU 上对每行的候选邻居排序并取 Top K，避免重复边并接入到统一的 `GraphEdge` 数据结构里。
 
 注意：
 

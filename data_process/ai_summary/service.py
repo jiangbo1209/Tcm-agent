@@ -50,7 +50,7 @@ class AiSummaryService:
         pg_config = PostgresSettings()
         self._engine = create_async_engine(pg_config.async_dsn, echo=False, pool_size=5)
         self._session_factory = async_sessionmaker(self._engine, expire_on_commit=False)
-        self._minio = S3Client(get_s3_config())
+        self._s3 = S3Client(get_s3_config())
         self._prompt_template = _PROMPT_PATH.read_text(encoding="utf-8").strip()
 
     def _build_prompt(self, record: LitMetadata) -> str:
@@ -142,7 +142,7 @@ class AiSummaryService:
             return False
 
         try:
-            pdf_bytes = self._minio.get_object(record.storage_path)
+            pdf_bytes = self._s3.get_object(record.storage_path)
         except Exception as exc:
             elapsed = time.monotonic() - t_start
             LOGGER.exception("COS download failed for %s", record.storage_path)

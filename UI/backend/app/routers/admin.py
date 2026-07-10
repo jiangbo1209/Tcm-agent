@@ -14,7 +14,7 @@ from sqlalchemy.orm import Session
 
 from app.auth.dependencies import require_admin
 from app.core.database import get_db
-from app.models.graph import GuidelineMetadata, LitMetadata, MedCase
+from app.models import GuidelineMetadata, LitMetadata, MedCase
 from app.models.user import User
 
 LOGGER = logging.getLogger("admin_api")

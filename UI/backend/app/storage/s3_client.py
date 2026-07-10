@@ -1,8 +1,8 @@
-"""S3-compatible object storage client (Tencent COS / AWS S3 / MinIO).
+"""S3-compatible object storage client (Tencent COS / AWS S3 / self-hosted S3).
 
-Wraps the official ``minio`` Python SDK and exposes a small async-friendly
-surface used by the upload service. The bucket is never auto-created — the
-caller must provision it in the cloud console ahead of time.
+Wraps the S3 protocol SDK and exposes a small async-friendly surface used
+by the upload service. The bucket is never auto-created — the caller must
+provision it in the cloud console ahead of time.
 """
 
 from __future__ import annotations
@@ -16,6 +16,8 @@ from minio import Minio
 from minio.error import S3Error
 
 from .config import S3Config
+
+__all__ = ["S3Client", "S3Error"]
 
 
 class _ParsedEndpoint:
@@ -37,7 +39,11 @@ def _parse_endpoint(raw_endpoint: str) -> _ParsedEndpoint:
 
 
 class S3Client:
-    """Async-friendly wrapper around the MinIO S3 SDK."""
+    """Async-friendly wrapper around the S3 protocol.
+
+    The underlying low-level client is exposed via :attr:`client` for the few
+    code paths that need direct access (e.g. presigned URL customisation).
+    """
 
     def __init__(self, config: S3Config, *, auto_create_bucket: bool = False) -> None:
         self._config = config

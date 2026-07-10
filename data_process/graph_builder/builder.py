@@ -12,7 +12,7 @@ from .database import (
     write_nodes,
 )
 from .engine import run
-from .models import BuildGraphOptions, Edge, Node
+from .models import BuildGraphOptions, GraphEdge, GraphNode
 from .processor import (
     CJK_RE,
     WORD_RE,
@@ -35,8 +35,8 @@ from .processor import (
 __all__ = [
     "CJK_RE",
     "WORD_RE",
-    "Node",
-    "Edge",
+    "GraphNode",
+    "GraphEdge",
     "BuildGraphOptions",
     "Error",
     "connect_postgres",

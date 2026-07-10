@@ -5,9 +5,10 @@ from __future__ import annotations
 from fastapi import Depends, HTTPException, Request
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.config import get_upload_config
 from app.core.database import get_async_db
 from app.storage import CoreFileRepository, S3Client, UploadService
-from app.storage.config import UploadConfig, get_upload_config
+from app.storage.config import UploadConfig
 
 
 def get_s3_client(request: Request) -> S3Client | None:

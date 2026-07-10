@@ -15,7 +15,8 @@ UI/
 │   │   ├── routers/        # API 路由
 │   │   ├── services/       # 业务逻辑层
 │   │   ├── repositories/   # 数据访问层
-│   │   ├── core/           # 工具类（S3）
+│   │   ├── core/           # 数据库引擎、异常等基础设施
+│   │   ├── storage/        # S3 兼容对象存储 (腾讯云 COS / AWS S3)
 │   │   └── search/         # 搜索策略配置
 │   ├── requirements.txt
 │   └── create_professional_user.py
@@ -50,6 +51,7 @@ UI/
 | 搜索 | `/api/search` | 智能搜索、搜索历史 |
 | 历史 | `/api/history` | 对话+搜索历史聚合 |
 | 图谱 | `/api/graph` | BFS 扩展、节点详情、文件访问 |
+| 文件 | `/api/files` | PDF 上传/列表/删除 (需登录) |
 
 ## 数据库说明
 

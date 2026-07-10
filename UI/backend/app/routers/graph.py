@@ -5,7 +5,6 @@ from __future__ import annotations
 import logging
 
 from fastapi import APIRouter, HTTPException, Query, Request
-from minio.error import S3Error
 from sqlalchemy.exc import SQLAlchemyError
 
 from app.schemas.graph import (
@@ -16,6 +15,7 @@ from app.schemas.graph import (
     SearchResponse,
 )
 from app.services.graph_service import GraphService
+from app.storage import S3Error
 
 LOGGER = logging.getLogger("graph_api")
 
@@ -133,7 +133,7 @@ def get_graph_file_url(
         raise HTTPException(status_code=500, detail=str(exc)) from exc
     except S3Error as exc:
         LOGGER.exception("Failed to generate MinIO presigned url for node_id=%s", normalized_node_id)
-        raise HTTPException(status_code=502, detail=f"minio error: {exc.code}") from exc
+        raise HTTPException(status_code=502, detail=f"storage error: {exc.code}") from exc
 
 
 @router.get("/file-url-by-uuid", response_model=FileUrlResponse)
@@ -164,4 +164,4 @@ def get_graph_file_url_by_uuid(
         raise HTTPException(status_code=500, detail=str(exc)) from exc
     except S3Error as exc:
         LOGGER.exception("Failed to generate MinIO presigned url for file_uuid=%s", normalized_file_uuid)
-        raise HTTPException(status_code=502, detail=f"minio error: {exc.code}") from exc
+        raise HTTPException(status_code=502, detail=f"storage error: {exc.code}") from exc

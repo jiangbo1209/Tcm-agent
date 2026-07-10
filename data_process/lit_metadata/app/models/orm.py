@@ -1,9 +1,8 @@
-"""Deprecated re-export module.
+"""Re-export of canonical ORM models for :mod:`data_process.lit_metadata.app`.
 
-The canonical ORM definitions live in :mod:`UI.backend.app.models`. This file
-remains so that legacy imports like
-``from data_process.lit_metadata.app.models.orm import LitMetadata`` continue
-to work; new code should import from ``UI.backend.app.models`` directly.
+The actual class definitions live in :mod:`UI.backend.app.models`. This
+module exists so that legacy imports inside :mod:`data_process.lit_metadata`
+(e.g. ``from app.models.orm import LitMetadata``) continue to resolve.
 """
 
 from __future__ import annotations

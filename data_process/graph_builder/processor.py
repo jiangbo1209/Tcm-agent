@@ -21,7 +21,7 @@ from typing import Iterable
 
 import numpy
 
-from .models import Edge, Node
+from .models import GraphEdge, GraphNode
 
 
 @contextmanager
@@ -146,18 +146,18 @@ def stable_edge_id(edge_type: str, source_id: str, target_id: str) -> str:
 
 
 # ---------------------------------------------------------------------------
-# Edge construction – dispatch + reference CPU implementation
+# GraphEdge construction – dispatch + reference CPU implementation
 # ---------------------------------------------------------------------------
 
 
 def build_pair_edges(
-    nodes: list[Node],
+    nodes: list[GraphNode],
     edge_type: str,
     top_k: int,
     min_score: float,
     *,
     device: str = "auto",
-) -> list[Edge]:
+) -> list[GraphEdge]:
     """Build top-k pairwise similarity edges for a single edge type.
 
     Parameters
@@ -199,12 +199,12 @@ def _resolve_device(device: str) -> str:
 
 
 def _build_pair_edges_cpu(
-    nodes: list[Node],
+    nodes: list[GraphNode],
     edge_type: str,
     top_k: int,
     min_score: float,
-) -> list[Edge]:
-    edges: dict[tuple[str, str, str], Edge] = {}
+) -> list[GraphEdge]:
+    edges: dict[tuple[str, str, str], GraphEdge] = {}
 
     for i in range(len(nodes)):
         scores: list[tuple[int, float]] = []
@@ -223,7 +223,7 @@ def _build_pair_edges_cpu(
             key = (edge_type, src, dst)
             existing = edges.get(key)
             if existing is None or score > existing.similarity_score:
-                edges[key] = Edge(
+                edges[key] = GraphEdge(
                     edge_id=stable_edge_id(edge_type, src, dst),
                     source_id=src,
                     target_id=dst,
@@ -241,13 +241,13 @@ def _build_pair_edges_cpu(
 
 
 def _build_pair_edges_cuda(
-    nodes: list[Node],
+    nodes: list[GraphNode],
     edge_type: str,
     top_k: int,
     min_score: float,
     *,
     row_chunk: int = 512,
-) -> list[Edge]:
+) -> list[GraphEdge]:
     """GPU counterpart of :func:`_build_pair_edges_cpu`.
 
     Pipeline:
@@ -294,7 +294,7 @@ def _build_pair_edges_cuda(
     # Document length (number of tokens per node) -> n vector (kept on host).
     deg_host = cupy.asnumpy(cupy.asarray(x_gpu.sum(axis=1)).reshape(-1))
 
-    edges: dict[tuple[str, str, str], Edge] = {}
+    edges: dict[tuple[str, str, str], GraphEdge] = {}
 
     # 2-5. Process the matrix one row block at a time.
     for start in range(0, n, row_chunk):
@@ -333,7 +333,7 @@ def _build_pair_edges_cuda(
                 key = (edge_type, src_id, dst_id)
                 existing = edges.get(key)
                 if existing is None or score > existing.similarity_score:
-                    edges[key] = Edge(
+                    edges[key] = GraphEdge(
                         edge_id=stable_edge_id(edge_type, src_id, dst_id),
                         source_id=src_id,
                         target_id=dst_id,
@@ -345,15 +345,15 @@ def _build_pair_edges_cuda(
     return list(edges.values())
 
 
-def build_ref_edges(paper_by_uuid: dict[str, Node], record_by_uuid: dict[str, Node]) -> list[Edge]:
-    edges: list[Edge] = []
+def build_ref_edges(paper_by_uuid: dict[str, GraphNode], record_by_uuid: dict[str, GraphNode]) -> list[GraphEdge]:
+    edges: list[GraphEdge] = []
     for file_uuid, paper in paper_by_uuid.items():
         record = record_by_uuid.get(file_uuid)
         if not record:
             continue
         src, dst = normalize_pair(paper.node_id, record.node_id)
         edges.append(
-            Edge(
+            GraphEdge(
                 edge_id=stable_edge_id("ref", src, dst),
                 source_id=src,
                 target_id=dst,
@@ -366,18 +366,18 @@ def build_ref_edges(paper_by_uuid: dict[str, Node], record_by_uuid: dict[str, No
 
 
 def ensure_minimum_edge_types(
-    paper_nodes: list[Node],
-    record_nodes: list[Node],
-    paper_edges: list[Edge],
-    ref_edges: list[Edge],
-    record_edges: list[Edge],
-) -> tuple[list[Edge], list[Edge], list[Edge]]:
+    paper_nodes: list[GraphNode],
+    record_nodes: list[GraphNode],
+    paper_edges: list[GraphEdge],
+    ref_edges: list[GraphEdge],
+    record_edges: list[GraphEdge],
+) -> tuple[list[GraphEdge], list[GraphEdge], list[GraphEdge]]:
     if not ref_edges and paper_nodes and record_nodes:
         p = paper_nodes[0]
         r = record_nodes[0]
         src, dst = normalize_pair(p.node_id, r.node_id)
         ref_edges = [
-            Edge(
+            GraphEdge(
                 edge_id=stable_edge_id("ref", src, dst),
                 source_id=src,
                 target_id=dst,
@@ -392,7 +392,7 @@ def ensure_minimum_edge_types(
         b = record_nodes[1]
         src, dst = normalize_pair(a.node_id, b.node_id)
         record_edges = [
-            Edge(
+            GraphEdge(
                 edge_id=stable_edge_id("record-record", src, dst),
                 source_id=src,
                 target_id=dst,
@@ -407,7 +407,7 @@ def ensure_minimum_edge_types(
         b = paper_nodes[1]
         src, dst = normalize_pair(a.node_id, b.node_id)
         paper_edges = [
-            Edge(
+            GraphEdge(
                 edge_id=stable_edge_id("paper-paper", src, dst),
                 source_id=src,
                 target_id=dst,
@@ -420,7 +420,7 @@ def ensure_minimum_edge_types(
     return paper_edges, ref_edges, record_edges
 
 
-def compute_node_top_k(nodes: list[Node], edges: list[Edge]) -> dict[str, float]:
+def compute_node_top_k(nodes: list[GraphNode], edges: list[GraphEdge]) -> dict[str, float]:
     weighted_degree: dict[str, float] = defaultdict(float)
     for edge in edges:
         weighted_degree[edge.source_id] += float(edge.similarity_score)

@@ -24,11 +24,11 @@ class RagflowSyncSettings(BaseSettings):
     db_password: str = Field(default="", validation_alias=AliasChoices("DB_PASSWORD", "POSTGRES_PASSWORD"))
     db_name: str = Field(default="papers_records", validation_alias=AliasChoices("DB_NAME", "POSTGRES_DB"))
 
-    minio_endpoint: str = Field(default="https://cos.ap-beijing.myqcloud.com", validation_alias=AliasChoices("S3_ENDPOINT"))
-    minio_access_key: str = Field(default="", validation_alias=AliasChoices("S3_ACCESS_KEY"))
-    minio_secret_key: str = Field(default="", validation_alias=AliasChoices("S3_SECRET_KEY"))
-    minio_bucket_name: str = Field(default="tcm-documents", validation_alias=AliasChoices("S3_BUCKET"))
-    minio_region: str = Field(default="ap-beijing", validation_alias=AliasChoices("S3_REGION"))
+    s3_endpoint: str = Field(default="https://cos.ap-beijing.myqcloud.com", validation_alias=AliasChoices("S3_ENDPOINT"))
+    s3_access_key: str = Field(default="", validation_alias=AliasChoices("S3_ACCESS_KEY"))
+    s3_secret_key: str = Field(default="", validation_alias=AliasChoices("S3_SECRET_KEY"))
+    s3_bucket_name: str = Field(default="tcm-documents", validation_alias=AliasChoices("S3_BUCKET"))
+    s3_region: str = Field(default="ap-beijing", validation_alias=AliasChoices("S3_REGION"))
 
     ragflow_base_url: str = Field(default="http://127.0.0.1:9380", validation_alias=AliasChoices("RAGFLOW_BASE_URL"))
     ragflow_api_key: str = Field(default="", validation_alias=AliasChoices("RAGFLOW_API_KEY"))

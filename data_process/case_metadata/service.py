@@ -13,8 +13,8 @@ from sqlalchemy.exc import IntegrityError, SQLAlchemyError
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_async_engine
 
 from UI.backend.app.config import PostgresSettings
+from UI.backend.app.models import Base, CoreFile, MedCase
 from UI.backend.app.storage import S3Client, get_s3_config
-from UI.backend.app.models import Base, CoreFile
 
 from .llm_client import (
     build_final_prompt,
@@ -28,7 +28,6 @@ from .llm_client import (
     MAX_RETRIES,
     RETRY_DELAY,
 )
-from .models import MedCase
 from .schemas import ExtractionResult, ExtractionSummary, map_chinese_to_english
 
 LOGGER = logging.getLogger("case_metadata")
@@ -63,7 +62,7 @@ class CaseExtractionService:
         pg_config = PostgresSettings()
         self._engine = create_async_engine(pg_config.async_dsn, echo=False, pool_size=5)
         self._session_factory = async_sessionmaker(self._engine, expire_on_commit=False)
-        self._minio = S3Client(get_s3_config())
+        self._s3 = S3Client(get_s3_config())
 
         # Load prompt + schema (once at init)
         self._prompt_md = _PROMPT_PATH.read_text(encoding="utf-8")
@@ -89,7 +88,6 @@ class CaseExtractionService:
         summary = ExtractionSummary()
 
         async with self._session_factory() as session:
-            from UI.backend.app.models import CoreFile
 
             synced_existing = await self._sync_existing_case_statuses(session)
             for core_file in synced_existing:
@@ -161,7 +159,6 @@ class CaseExtractionService:
         return summary
 
     async def _sync_existing_case_statuses(self, session: AsyncSession) -> list:
-        from UI.backend.app.models import CoreFile
 
         existing_case = select(MedCase.id).where(MedCase.file_uuid == CoreFile.file_uuid).exists()
         stmt = (
@@ -202,7 +199,7 @@ class CaseExtractionService:
 
         # 1. Download PDF from object storage (Tencent COS)
         try:
-            pdf_bytes = self._minio.get_object(storage_path)
+            pdf_bytes = self._s3.get_object(storage_path)
         except Exception as exc:
             elapsed = time.monotonic() - t_start
             LOGGER.exception("Failed to download %s from COS", storage_path)
@@ -301,7 +298,6 @@ class CaseExtractionService:
         return result.scalar_one_or_none() is not None
 
     async def _mark_case_processed(self, session: AsyncSession, file_uuid: str) -> None:
-        from UI.backend.app.models import CoreFile
 
         await session.execute(
             update(CoreFile)

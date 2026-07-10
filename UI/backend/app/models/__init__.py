@@ -7,6 +7,9 @@ All canonical models live in :mod:`app.models`. Other code (including
 
 from .base import Base
 from .core_file import CoreFile
+from .graph_base import GraphBase
+from .graph_edge import Edge
+from .graph_node import Node
 from .guideline import GuidelineMetadata
 from .lit_metadata import LitMetadata
 from .med_case import MedCase
@@ -14,7 +17,10 @@ from .med_case import MedCase
 __all__ = [
     "Base",
     "CoreFile",
-    "MedCase",
-    "LitMetadata",
+    "Edge",
+    "GraphBase",
     "GuidelineMetadata",
+    "LitMetadata",
+    "MedCase",
+    "Node",
 ]

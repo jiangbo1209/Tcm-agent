@@ -17,11 +17,11 @@ from fastapi import (
     Query,
     UploadFile,
 )
-from minio.error import S3Error
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.auth.dependencies import get_current_user
 from app.dependencies.files import get_upload_service
+from app.storage import S3Error
 from app.models.user import User
 from app.storage import (
     BatchDeleteRequest,

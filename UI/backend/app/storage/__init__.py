@@ -8,7 +8,7 @@ Used by:
 
 from .config import S3Config, UploadConfig, get_s3_config, get_upload_config
 from .repository import CoreFileRepository
-from .s3_client import S3Client
+from .s3_client import S3Client, S3Error
 from .schemas import (
     BatchDeleteItem,
     BatchDeleteRequest,
@@ -37,6 +37,7 @@ __all__ = [
     "FileListResponse",
     "S3Client",
     "S3Config",
+    "S3Error",
     "UploadConfig",
     "UploadResponse",
     "UploadService",
