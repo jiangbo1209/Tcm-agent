@@ -75,7 +75,7 @@ graph TD
     Start((开始)) --> UploadAction[用户上传 PDF 文件]:::userAction
     UploadAction --> GenUUID[后端生成 UUID]:::process
     GenUUID --> SaveStorage[保存文件到存储桶]:::storage
-    SaveMinio --> InsertCoreFile[(插入 CORE_FILE 表<br/>status_metadata=false<br/>status_case=false)]:::db
+    SaveStorage --> InsertCoreFile[(插入 CORE_FILE 表<br/>status_metadata=false<br/>status_case=false)]:::db
 
     %% --- 调度/轮询层 ---
 
@@ -127,11 +127,22 @@ graph TD
 ├── agent                           # agent
 ├── configs
 │   └── nginx                        # Nginx 配置模板
-├── data_process                    # 数据处理
+├── data_process                    # 数据处理（共享 UI/backend 的 ORM 和 S3 客户端）
 │   ├── case_metadata               # 病案元数据提取
 │   ├── graph_builder               # nodes/edges 离线建图
 │   ├── lit_metadata                # 文献元数据提取
-│   └── pdf_upload                  # 文件上传建立数据库
+│   ├── ai_summary                  # AI 摘要
+│   ├── ragflow_sync                # 同步到 RAGFlow
+│   ├── guideline_metadata          # 指南元数据同步
+│   └── pdf_upload                  # TUI 上传客户端 (仅 pdf_manager_tui.py)
+├── UI                              # 用户界面
+│   ├── backend                     # 后端 (含 models/、storage/、routers/files.py)
+│   │   └── app
+│   └── frontend                    # 前端
+│       └── src
+├── agent                           # agent
+├── configs
+│   └── nginx                        # Nginx 配置模板
 └── docker                          # docker配置文件
 
 ```
@@ -148,6 +159,19 @@ conda run -n Tcm-agent python -m data_process.db_init
 
 ```bash
 conda run -n Tcm-agent python -m data_process.graph_builder
+```
+
+### 终端上传工具 (TUI)
+
+TUI 是一个独立的命令行客户端，运行在本地电脑，通过 HTTPS+JWT 连接到部署在云服务器的 UI/backend：
+
+```bash
+# 1. 配置 API 地址
+export TCM_API_BASE_URL=https://api.example.com:8011
+# 或写入 ~/.tcm-tui.yaml: api_base_url: https://api.example.com:8011
+
+# 2. 启动 TUI（首次会要求登录）
+python data_process/pdf_upload/pdf_manager_tui.py
 ```
 
 ### Git 协作与分支规范

@@ -1,4 +1,4 @@
-"""Pydantic request/response schemas for file upload API."""
+"""Pydantic request/response schemas for the file upload API."""
 
 from __future__ import annotations
 
@@ -10,7 +10,7 @@ from pydantic import BaseModel, Field
 class UploadResponse(BaseModel):
     file_uuid: str = Field(..., description="Generated UUID for the uploaded file")
     original_name: str
-    storage_path: str = Field(..., description="MinIO object path")
+    storage_path: str = Field(..., description="S3 object path")
     file_type: str
     upload_time: datetime
     status_metadata: bool
@@ -18,6 +18,7 @@ class UploadResponse(BaseModel):
     document_type: int = Field(..., ge=0, le=2, description="0=literature, 1=case, 2=guideline")
     status_guidelinemeta: bool
     status_ragflow: bool
+    uploader_id: int | None = None
 
 
 class FileListResponse(BaseModel):

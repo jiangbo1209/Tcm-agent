@@ -1,9 +1,20 @@
-"""ORM models."""
+"""ORM model exports for UI/backend.
 
-from app.models.base import Base
-from app.models.user import User
-from app.models.conversation import Conversation
-from app.models.message import Message
-from app.models.search_history import SearchBackendMode, SearchHistory
+All canonical models live in :mod:`app.models`. Other code (including
+``data_process/*`` modules) should import from here, not from any
+``data_process.*`` subpackage, to keep a single source of truth.
+"""
 
-__all__ = ["Base", "User", "Conversation", "Message", "SearchBackendMode", "SearchHistory"]
+from .base import Base
+from .core_file import CoreFile
+from .guideline import GuidelineMetadata
+from .lit_metadata import LitMetadata
+from .med_case import MedCase
+
+__all__ = [
+    "Base",
+    "CoreFile",
+    "MedCase",
+    "LitMetadata",
+    "GuidelineMetadata",
+]

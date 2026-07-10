@@ -1,43 +1,25 @@
-"""Database and environment configuration."""
+"""Configuration for the storage layer.
+
+Two pydantic-settings classes:
+
+* :class:`S3Config` — S3-compatible object storage (Tencent COS, AWS S3, MinIO).
+  Reads from ``S3_*`` environment variables.
+* :class:`UploadConfig` — upload limits and concurrency. Reads from
+  ``UPLOAD_*`` environment variables.
+"""
 
 from __future__ import annotations
 
 from pathlib import Path
 from typing import Tuple
-from urllib.parse import quote_plus
 
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
-# Get the project root directory (two levels up from this file)
-PROJECT_ROOT = Path(__file__).resolve().parents[2]
+PROJECT_ROOT = Path(__file__).resolve().parents[4]
 ENV_FILE = PROJECT_ROOT / ".env"
 
 
-class PostgresConfig(BaseSettings):
-    model_config = SettingsConfigDict(
-        env_prefix="POSTGRES_",
-        env_file=str(ENV_FILE),
-        env_file_encoding="utf-8",
-        extra="ignore",
-    )
-
-    host: str = "172.16.150.45"
-    port: int = 5432
-    user: str = "postgres"
-    password: str = ""
-    database: str = "papers_records"
-
-    @property
-    def dsn(self) -> str:
-        user = quote_plus(self.user)
-        password = quote_plus(self.password)
-        return (
-            f"postgresql+asyncpg://{user}:{password}"
-            f"@{self.host}:{self.port}/{self.database}"
-        )
-
-
-class MinioConfig(BaseSettings):
+class S3Config(BaseSettings):
     model_config = SettingsConfigDict(
         env_prefix="S3_",
         env_file=str(ENV_FILE),
@@ -80,12 +62,8 @@ class UploadConfig(BaseSettings):
         return tuple(self.allowed_extensions.split(","))
 
 
-def get_postgres_config() -> PostgresConfig:
-    return PostgresConfig()
-
-
-def get_minio_config() -> MinioConfig:
-    return MinioConfig()
+def get_s3_config() -> S3Config:
+    return S3Config()
 
 
 def get_upload_config() -> UploadConfig:

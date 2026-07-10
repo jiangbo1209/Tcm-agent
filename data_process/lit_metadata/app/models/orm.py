@@ -1,121 +1,18 @@
+"""Deprecated re-export module.
+
+The canonical ORM definitions live in :mod:`UI.backend.app.models`. This file
+remains so that legacy imports like
+``from data_process.lit_metadata.app.models.orm import LitMetadata`` continue
+to work; new code should import from ``UI.backend.app.models`` directly.
+"""
+
 from __future__ import annotations
 
-from datetime import datetime
+from UI.backend.app.models import (
+    Base,
+    CoreFile,
+    GuidelineMetadata,
+    LitMetadata,
+)
 
-from sqlalchemy import Boolean, DateTime, ForeignKey, Index, Integer, JSON, String, Text, func
-from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column
-
-
-class Base(DeclarativeBase):
-    pass
-
-
-class CoreFile(Base):
-    __tablename__ = "core_file"
-
-    file_uuid: Mapped[str] = mapped_column(String, primary_key=True)
-    original_name: Mapped[str] = mapped_column(String, nullable=False)
-    storage_path: Mapped[str] = mapped_column(String, nullable=False)
-    file_type: Mapped[str] = mapped_column(String, nullable=False)
-    upload_time: Mapped[datetime] = mapped_column(
-        DateTime(timezone=True),
-        nullable=False,
-        server_default=func.now(),
-    )
-    status_metadata: Mapped[bool] = mapped_column(Boolean, nullable=False)
-    status_case: Mapped[bool] = mapped_column(Boolean, nullable=False)
-    status_guidelinemeta: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
-    status_ragflow: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
-    document_type: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
-
-
-class LitMetadata(Base):
-    __tablename__ = "lit_metadata"
-
-    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
-    file_uuid: Mapped[str] = mapped_column(
-        String,
-        ForeignKey("core_file.file_uuid"),
-        nullable=False,
-        unique=True,
-        index=True,
-    )
-    original_name: Mapped[str] = mapped_column(String(512), nullable=False)
-    storage_path: Mapped[str] = mapped_column(Text, nullable=False)
-    cleaned_title: Mapped[str] = mapped_column(Text, nullable=False)
-    title: Mapped[str] = mapped_column(Text, nullable=False)
-    authors: Mapped[list[str]] = mapped_column(JSON, nullable=False, default=list)
-    abstract: Mapped[str | None] = mapped_column(Text, nullable=True)
-    keywords: Mapped[list[str]] = mapped_column(JSON, nullable=False, default=list)
-    paper_type: Mapped[str | None] = mapped_column(String(64), nullable=True)
-    source_site: Mapped[str] = mapped_column(String(64), nullable=False, index=True)
-    source_url: Mapped[str | None] = mapped_column(Text, nullable=True)
-    journal: Mapped[str | None] = mapped_column(String(256), nullable=True)
-    pub_year: Mapped[str | None] = mapped_column(String(16), nullable=True)
-    matched_title: Mapped[str] = mapped_column(Text, nullable=False)
-    is_exact_match: Mapped[bool] = mapped_column(Boolean, nullable=False, default=True)
-    crawl_status: Mapped[str] = mapped_column(String(32), nullable=False, index=True)
-    error_message: Mapped[str | None] = mapped_column(Text, nullable=True)
-    ai_summary: Mapped[str | None] = mapped_column(Text, nullable=True)
-    ai_summary_status: Mapped[str] = mapped_column(
-        String(32), nullable=False, server_default="pending"
-    )
-    created_at: Mapped[datetime] = mapped_column(
-        DateTime(timezone=True),
-        nullable=False,
-        server_default=func.now(),
-    )
-    updated_at: Mapped[datetime] = mapped_column(
-        DateTime(timezone=True),
-        nullable=False,
-        server_default=func.now(),
-        onupdate=func.now(),
-    )
-
-    __table_args__ = (
-        Index("idx_lit_metadata_title", "title"),
-    )
-
-
-class GuidelineMetadata(Base):
-    __tablename__ = "guideline_metadata"
-
-    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
-    file_uuid: Mapped[str] = mapped_column(
-        String,
-        ForeignKey("core_file.file_uuid"),
-        nullable=False,
-        unique=True,
-        index=True,
-    )
-    original_name: Mapped[str] = mapped_column(String(512), nullable=False)
-    storage_path: Mapped[str] = mapped_column(Text, nullable=False)
-    cleaned_title: Mapped[str] = mapped_column(Text, nullable=False)
-    title: Mapped[str] = mapped_column(Text, nullable=False)
-    authors: Mapped[list[str]] = mapped_column(JSON, nullable=False, default=list)
-    abstract: Mapped[str | None] = mapped_column(Text, nullable=True)
-    keywords: Mapped[list[str]] = mapped_column(JSON, nullable=False, default=list)
-    paper_type: Mapped[str | None] = mapped_column(String(64), nullable=True)
-    source_site: Mapped[str] = mapped_column(String(64), nullable=False, index=True)
-    source_url: Mapped[str | None] = mapped_column(Text, nullable=True)
-    journal: Mapped[str | None] = mapped_column(String(256), nullable=True)
-    pub_year: Mapped[str | None] = mapped_column(String(16), nullable=True)
-    matched_title: Mapped[str] = mapped_column(Text, nullable=False)
-    is_exact_match: Mapped[bool] = mapped_column(Boolean, nullable=False, default=True)
-    crawl_status: Mapped[str] = mapped_column(String(32), nullable=False, index=True)
-    error_message: Mapped[str | None] = mapped_column(Text, nullable=True)
-    created_at: Mapped[datetime] = mapped_column(
-        DateTime(timezone=True),
-        nullable=False,
-        server_default=func.now(),
-    )
-    updated_at: Mapped[datetime] = mapped_column(
-        DateTime(timezone=True),
-        nullable=False,
-        server_default=func.now(),
-        onupdate=func.now(),
-    )
-
-    __table_args__ = (
-        Index("idx_guideline_metadata_title", "title"),
-    )
+__all__ = ["Base", "CoreFile", "GuidelineMetadata", "LitMetadata"]

@@ -7,8 +7,8 @@ import logging
 
 from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
 
-from data_process.lit_metadata.app.models.orm import Base
-from data_process.pdf_upload.config import get_postgres_config
+from UI.backend.app.config import PostgresSettings
+from UI.backend.app.models import Base
 
 from .repository import GuidelineMetadataRepository
 from .schemas import GuidelineSyncItem, GuidelineSyncSummary
@@ -18,9 +18,9 @@ LOGGER = logging.getLogger("guideline_metadata")
 
 class GuidelineMetadataSyncService:
     def __init__(self) -> None:
-        pg_config = get_postgres_config()
+        pg_config = PostgresSettings()
         self._engine = create_async_engine(
-            pg_config.dsn,
+            pg_config.async_dsn,
             echo=False,
             pool_size=5,
             json_serializer=lambda value: json.dumps(value, ensure_ascii=False),

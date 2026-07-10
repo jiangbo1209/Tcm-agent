@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import logging
+from contextlib import asynccontextmanager
 
 from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
@@ -12,12 +13,14 @@ logging.basicConfig(level=logging.INFO)
 
 from app.auth.router import router as auth_router
 from app.config import get_database_config, get_minio_config, get_search_config
+from app.core.database import dispose_async_engine
 from app.core.minio_utils import MinioClient
 from app.core.database import engine
 from app.models.base import Base
 from app.models.graph import GraphBase
 from app.repositories.graph_repository import GraphRepository
 from app.routers.chat import router as chat_router
+from app.routers.files import router as files_router
 from app.routers.graph import router as graph_router
 from app.routers.history import router as history_router
 from app.routers.search import router as search_router
@@ -28,10 +31,18 @@ from app.services.graph_service import GraphService
 Base.metadata.create_all(bind=engine)
 GraphBase.metadata.create_all(bind=engine)
 
-app = FastAPI(title="TCM Agent API", version="2.0.0")
+
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    """Initialize per-process resources and tear them down on shutdown."""
+    yield
+    await dispose_async_engine()
 
 
-def _build_minio_client() -> MinioClient | None:
+app = FastAPI(title="TCM Agent API", version="2.0.0", lifespan=lifespan)
+
+
+def _build_s3_client() -> MinioClient | None:
     config = get_minio_config()
     if not config.access_key or not config.secret_key:
         logging.warning("S3 credentials are missing; file URL APIs will be unavailable")
@@ -43,8 +54,11 @@ def _build_minio_client() -> MinioClient | None:
         return None
 
 
+# Per-process singletons.
+app.state.s3_client = _build_s3_client()
+
 repository = GraphRepository(get_database_config(), get_search_config())
-app.state.graph_service = GraphService(repository, _build_minio_client())
+app.state.graph_service = GraphService(repository, app.state.s3_client)
 
 app.add_middleware(
     CORSMiddleware,
@@ -61,6 +75,7 @@ app.include_router(history_router)
 app.include_router(graph_router)
 app.include_router(admin_router)
 app.include_router(users_router)
+app.include_router(files_router)
 
 
 @app.exception_handler(HTTPException)

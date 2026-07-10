@@ -3,16 +3,18 @@
 from __future__ import annotations
 
 from functools import lru_cache
+from urllib.parse import quote_plus
 
 from pydantic import Field
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 from app.models.search_history import SearchBackendMode
+from app.storage.config import S3Config
 
 
 class PostgresSettings(BaseSettings):
     model_config = SettingsConfigDict(
-        env_prefix="", extra="ignore",
+        env_prefix="POSTGRES_", extra="ignore",
         env_file=(".env", "../.env", "../../.env"),
         env_file_encoding="utf-8",
     )
@@ -23,19 +25,37 @@ class PostgresSettings(BaseSettings):
     password: str = Field(default="", alias="POSTGRES_PASSWORD")
     database: str = Field(default="postgres", alias="POSTGRES_DB")
 
+    @property
+    def dsn(self) -> str:
+        """Sync (psycopg2) DSN — used by existing sync routers."""
+        return (
+            f"postgresql+psycopg2://{quote_plus(self.user)}:{quote_plus(self.password)}"
+            f"@{self.host}:{self.port}/{self.database}"
+        )
 
-class MinioSettings(BaseSettings):
+    @property
+    def async_dsn(self) -> str:
+        """Async (asyncpg) DSN — used by the new files router."""
+        return (
+            f"postgresql+asyncpg://{quote_plus(self.user)}:{quote_plus(self.password)}"
+            f"@{self.host}:{self.port}/{self.database}"
+        )
+
+
+class MinioSettings(S3Config):
+    """Backwards-compatible alias for :class:`S3Config`.
+
+    The :mod:`app.storage` package owns the canonical S3 configuration.
+    ``MinioSettings`` is kept here so existing call sites (e.g. ``main.py``)
+    continue to work; it inherits all fields and the ``S3_`` env prefix
+    from :class:`S3Config`.
+    """
+
     model_config = SettingsConfigDict(
         env_prefix="S3_", extra="ignore",
         env_file=(".env", "../.env", "../../.env"),
         env_file_encoding="utf-8",
     )
-
-    endpoint: str = "https://cos.ap-beijing.myqcloud.com"
-    access_key: str = ""
-    secret_key: str = ""
-    bucket_name: str = "tcm-documents"
-    region: str = "ap-beijing"
 
 
 class SearchSettings(BaseSettings):

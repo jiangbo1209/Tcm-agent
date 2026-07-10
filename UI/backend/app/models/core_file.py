@@ -1,4 +1,10 @@
-"""SQLAlchemy ORM models for the pdf_upload module."""
+"""CoreFile ORM model — central record of every uploaded PDF.
+
+A row is created by the upload service (UI/backend/app/storage/service.py).
+The ``uploader_id`` column references ``users.id`` from the UI/backend SQLite
+database; the reference is logical (no real FK) because users live in a
+different database engine (SQLite vs. PostgreSQL).
+"""
 
 from __future__ import annotations
 
@@ -6,11 +12,9 @@ import uuid
 from datetime import datetime
 
 from sqlalchemy import Boolean, DateTime, Index, Integer, String, text
-from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column
+from sqlalchemy.orm import Mapped, mapped_column
 
-
-class Base(DeclarativeBase):
-    pass
+from .base import Base
 
 
 class CoreFile(Base):
@@ -44,6 +48,9 @@ class CoreFile(Base):
     document_type: Mapped[int] = mapped_column(
         Integer, nullable=False, default=0
     )
+    uploader_id: Mapped[int | None] = mapped_column(
+        Integer, nullable=True
+    )
 
     __table_args__ = (
         Index("idx_core_file_document_type", "document_type"),
@@ -68,4 +75,5 @@ class CoreFile(Base):
             postgresql_where=text("status_ragflow = FALSE"),
         ),
         Index("idx_core_file_upload_time", upload_time.desc()),
+        Index("idx_core_file_uploader", "uploader_id"),
     )

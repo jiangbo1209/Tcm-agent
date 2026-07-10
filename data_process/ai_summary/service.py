@@ -10,9 +10,9 @@ from pathlib import Path
 from sqlalchemy import select, update
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_async_engine
 
-from data_process.lit_metadata.app.models.orm import LitMetadata
-from data_process.pdf_upload.config import get_minio_config, get_postgres_config
-from data_process.pdf_upload.minio_client import MinioClient
+from UI.backend.app.config import PostgresSettings
+from UI.backend.app.models import LitMetadata
+from UI.backend.app.storage import S3Client, get_s3_config
 
 from .llm_client import build_payload, call_llm_stream, MAX_RETRIES, RETRY_DELAY
 
@@ -47,10 +47,10 @@ _METADATA_CONTEXT_BASE = (
 
 class AiSummaryService:
     def __init__(self) -> None:
-        pg_config = get_postgres_config()
-        self._engine = create_async_engine(pg_config.dsn, echo=False, pool_size=5)
+        pg_config = PostgresSettings()
+        self._engine = create_async_engine(pg_config.async_dsn, echo=False, pool_size=5)
         self._session_factory = async_sessionmaker(self._engine, expire_on_commit=False)
-        self._minio = MinioClient(get_minio_config())
+        self._minio = S3Client(get_s3_config())
         self._prompt_template = _PROMPT_PATH.read_text(encoding="utf-8").strip()
 
     def _build_prompt(self, record: LitMetadata) -> str:

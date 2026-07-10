@@ -1,49 +1,61 @@
-"""File upload API routes."""
+"""File upload REST API.
+
+All endpoints require JWT authentication; the uploader's ``User.id`` is
+written to ``core_file.uploader_id`` for audit purposes.
+"""
 
 from __future__ import annotations
 
 import logging
 
-from fastapi import APIRouter, Depends, HTTPException, UploadFile, File, Form, Query
+from fastapi import (
+    APIRouter,
+    Depends,
+    File,
+    Form,
+    HTTPException,
+    Query,
+    UploadFile,
+)
 from minio.error import S3Error
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from .dependencies import build_service, get_session
-from .schemas import (
-    BatchUploadResponse,
+from app.auth.dependencies import get_current_user
+from app.dependencies.files import get_upload_service
+from app.models.user import User
+from app.storage import (
+    BatchDeleteRequest,
+    BatchDeleteResponse,
     BatchUploadItem,
+    BatchUploadResponse,
     DeleteResponse,
     DownloadUrlResponse,
     FileListResponse,
     UploadResponse,
-    BatchDeleteRequest,
-    BatchDeleteResponse,
+    UploadService,
 )
-from .service import UploadService
 
-LOGGER = logging.getLogger("pdf_upload")
+LOGGER = logging.getLogger("file_upload")
 
 router = APIRouter(prefix="/api/files", tags=["file-upload"])
 
 
-def _normalize_filename(filename: str) -> str:
-    """Fix mis-encoded Chinese filenames on Windows.
+def _normalize_filename(filename: str | None) -> str | None:
+    """Fix mis-encoded Chinese filenames on Windows clients.
 
     When curl on Windows (GBK locale) uploads a file, the filename bytes are
     GBK-encoded but python-multipart decodes them as Latin-1, producing
-    garbled Unicode codepoints (e.g. \\u00b4\\u00ab).  We reverse this by
+    garbled Unicode codepoints (e.g. ``\\u00b4\\u00ab``).  We reverse this by
     encoding back to Latin-1 (recovering the original GBK bytes) and then
     decoding as GBK to get proper UTF-8 strings.
     """
+    if not filename:
+        return filename
     try:
         raw_bytes = filename.encode("latin-1")
         return raw_bytes.decode("gbk")
     except (UnicodeEncodeError, UnicodeDecodeError):
         return filename
-
-
-def _get_service(session: AsyncSession = Depends(get_session)) -> UploadService:
-    return build_service(session)
 
 
 @router.post("/upload", response_model=UploadResponse)
@@ -55,10 +67,10 @@ async def upload_pdf(
         le=2,
         description="Document type: 0=literature, 1=case, 2=guideline",
     ),
-    service: UploadService = Depends(_get_service),
+    current_user: User = Depends(get_current_user),
+    service: UploadService = Depends(get_upload_service),
 ):
-    # Validate file extension using configured allowed_extensions
-    filename = _normalize_filename(file.filename) if file.filename else None
+    filename = _normalize_filename(file.filename)
     if not filename or not any(
         filename.lower().endswith(ext) for ext in service.allowed_extensions
     ):
@@ -74,12 +86,16 @@ async def upload_pdf(
         )
 
     try:
-        result = await service.upload(filename, content, document_type=document_type)
+        result = await service.upload(
+            filename,
+            content,
+            document_type=document_type,
+            uploader_id=current_user.id,
+        )
     except ValueError as exc:
-        # Duplicate filename
         raise HTTPException(status_code=409, detail=str(exc)) from exc
     except S3Error as exc:
-        LOGGER.exception("MinIO upload failed")
+        LOGGER.exception("S3 upload failed")
         raise HTTPException(status_code=502, detail=f"Storage error: {exc.code}") from exc
     except Exception as exc:
         LOGGER.exception("Upload processing failed")
@@ -99,16 +115,16 @@ async def batch_upload_pdf(
         le=2,
         description="Document type for all uploaded files: 0=literature, 1=case, 2=guideline",
     ),
-    service: UploadService = Depends(_get_service),
+    current_user: User = Depends(get_current_user),
+    service: UploadService = Depends(get_upload_service),
 ):
     results: list[BatchUploadItem | None] = [None] * len(files)
     valid_files: list[tuple[str, bytes]] = []
     valid_positions: list[int] = []
 
     for index, file in enumerate(files):
-        filename = _normalize_filename(file.filename) if file.filename else None
+        filename = _normalize_filename(file.filename)
 
-        # Validate extension
         if not filename or not any(
             filename.lower().endswith(ext) for ext in service.allowed_extensions
         ):
@@ -124,7 +140,6 @@ async def batch_upload_pdf(
         content = await file.read()
         await file.close()
 
-        # Validate size
         if len(content) == 0:
             results[index] = BatchUploadItem(
                 file_uuid=None,
@@ -147,7 +162,11 @@ async def batch_upload_pdf(
 
     if valid_files:
         try:
-            batch_result = await service.upload_many(valid_files, document_type=document_type)
+            batch_result = await service.upload_many(
+                valid_files,
+                document_type=document_type,
+                uploader_id=current_user.id,
+            )
         except ValueError as exc:
             raise HTTPException(status_code=400, detail=str(exc)) from exc
         except Exception as exc:
@@ -157,11 +176,7 @@ async def batch_upload_pdf(
         for position, item in zip(valid_positions, batch_result["items"]):
             results[position] = BatchUploadItem(**item)
 
-    final_results = [
-        item
-        for item in results
-        if item is not None
-    ]
+    final_results = [item for item in results if item is not None]
     uploaded = sum(1 for item in final_results if item.status == "uploaded")
     skipped = sum(1 for item in final_results if item.status == "skipped")
     failed = sum(1 for item in final_results if item.status == "failed")
@@ -179,7 +194,8 @@ async def batch_upload_pdf(
 async def list_files(
     page: int = Query(1, ge=1, description="Page number"),
     size: int = Query(20, ge=1, le=100, description="Page size"),
-    service: UploadService = Depends(_get_service),
+    current_user: User = Depends(get_current_user),
+    service: UploadService = Depends(get_upload_service),
 ):
     return await service.list_files(page=page, size=size)
 
@@ -187,7 +203,8 @@ async def list_files(
 @router.get("/{file_uuid}", response_model=UploadResponse)
 async def get_file(
     file_uuid: str,
-    service: UploadService = Depends(_get_service),
+    current_user: User = Depends(get_current_user),
+    service: UploadService = Depends(get_upload_service),
 ):
     result = await service.get_file(file_uuid)
     if not result:
@@ -198,7 +215,8 @@ async def get_file(
 @router.get("/{file_uuid}/download-url", response_model=DownloadUrlResponse)
 async def get_download_url(
     file_uuid: str,
-    service: UploadService = Depends(_get_service),
+    current_user: User = Depends(get_current_user),
+    service: UploadService = Depends(get_upload_service),
 ):
     try:
         result = await service.get_download_url(file_uuid)
@@ -213,19 +231,21 @@ async def get_download_url(
 @router.delete("/{file_uuid}", response_model=DeleteResponse)
 async def delete_file(
     file_uuid: str,
-    service: UploadService = Depends(_get_service),
+    current_user: User = Depends(get_current_user),
+    service: UploadService = Depends(get_upload_service),
 ):
     deleted = await service.delete_file(file_uuid)
     if not deleted:
         raise HTTPException(status_code=404, detail="File not found")
     return DeleteResponse(deleted=True, file_uuid=file_uuid)
 
+
 @router.post("/batch-delete", response_model=BatchDeleteResponse)
 async def batch_delete_files(
     request: BatchDeleteRequest,
-    service: UploadService = Depends(_get_service),
+    current_user: User = Depends(get_current_user),
+    service: UploadService = Depends(get_upload_service),
 ):
-    """Delete multiple files in one request"""
     if not request.file_uuids:
         raise HTTPException(status_code=400, detail="file_uuids cannot be empty")
 

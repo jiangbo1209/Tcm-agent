@@ -13,13 +13,13 @@ from sqlalchemy import or_, select, update, func
 from sqlalchemy.orm import Session
 
 from lit_metadata.app.models.orm import LitMetadata
-from pdf_upload.config import get_postgres_config
+from UI.backend.app.config import PostgresSettings
 from sqlalchemy import create_engine, URL
 from urllib.parse import quote_plus
 
 
 def _build_engine():
-    cfg = get_postgres_config()
+    cfg = PostgresSettings()
     user = quote_plus(cfg.user)
     password = quote_plus(cfg.password)
     dsn = f"postgresql+psycopg2://{user}:{password}@{cfg.host}:{cfg.port}/{cfg.database}"

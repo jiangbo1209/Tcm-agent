@@ -1,4 +1,4 @@
-"""Async CRUD repository for CoreFile."""
+"""Async CRUD repository for :class:`CoreFile`."""
 
 from __future__ import annotations
 
@@ -7,7 +7,7 @@ from typing import Sequence
 from sqlalchemy import delete, func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from .models import CoreFile
+from ..models import CoreFile
 
 
 class CoreFileRepository:
@@ -87,20 +87,15 @@ class CoreFileRepository:
         return result.rowcount > 0
 
     async def delete_by_uuids(self, file_uuids: list[str]) -> dict[str, CoreFile]:
-        """Delete multiple files and return deleted file info.
-
-        Returns a map of uuid -> CoreFile for records that existed.
-        """
+        """Delete multiple files and return deleted file info."""
         if not file_uuids:
             return {}
 
-        # Fetch first for response details
         stmt = select(CoreFile).where(CoreFile.file_uuid.in_(file_uuids))
         result = await self._session.execute(stmt)
         files = result.scalars().all()
         files_map = {f.file_uuid: f for f in files}
 
-        # Delete in one statement
         delete_stmt = delete(CoreFile).where(CoreFile.file_uuid.in_(file_uuids))
         await self._session.execute(delete_stmt)
 

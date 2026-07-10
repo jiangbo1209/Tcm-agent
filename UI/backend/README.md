@@ -105,6 +105,20 @@ uvicorn main:app --reload --host 0.0.0.0 --port 8011
 | GET | `/api/graph/file-url/{node_id}` | 文献预签名链接 |
 | GET | `/health` | 健康检查 |
 
+### 文件接口（需登录）
+
+上传到对象存储（S3 兼容：腾讯云 COS / AWS S3 / MinIO）。所有端点需要 JWT。
+
+| 方法 | 路径 | 说明 |
+|------|------|------|
+| POST | `/api/files/upload` | 单文件上传（multipart） |
+| POST | `/api/files/batch-upload` | 批量上传（multipart） |
+| GET | `/api/files/?page&size` | 分页列表 |
+| GET | `/api/files/{file_uuid}` | 详情 |
+| GET | `/api/files/{file_uuid}/download-url` | 预签名下载 URL (1h 过期) |
+| DELETE | `/api/files/{file_uuid}` | 单文件删除 |
+| POST | `/api/files/batch-delete` | 批量删除 |
+
 ## 数据库
 
 ### SQLite（用户/对话/搜索）
