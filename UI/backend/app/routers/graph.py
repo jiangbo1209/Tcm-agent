@@ -163,5 +163,5 @@ def get_graph_file_url_by_uuid(
     except RuntimeError as exc:
         raise HTTPException(status_code=500, detail=str(exc)) from exc
     except S3Error as exc:
-        LOGGER.exception("Failed to generate MinIO presigned url for file_uuid=%s", normalized_file_uuid)
+        LOGGER.exception("Failed to generate presigned URL for file_uuid=%s", normalized_file_uuid)
         raise HTTPException(status_code=502, detail=f"storage error: {exc.code}") from exc
