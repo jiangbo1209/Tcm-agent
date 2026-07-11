@@ -1,8 +1,8 @@
 """Working data types for the offline graph builder.
 
 The ORM definitions of the ``nodes`` and ``edges`` tables live in
-:mod:`UI.backend.app.models.graph` (single source of truth). This module
-holds the builder-internal dataclasses that the offline script uses while
+:mod:`UI.backend.app.models` (see :class:`~UI.backend.app.models.GraphBase`).
+This module holds the builder-internal dataclasses that the offline script uses while
 computing node tokens and edge scores. They are distinct from the ORM
 ``Node``/``Edge`` and are intentionally renamed (``GraphNode``/``GraphEdge``)
 to avoid shadowing the ORM classes in the same module.
