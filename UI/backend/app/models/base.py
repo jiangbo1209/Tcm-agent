@@ -1,8 +1,8 @@
-"""SQLAlchemy declarative base, single source of truth for all ORM models.
+"""SQLAlchemy declarative base for non-graph ORM models.
 
-All ORM classes (CoreFile, MedCase, LitMetadata, GuidelineMetadata, Node, Edge)
-inherit from :class:`Base` defined here. Other modules (data_process/*, scripts)
-should import from :mod:`app.models`.
+Most ORM classes (CoreFile, MedCase, LitMetadata, GuidelineMetadata, ...) inherit from :class:`Base`.
+Graph tables (Node/Edge) use :class:`~app.models.GraphBase` so they can be managed independently.
+Other modules (data_process/*, scripts) should import models from :mod:`app.models`.
 """
 
 from __future__ import annotations
