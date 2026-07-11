@@ -26,6 +26,7 @@ dependencies:
     - minio>=7.2,<8.0
     # HTTP & Scraping
     - requests>=2.31,<3.0
+    - pyyaml>=6.0,<7.0
     - httpx>=0.25.0
     - aiohttp>=3.9.3
     - yarl>=1.9.4

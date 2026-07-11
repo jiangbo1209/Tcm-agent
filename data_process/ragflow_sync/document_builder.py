@@ -82,7 +82,7 @@ def literature_metadata(source: LiteratureSource, domain: str) -> dict[str, str]
             "paper_type": source.paper_type,
             "source_site": source.source_site,
             "source_url": source.source_url,
-            "minio_path": source.storage_path,
+            "s3_path": source.storage_path,
             "graph_node_type": "paper",
             "crawl_status": source.crawl_status,
         }
@@ -103,7 +103,7 @@ def guideline_metadata(source: GuidelineSource, domain: str) -> dict[str, str]:
             "paper_type": source.paper_type,
             "source_site": source.source_site,
             "source_url": source.source_url,
-            "minio_path": source.storage_path,
+            "s3_path": source.storage_path,
             "knowledge_role": "medical_guideline_validation",
             "crawl_status": source.crawl_status,
         }

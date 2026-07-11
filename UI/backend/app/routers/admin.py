@@ -14,7 +14,7 @@ from sqlalchemy.orm import Session
 
 from app.auth.dependencies import require_admin
 from app.core.database import get_db
-from app.models.graph import GuidelineMetadata, LitMetadata, MedCase
+from app.models import GuidelineMetadata, LitMetadata, MedCase
 from app.models.user import User
 
 LOGGER = logging.getLogger("admin_api")
@@ -237,7 +237,7 @@ def update_record(
     if not updates:
         raise HTTPException(status_code=400, detail="No valid editable fields provided")
 
-    if record.crawl_status == "partial" and _is_complete(record, table, updates):
+    if hasattr(record, "crawl_status") and record.crawl_status == "partial" and _is_complete(record, table, updates):
         updates["crawl_status"] = "success"
         updates["error_message"] = None
 

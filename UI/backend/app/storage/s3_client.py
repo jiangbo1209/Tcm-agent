@@ -1,4 +1,9 @@
-"""Extended MinIO client with upload support."""
+"""S3-compatible object storage client (Tencent COS / AWS S3 / self-hosted S3).
+
+Wraps the S3 protocol SDK and exposes a small async-friendly surface used
+by the upload service. The bucket is never auto-created — the caller must
+provision it in the cloud console ahead of time.
+"""
 
 from __future__ import annotations
 
@@ -10,7 +15,9 @@ from urllib.parse import urlparse
 from minio import Minio
 from minio.error import S3Error
 
-from .config import MinioConfig
+from .config import S3Config
+
+__all__ = ["S3Client", "S3Error"]
 
 
 class _ParsedEndpoint:
@@ -31,10 +38,14 @@ def _parse_endpoint(raw_endpoint: str) -> _ParsedEndpoint:
     return _ParsedEndpoint(endpoint=endpoint, secure=False)
 
 
-class MinioClient:
-    """Extended MinIO wrapper with bucket management, upload, and presigned URLs."""
+class S3Client:
+    """Async-friendly wrapper around the S3 protocol.
 
-    def __init__(self, config: MinioConfig, *, auto_create_bucket: bool = True) -> None:
+    The underlying low-level client is exposed via :attr:`client` for the few
+    code paths that need direct access (e.g. presigned URL customisation).
+    """
+
+    def __init__(self, config: S3Config) -> None:
         self._config = config
         parsed = _parse_endpoint(config.endpoint)
 
@@ -43,10 +54,13 @@ class MinioClient:
             access_key=config.access_key,
             secret_key=config.secret_key,
             secure=parsed.secure,
+            region=config.region,
         )
 
-        if auto_create_bucket:
-            self.ensure_bucket()
+        # Tencent COS no longer supports path-style for buckets created
+        # after 2024-01-01 (returns NoSuchBucket). Force virtual-hosted-style.
+        if parsed.endpoint.endswith(".myqcloud.com"):
+            self._client._base_url.virtual_style_flag = True
 
     @property
     def bucket_name(self) -> str:
@@ -56,18 +70,13 @@ class MinioClient:
     def client(self) -> Minio:
         return self._client
 
-    def ensure_bucket(self) -> None:
-        """Ensure target bucket exists; create it when missing."""
-        if not self._client.bucket_exists(self._config.bucket_name):
-            self._client.make_bucket(self._config.bucket_name)
-
     def put_object(
         self,
         object_name: str,
         data: bytes,
         content_type: str = "application/pdf",
     ) -> str:
-        """Upload bytes to MinIO. Returns the object name (storage_path)."""
+        """Upload bytes to S3. Returns the object name (storage_path)."""
         stream = io.BytesIO(data)
         self._client.put_object(
             bucket_name=self._config.bucket_name,
@@ -97,8 +106,9 @@ class MinioClient:
         object_name: str,
         *,
         expires: timedelta = timedelta(hours=1),
+        response_headers: dict[str, str] | None = None,
     ) -> str:
-        """Generate a secure presigned URL for object retrieval."""
+        """Generate a presigned URL for object retrieval."""
         normalized = (object_name or "").strip()
         if not normalized:
             raise ValueError("object_name is required")
@@ -107,6 +117,7 @@ class MinioClient:
                 bucket_name=self._config.bucket_name,
                 object_name=normalized,
                 expires=expires,
+                response_headers=response_headers,
             )
         except S3Error:
             raise
@@ -116,16 +127,18 @@ class MinioClient:
         object_name: str,
         *,
         expires: timedelta = timedelta(hours=1),
+        response_headers: dict[str, str] | None = None,
     ) -> str:
         """Generate a presigned URL without blocking the event loop."""
         return await asyncio.to_thread(
             self.presigned_get_object,
             object_name=object_name,
             expires=expires,
+            response_headers=response_headers,
         )
 
     def get_object(self, object_name: str) -> bytes:
-        """Download object from MinIO, return bytes."""
+        """Download object from S3, return bytes."""
         response = self._client.get_object(
             bucket_name=self._config.bucket_name,
             object_name=object_name,
@@ -135,8 +148,12 @@ class MinioClient:
         response.release_conn()
         return data
 
+    async def get_object_async(self, object_name: str) -> bytes:
+        """Download object without blocking the event loop."""
+        return await asyncio.to_thread(self.get_object, object_name)
+
     def remove_object(self, object_name: str) -> None:
-        """Remove an object from MinIO."""
+        """Remove an object from S3."""
         self._client.remove_object(
             bucket_name=self._config.bucket_name,
             object_name=object_name,

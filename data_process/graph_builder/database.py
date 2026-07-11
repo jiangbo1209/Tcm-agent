@@ -1,4 +1,10 @@
-"""Database IO helpers for graph building (SQLAlchemy based)."""
+"""Database IO helpers for graph building.
+
+The graph tables (``nodes`` / ``edges``) are defined as SQLAlchemy ORM
+models in :mod:`UI.backend.app.models` (see :class:`~UI.backend.app.models.GraphBase`).
+This module is responsible for reading source rows, building in-memory :class:`GraphNode` /
+:class:`GraphEdge` objects, and writing them back to the database.
+"""
 
 from __future__ import annotations
 
@@ -8,7 +14,8 @@ from sqlalchemy import create_engine, text
 from sqlalchemy.engine import Connection, Engine, URL
 from sqlalchemy.exc import SQLAlchemyError
 
-from .models import Edge, Node, _METADATA
+from UI.backend.app.models import GraphBase
+from .models import GraphEdge, GraphNode
 from .processor import (
     extract_age,
     extract_year,
@@ -19,6 +26,7 @@ from .processor import (
 )
 
 Error = SQLAlchemyError
+
 
 def connect_postgres(host: str, port: int, user: str, password: str, database: str) -> Engine:
     url = URL.create(
@@ -33,9 +41,13 @@ def connect_postgres(host: str, port: int, user: str, password: str, database: s
 
 
 def create_graph_schema(conn: Connection) -> None:
-    _METADATA.create_all(conn)
+    """Create the ``nodes`` / ``edges`` tables (idempotent)."""
+    GraphBase.metadata.create_all(conn)
 
-def build_nodes(conn: Connection) -> tuple[list[Node], list[Node], dict[str, Node], dict[str, Node]]:
+
+def build_nodes(
+    conn: Connection,
+) -> tuple[list[GraphNode], list[GraphNode], dict[str, GraphNode], dict[str, GraphNode]]:
     paper_sql = (
         "SELECT lm.file_uuid, lm.title, lm.keywords, lm.abstract, lm.pub_year, "
         "lm.original_name, lm.cleaned_title, lm.matched_title "
@@ -54,8 +66,8 @@ def build_nodes(conn: Connection) -> tuple[list[Node], list[Node], dict[str, Nod
     )
     record_rows = conn.execute(text(record_sql)).fetchall()
 
-    papers: list[Node] = []
-    paper_by_uuid: dict[str, Node] = {}
+    papers: list[GraphNode] = []
+    paper_by_uuid: dict[str, GraphNode] = {}
     for row in paper_rows:
         file_uuid, title, keywords, abstract, pub_year, original_name, cleaned_title, matched_title = row
         display_title = (title or matched_title or cleaned_title or original_name or str(file_uuid or "")).strip()
@@ -75,7 +87,7 @@ def build_nodes(conn: Connection) -> tuple[list[Node], list[Node], dict[str, Nod
         if not tokens:
             # Skip papers with no meaningful tokens.
             continue
-        node = Node(
+        node = GraphNode(
             node_id=node_id,
             node_type="paper",
             title=display_title,
@@ -88,8 +100,8 @@ def build_nodes(conn: Connection) -> tuple[list[Node], list[Node], dict[str, Nod
             if file_uuid not in paper_by_uuid or not paper_by_uuid[file_uuid].title:
                 paper_by_uuid[file_uuid] = node
 
-    records: list[Node] = []
-    record_by_uuid: dict[str, Node] = {}
+    records: list[GraphNode] = []
+    record_by_uuid: dict[str, GraphNode] = {}
     for row in record_rows:
         (
             file_uuid,
@@ -127,9 +139,8 @@ def build_nodes(conn: Connection) -> tuple[list[Node], list[Node], dict[str, Nod
         )
         tokens = tokenize_text(text_blob)
         if not tokens:
-            # Skip records with no meaningful tokens.
             continue
-        node = Node(
+        node = GraphNode(
             node_id=node_id,
             node_type="record",
             title=display_title,
@@ -156,7 +167,12 @@ def chunked(data: Iterable, size: int):
         yield batch
 
 
-def write_nodes(conn: Connection, nodes: list[Node], top_k_map: dict[str, float], strategy: str) -> int:
+def write_nodes(
+    conn: Connection,
+    nodes: list[GraphNode],
+    top_k_map: dict[str, float],
+    strategy: str,
+) -> int:
     if not nodes:
         return 0
 
@@ -189,7 +205,7 @@ def write_nodes(conn: Connection, nodes: list[Node], top_k_map: dict[str, float]
     return len(values)
 
 
-def write_edges(conn: Connection, edges: list[Edge], strategy: str) -> int:
+def write_edges(conn: Connection, edges: list[GraphEdge], strategy: str) -> int:
     if not edges:
         return 0
 

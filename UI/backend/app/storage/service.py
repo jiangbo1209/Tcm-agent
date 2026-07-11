@@ -1,4 +1,7 @@
-"""Upload business logic: UUID generation, MinIO upload, DB insert."""
+"""Upload business logic: UUID generation, S3 upload, DB insert.
+
+Used by the :class:`UploadService` in the same package.
+"""
 
 from __future__ import annotations
 
@@ -7,11 +10,11 @@ import logging
 import uuid
 from datetime import datetime, timezone
 
-from .minio_client import MinioClient
-from .models import CoreFile
+from ..models import CoreFile
 from .repository import CoreFileRepository
+from .s3_client import S3Client
 
-LOGGER = logging.getLogger("pdf_upload")
+LOGGER = logging.getLogger("upload_service")
 
 DOCUMENT_TYPE_PREFIX = {
     0: "literature",
@@ -24,37 +27,40 @@ class UploadService:
     def __init__(
         self,
         repository: CoreFileRepository,
-        minio_client: MinioClient,
+        s3_client: S3Client,
         max_file_size_mb: int = 100,
         allowed_extensions: tuple[str, ...] = (".pdf",),
         batch_concurrency: int = 5,
     ) -> None:
         self._repository = repository
-        self._minio = minio_client
+        self._s3 = s3_client
         self.max_file_size_mb = max_file_size_mb
         self.max_file_size_bytes = max_file_size_mb * 1024 * 1024
         self.allowed_extensions = allowed_extensions
         self.batch_concurrency = max(1, batch_concurrency)
 
-    async def upload(self, original_name: str, content: bytes, document_type: int = 0) -> dict:
+    async def upload(
+        self,
+        original_name: str,
+        content: bytes,
+        document_type: int = 0,
+        uploader_id: int | None = None,
+    ) -> dict:
         if document_type not in DOCUMENT_TYPE_PREFIX:
             raise ValueError("Invalid document_type, expected 0, 1, or 2")
 
-        # Reject duplicate filename
         if await self._repository.exists_by_original_name(original_name, document_type):
             raise ValueError(f"File already exists: {original_name}")
 
         file_uuid = str(uuid.uuid4())
         storage_path = f"{DOCUMENT_TYPE_PREFIX[document_type]}/{file_uuid}/{original_name}"
 
-        # 1. Upload to MinIO first (more reliable; DB failure can be retried)
-        await self._minio.put_object_async(
+        await self._s3.put_object_async(
             object_name=storage_path,
             data=content,
             content_type="application/pdf",
         )
 
-        # 2. Insert DB record
         core_file = CoreFile(
             file_uuid=file_uuid,
             original_name=original_name,
@@ -65,6 +71,7 @@ class UploadService:
             status_case=False,
             document_type=document_type,
             status_guidelinemeta=False,
+            uploader_id=uploader_id,
         )
         saved = await self._repository.insert(core_file)
         return self._to_response(saved)
@@ -75,6 +82,7 @@ class UploadService:
         document_type: int = 0,
         *,
         concurrency: int | None = None,
+        uploader_id: int | None = None,
     ) -> dict:
         if document_type not in DOCUMENT_TYPE_PREFIX:
             raise ValueError("Invalid document_type, expected 0, 1, or 2")
@@ -115,6 +123,7 @@ class UploadService:
                         status_case=False,
                         document_type=document_type,
                         status_guidelinemeta=False,
+                        uploader_id=uploader_id,
                     ),
                     content,
                 )
@@ -123,26 +132,26 @@ class UploadService:
         effective_concurrency = self.batch_concurrency if concurrency is None else max(1, concurrency)
         semaphore = asyncio.Semaphore(effective_concurrency)
 
-        async def upload_to_minio(index: int, core_file: CoreFile, content: bytes) -> tuple[int, CoreFile | None, str | None]:
+        async def upload_to_s3(index: int, core_file: CoreFile, content: bytes) -> tuple[int, CoreFile | None, str | None]:
             async with semaphore:
                 try:
-                    await self._minio.put_object_async(
+                    await self._s3.put_object_async(
                         object_name=core_file.storage_path,
                         data=content,
                         content_type="application/pdf",
                     )
                     return index, core_file, None
                 except Exception as exc:
-                    LOGGER.exception("Batch MinIO upload failed for %s", core_file.original_name)
+                    LOGGER.exception("Batch S3 upload failed for %s", core_file.original_name)
                     return index, None, str(exc)
 
-        uploaded_to_minio = await asyncio.gather(
-            *(upload_to_minio(index, core_file, content) for index, core_file, content in pending)
+        uploaded_to_s3 = await asyncio.gather(
+            *(upload_to_s3(index, core_file, content) for index, core_file, content in pending)
         )
 
         core_files_to_insert: list[CoreFile] = []
         result_index_by_uuid: dict[str, int] = {}
-        for index, core_file, error in uploaded_to_minio:
+        for index, core_file, error in uploaded_to_s3:
             if error or core_file is None:
                 original_name = files[index][0]
                 results[index] = {
@@ -185,7 +194,7 @@ class UploadService:
 
     async def list_files(self, page: int = 1, size: int = 20) -> dict:
         items, total = await self._repository.list_files(page=page, size=size)
-        total_pages = -(-total // size)  # ceil division
+        total_pages = -(-total // size)
         return {
             "items": [self._to_response(f) for f in items],
             "total": total,
@@ -198,17 +207,13 @@ class UploadService:
         core_file = await self._repository.get_by_uuid(file_uuid)
         if not core_file:
             return False
-        # Remove from MinIO, log failure but still proceed with DB cleanup
         try:
-            await self._minio.remove_object_async(core_file.storage_path)
+            await self._s3.remove_object_async(core_file.storage_path)
         except Exception:
-            LOGGER.exception("MinIO deletion failed for %s, proceeding with DB cleanup", file_uuid)
+            LOGGER.exception("S3 deletion failed for %s, proceeding with DB cleanup", file_uuid)
         return await self._repository.delete_by_uuid(file_uuid)
 
     async def delete_files(self, file_uuids: list[str]) -> dict:
-        """Delete multiple files and return deletion results."""
-        # Delete from DB first (so repeated requests are idempotent),
-        # but keep the record info for MinIO deletion + response.
         files_map = await self._repository.delete_by_uuids(file_uuids)
 
         results: list[dict] = []
@@ -227,7 +232,7 @@ class UploadService:
                 continue
 
             try:
-                await self._minio.remove_object_async(core_file.storage_path)
+                await self._s3.remove_object_async(core_file.storage_path)
                 results.append(
                     {
                         "file_uuid": file_uuid,
@@ -237,7 +242,7 @@ class UploadService:
                     }
                 )
             except Exception as exc:
-                LOGGER.exception("MinIO deletion failed for %s", file_uuid)
+                LOGGER.exception("S3 deletion failed for %s", file_uuid)
                 results.append(
                     {
                         "file_uuid": file_uuid,
@@ -258,15 +263,22 @@ class UploadService:
             "skipped": skipped_count,
             "failed": failed_count,
         }
+
     async def get_download_url(self, file_uuid: str) -> dict | None:
         core_file = await self._repository.get_by_uuid(file_uuid)
         if not core_file:
             return None
-        url = await self._minio.presigned_get_object_async(core_file.storage_path)
+        from app.storage.file_token import generate_file_token
+
+        token = generate_file_token(
+            storage_path=core_file.storage_path,
+            file_name=core_file.original_name,
+            disposition="attachment",
+        )
         return {
             "file_uuid": file_uuid,
             "original_name": core_file.original_name,
-            "url": url,
+            "url": f"/api/files/stream?token={token}",
             "expires_in": 3600,
         }
 
@@ -283,4 +295,5 @@ class UploadService:
             "document_type": core_file.document_type,
             "status_guidelinemeta": core_file.status_guidelinemeta,
             "status_ragflow": core_file.status_ragflow,
+            "uploader_id": core_file.uploader_id,
         }

@@ -7,7 +7,7 @@ from datetime import datetime
 from sqlalchemy import DateTime, Integer, String, Text, UniqueConstraint, func
 from sqlalchemy.orm import Mapped, mapped_column
 
-from data_process.pdf_upload.models import Base
+from UI.backend.app.models import Base
 
 
 class RagflowSyncStatus(Base):

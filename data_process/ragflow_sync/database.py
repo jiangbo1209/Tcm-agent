@@ -7,9 +7,7 @@ from collections.abc import Iterable
 from sqlalchemy import Engine, and_, create_engine, exists, func, or_, select
 from sqlalchemy.orm import Session, sessionmaker
 
-from data_process.case_metadata.models import MedCase
-from data_process.lit_metadata.app.models.orm import GuidelineMetadata, LitMetadata
-from data_process.pdf_upload.models import CoreFile
+from UI.backend.app.models import CoreFile, GuidelineMetadata, LitMetadata, MedCase
 
 from .config import RagflowSyncSettings
 from .models import CaseSource, GuidelineSource, LiteratureSource, SourceType, SyncStatus

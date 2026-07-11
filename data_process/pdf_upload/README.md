@@ -1,128 +1,76 @@
-# pdf_upload — PDF 文件上传与数据库建立
+# PDF Manager TUI - 终端上传工具
+
+TUI (Terminal User Interface) 是一个独立的命令行客户端，运行在本地电脑，通过 HTTPS + JWT 连接到部署在云服务器的 UI/backend 上传 PDF 文件。
 
 ## 功能
 
-用户上传 PDF 文件 → 选择数据类型 → 后端生成 UUID → 存储到 MinIO → 记录到 PostgreSQL `core_file` 表。
+- 选择本地 PDF 文件并上传到云存储
+- 列出已上传的文件
+- 批量删除文件
+- JWT 登录 + token 缓存
 
-`document_type` 用于区分数据类型：
+## 安装
 
-| 值 | 类型 | 后续处理 |
-|------|------|------|
-| 0 | 文献 | 进入 `lit_metadata`，参与文献检索和图谱构建 |
-| 1 | 病案 | 进入 `case_metadata`，参与病案检索和图谱构建 |
-| 2 | 指南 | 进入 `guideline_metadata`，只用于 Agent 回答校验 |
+需要 Python 3.10+ 和以下依赖（`environment.yml` 已包含）：
 
-## 启动服务
+- `requests` — HTTP 客户端
+- `rich` — 终端 UI
+- `pyyaml` — 读取 `~/.tcm-tui.yaml`
+- `tkinter`（可选）— 文件选择对话框（Linux 桌面环境）
 
-```bash
-# 激活环境
-conda activate tcm-agent
+## 配置
 
-# 从项目根目录启动
-cd D:\SleepPause\Program\python\Tcm-agent
-uvicorn data_process.pdf_upload.main:app --port 8001 --reload
-```
+优先级（从高到低）：
 
-Swagger 文档：http://localhost:8001/docs
+1. 环境变量 `TCM_API_BASE_URL`
+2. `~/.tcm-tui.yaml` 中的 `api_base_url`
+3. 默认 `http://localhost:8011`
 
-## 文件管理工具（推荐使用）
-
-### TUI 管理工具（完整增删查功能）
+### 示例：环境变量
 
 ```bash
+export TCM_API_BASE_URL=https://api.example.com:8011
 python data_process/pdf_upload/pdf_manager_tui.py
 ```
 
-菜单功能：
-- **📤 上传文件** - 弹出文件选择器，支持单选或多选 PDF 文件；上传前选择文献、病案或指南
-- **📋 查看文件列表** - 查看所有已上传的文件、数据类型和处理状态
-- **🗑️  删除文件** - 通过编号选择文件删除（确认后执行）
+### 示例：配置文件
 
-**Linux 无图形界面说明**
-
-在无 GUI 的 Linux 服务器上运行时，上传文件会切换为命令行输入模式：
-- 直接输入单个或多个 PDF 文件路径（逗号分隔）。
-- 也可以输入一个目录路径，工具会自动读取该目录下的 `*.pdf`。
-
-## API 端点
-
-| 方法 | 路径 | 说明 |
-|------|------|------|
-| GET | `/health` | 健康检查 |
-| POST | `/api/files/upload` | 单文件上传，可通过 `document_type` 指定类型 |
-| POST | `/api/files/batch-upload` | 批量上传，可通过 `document_type` 指定类型，同类型同名自动 skip |
-| GET | `/api/files/` | 文件列表（分页） |
-| GET | `/api/files/{uuid}` | 文件详情 |
-| GET | `/api/files/{uuid}/download-url` | 生成 MinIO 下载链接 |
-| POST | `/api/files/batch-delete` | 批量删除文件（请求体含 file_uuids 列表） |
-| DELETE | `/api/files/{uuid}` | 删除文件（MinIO + DB 同步） |
-
-## 使用示例
-
-```bash
-# 单文件上传文献
-curl -X POST \
-  -F "document_type=0" \
-  -F "file=@论文.pdf" \
-  http://localhost:8001/api/files/upload
-
-# 单文件上传指南
-curl -X POST \
-  -F "document_type=2" \
-  -F "file=@指南.pdf" \
-  http://localhost:8001/api/files/upload
-
-# 批量上传病案（同类型同名文件自动跳过）
-curl -X POST \
-  -F "document_type=1" \
-  -F "files=@病案A.pdf" \
-  -F "files=@病案B.pdf" \
-  http://localhost:8001/api/files/batch-upload
-
-# 查看文件列表
-curl http://localhost:8001/api/files/?page=1&size=10
-
-# 生成下载链接（1小时有效）
-curl http://localhost:8001/api/files/{uuid}/download-url
-
-# 删除文件
-curl -X DELETE http://localhost:8001/api/files/{uuid}
+```yaml
+# ~/.tcm-tui.yaml
+api_base_url: https://api.example.com:8011
 ```
 
-## 数据库表
+## 登录
 
-`core_file`（PostgreSQL `papers_records` 库）：
+首次启动 TUI 时，UI/backend 必须可访问。TUI 会要求输入用户名和密码，调用 `POST /api/auth/login` 获取 JWT。JWT 缓存在 `~/.tcm-tui-token`（权限 600），后续启动自动复用，过期后会自动要求重新登录。
 
-| 字段 | 类型 | 说明 |
-|------|------|------|
-| file_uuid | VARCHAR(36) PK | 自动生成 UUID |
-| original_name | VARCHAR(512) | 原始文件名 |
-| storage_path | VARCHAR(1024) | MinIO 存储路径 |
-| file_type | VARCHAR(32) | 文件类型 |
-| upload_time | TIMESTAMPTZ | 上传时间 |
-| status_metadata | BOOLEAN | 文献元数据处理状态 |
-| status_case | BOOLEAN | 病案处理状态 |
-| document_type | INTEGER | 数据类型：0 文献、1 病案、2 指南 |
-| status_guidelinemeta | BOOLEAN | 指南元数据处理状态 |
+## 使用
 
-## 环境变量
-
-| 变量 | 默认值 | 说明 |
-|------|--------|------|
-| POSTGRES_HOST | 172.16.150.45 | PostgreSQL 地址 |
-| POSTGRES_PORT | 5432 | PostgreSQL 端口 |
-| POSTGRES_USER | postgres | 数据库用户 |
-| POSTGRES_PASSWORD | - | 数据库密码 |
-| POSTGRES_DB | papers_records | 数据库名 |
-| MINIO_ENDPOINT | 172.16.150.45:9000 | MinIO 地址 |
-| MINIO_ROOT_USER | admin | MinIO 用户 |
-| MINIO_ROOT_PASSWORD | - | MinIO 密码 |
-| MINIO_BUCKET_NAME | tcm-documents | 存储桶名 |
-| UPLOAD_MAX_SIZE_MB | 100 | 最大文件大小 |
-
-## 测试
-
-```bash
-conda activate tcm-agent
-pytest data_process/pdf_upload/tests/ -v
+```text
+1  上传文件           选择 PDF (TK 弹窗或路径输入) → 选择文档类型 → 上传
+2  查看文件列表       拉取最近 50 条
+3  删除文件（支持多选）  输入 1,2,3-5 或 q 取消
+0  退出
 ```
+
+上传时显示总进度（`5/20` 文件已上传），不做单文件进度。
+
+## 常见问题
+
+### T: `无法连接 {base_url}`
+
+确认 `TCM_API_BASE_URL` 正确，且云服务器 `:8011` 端口已开放（安全组放行）。
+
+### T: 登录失败
+
+- 用户名密码错误 → 重新输入
+- JWT 过期 → 删除 `~/.tcm-tui-token` 后重试
+
+### T: 401 Unauthorized
+
+TUI 收到 401 会自动清除本地 token 并提示重新登录。
+
+### T: 批量上传卡住
+
+默认每批 50 个文件，timeout 是 `max(300, batch_size * 30)` 秒。
+可通过环境变量调整：`export PDF_UPLOAD_BATCH_SIZE=20`。

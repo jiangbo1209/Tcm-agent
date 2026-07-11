@@ -99,7 +99,7 @@ def test_sync_literature_uploads_pdf_metadata_and_parses():
     assert results[0].stage == "parse"
     assert ragflow.uploads[0]["content_type"] == "application/pdf"
     assert ragflow.metadata_updates[0][1]["source_type"] == "literature"
-    assert ragflow.metadata_updates[0][1]["minio_path"] == "papers/u1.pdf"
+    assert ragflow.metadata_updates[0][1]["s3_path"] == "papers/u1.pdf"
     assert ragflow.parsed == ["doc-1"]
 
 
@@ -233,7 +233,7 @@ def test_empty_pdf_is_rejected_before_upload():
 
     assert results[0].action == "failed"
     assert results[0].stage == "upload"
-    assert "MinIO object is empty" in results[0].message
+    assert "S3 object is empty" in results[0].message
     assert ragflow.uploads == []
 
 

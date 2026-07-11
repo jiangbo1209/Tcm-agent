@@ -11,7 +11,7 @@ backend/
 ├── create_professional_user.py # 创建专业用户脚本
 ├── tcm.db                      # SQLite 数据库（运行时自动生成）
 └── app/
-    ├── config.py               # 环境变量配置（PostgreSQL、MinIO、搜索策略）
+    ├── config.py               # 环境变量配置（PostgreSQL、S3/COS、搜索策略）
     ├── database.py             # SQLite 引擎 & Session 管理
     ├── database_pg.py          # PostgreSQL 引擎 & Session 管理
     ├── auth/
@@ -41,8 +41,12 @@ backend/
     │   └── graph_service.py    # 图谱业务逻辑（BFS 扩展、详情聚合）
     ├── repositories/
     │   └── graph_repository.py # 图谱数据访问（SQLAlchemy ORM）
-    ├── core/
-    │   └── minio_utils.py      # MinIO 预签名链接
+    ├── storage/                # 对象存储 (S3 / 腾讯云 COS) 客户端 + 上传服务
+    │   ├── s3_client.py
+    │   ├── service.py
+    │   ├── repository.py
+    │   ├── schemas.py
+    │   └── config.py
     └── search/
         └── settings.py         # 搜索后端策略枚举
 ```
@@ -105,6 +109,20 @@ uvicorn main:app --reload --host 0.0.0.0 --port 8011
 | GET | `/api/graph/file-url/{node_id}` | 文献预签名链接 |
 | GET | `/health` | 健康检查 |
 
+### 文件接口（需登录）
+
+上传到对象存储（S3 兼容：腾讯云 COS / AWS S3 / MinIO）。所有端点需要 JWT。
+
+| 方法 | 路径 | 说明 |
+|------|------|------|
+| POST | `/api/files/upload` | 单文件上传（multipart） |
+| POST | `/api/files/batch-upload` | 批量上传（multipart） |
+| GET | `/api/files/?page&size` | 分页列表 |
+| GET | `/api/files/{file_uuid}` | 详情 |
+| GET | `/api/files/{file_uuid}/download-url` | 预签名下载 URL (1h 过期) |
+| DELETE | `/api/files/{file_uuid}` | 单文件删除 |
+| POST | `/api/files/batch-delete` | 批量删除 |
+
 ## 数据库
 
 ### SQLite（用户/对话/搜索）
@@ -156,7 +174,8 @@ python create_professional_user.py
 | `POSTGRES_USER` | postgres | PostgreSQL 用户名 |
 | `POSTGRES_PASSWORD` | (空) | PostgreSQL 密码 |
 | `POSTGRES_DB` | postgres | PostgreSQL 数据库名 |
-| `MINIO_ENDPOINT` | localhost:9000 | MinIO 地址 |
-| `MINIO_ACCESS_KEY` | (空) | MinIO Access Key |
-| `MINIO_SECRET_KEY` | (空) | MinIO Secret Key |
-| `MINIO_BUCKET_NAME` | tcm-documents | MinIO Bucket |
+| `S3_ENDPOINT` | https://cos.ap-beijing.myqcloud.com | 对象存储地址 |
+| `S3_ACCESS_KEY` | (空) | SecretId |
+| `S3_SECRET_KEY` | (空) | SecretKey |
+| `S3_BUCKET_NAME` | tcm-documents-1387425381 | COS 存储桶名 |
+| `S3_REGION` | ap-beijing | COS 地域 |

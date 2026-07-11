@@ -3,16 +3,18 @@
 from __future__ import annotations
 
 from functools import lru_cache
+from urllib.parse import quote_plus
 
 from pydantic import Field
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 from app.models.search_history import SearchBackendMode
+from app.storage.config import S3Config, UploadConfig
 
 
 class PostgresSettings(BaseSettings):
     model_config = SettingsConfigDict(
-        env_prefix="", extra="ignore",
+        env_prefix="POSTGRES_", extra="ignore",
         env_file=(".env", "../.env", "../../.env"),
         env_file_encoding="utf-8",
     )
@@ -23,18 +25,21 @@ class PostgresSettings(BaseSettings):
     password: str = Field(default="", alias="POSTGRES_PASSWORD")
     database: str = Field(default="postgres", alias="POSTGRES_DB")
 
+    @property
+    def dsn(self) -> str:
+        """Sync (psycopg2) DSN — used by existing sync routers."""
+        return (
+            f"postgresql+psycopg2://{quote_plus(self.user)}:{quote_plus(self.password)}"
+            f"@{self.host}:{self.port}/{self.database}"
+        )
 
-class MinioSettings(BaseSettings):
-    model_config = SettingsConfigDict(
-        env_prefix="MINIO_", extra="ignore",
-        env_file=(".env", "../.env", "../../.env"),
-        env_file_encoding="utf-8",
-    )
-
-    endpoint: str = "localhost:9000"
-    root_user: str = ""
-    root_password: str = ""
-    bucket_name: str = "tcm-documents"
+    @property
+    def async_dsn(self) -> str:
+        """Async (asyncpg) DSN — used by the new files router."""
+        return (
+            f"postgresql+asyncpg://{quote_plus(self.user)}:{quote_plus(self.password)}"
+            f"@{self.host}:{self.port}/{self.database}"
+        )
 
 
 class SearchSettings(BaseSettings):
@@ -59,7 +64,8 @@ class Settings(BaseSettings):
     )
 
     postgres: PostgresSettings = PostgresSettings()
-    minio: MinioSettings = MinioSettings()
+    s3: S3Config = S3Config()
+    upload: UploadConfig = UploadConfig()
     search: SearchSettings = SearchSettings()
     auth: AuthSettings = AuthSettings()
 
@@ -75,8 +81,12 @@ def get_database_config() -> PostgresSettings:
     return get_settings().postgres
 
 
-def get_minio_config() -> MinioSettings:
-    return get_settings().minio
+def get_s3_config() -> S3Config:
+    return get_settings().s3
+
+
+def get_upload_config() -> UploadConfig:
+    return get_settings().upload
 
 
 def get_search_config() -> SearchSettings:

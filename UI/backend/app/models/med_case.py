@@ -1,4 +1,4 @@
-"""SQLAlchemy ORM model for the case_metadata table."""
+"""MedCase ORM model — structured case metadata extracted by LLM."""
 
 from __future__ import annotations
 
@@ -7,7 +7,7 @@ from datetime import datetime
 from sqlalchemy import DateTime, ForeignKey, Index, String, Text, text
 from sqlalchemy.orm import Mapped, mapped_column
 
-from data_process.pdf_upload.models import Base
+from .base import Base
 
 
 class MedCase(Base):

@@ -1,4 +1,4 @@
-"""Core service: download PDF from MinIO, extract case data via LLM, insert into DB."""
+"""Core service: download PDF from object storage, extract case data via LLM, insert into DB."""
 
 from __future__ import annotations
 
@@ -12,9 +12,9 @@ from sqlalchemy import func, select, text, update
 from sqlalchemy.exc import IntegrityError, SQLAlchemyError
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_async_engine
 
-from data_process.pdf_upload.config import get_minio_config, get_postgres_config
-from data_process.pdf_upload.minio_client import MinioClient
-from data_process.pdf_upload.models import Base, CoreFile
+from UI.backend.app.config import PostgresSettings
+from UI.backend.app.models import Base, CoreFile, MedCase
+from UI.backend.app.storage import S3Client, get_s3_config
 
 from .llm_client import (
     build_final_prompt,
@@ -28,7 +28,6 @@ from .llm_client import (
     MAX_RETRIES,
     RETRY_DELAY,
 )
-from .models import MedCase
 from .schemas import ExtractionResult, ExtractionSummary, map_chinese_to_english
 
 LOGGER = logging.getLogger("case_metadata")
@@ -60,10 +59,10 @@ def _setup_file_logger() -> logging.Handler:
 
 class CaseExtractionService:
     def __init__(self) -> None:
-        pg_config = get_postgres_config()
-        self._engine = create_async_engine(pg_config.dsn, echo=False, pool_size=5)
+        pg_config = PostgresSettings()
+        self._engine = create_async_engine(pg_config.async_dsn, echo=False, pool_size=5)
         self._session_factory = async_sessionmaker(self._engine, expire_on_commit=False)
-        self._minio = MinioClient(get_minio_config())
+        self._s3 = S3Client(get_s3_config())
 
         # Load prompt + schema (once at init)
         self._prompt_md = _PROMPT_PATH.read_text(encoding="utf-8")
@@ -89,7 +88,6 @@ class CaseExtractionService:
         summary = ExtractionSummary()
 
         async with self._session_factory() as session:
-            from data_process.pdf_upload.models import CoreFile
 
             synced_existing = await self._sync_existing_case_statuses(session)
             for core_file in synced_existing:
@@ -161,7 +159,6 @@ class CaseExtractionService:
         return summary
 
     async def _sync_existing_case_statuses(self, session: AsyncSession) -> list:
-        from data_process.pdf_upload.models import CoreFile
 
         existing_case = select(MedCase.id).where(MedCase.file_uuid == CoreFile.file_uuid).exists()
         stmt = (
@@ -200,13 +197,13 @@ class CaseExtractionService:
             LOGGER.info("RESULT | SKIP | %s | reason=already_extracted | elapsed=%.1fs", original_name, elapsed)
             return extraction
 
-        # 1. Download PDF from MinIO
+        # 1. Download PDF from object storage (Tencent COS)
         try:
-            pdf_bytes = self._minio.get_object(storage_path)
+            pdf_bytes = self._s3.get_object(storage_path)
         except Exception as exc:
             elapsed = time.monotonic() - t_start
-            LOGGER.exception("Failed to download %s from MinIO", storage_path)
-            extraction.error = f"MinIO download failed: {exc}"
+            LOGGER.exception("Failed to download %s from COS", storage_path)
+            extraction.error = f"COS download failed: {exc}"
             LOGGER.info(
                 "RESULT | FAIL | %s | phase=download | elapsed=%.1fs | error=%s",
                 original_name, elapsed, exc,
@@ -301,7 +298,6 @@ class CaseExtractionService:
         return result.scalar_one_or_none() is not None
 
     async def _mark_case_processed(self, session: AsyncSession, file_uuid: str) -> None:
-        from data_process.pdf_upload.models import CoreFile
 
         await session.execute(
             update(CoreFile)

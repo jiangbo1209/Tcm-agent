@@ -125,10 +125,10 @@ Summary: uploaded=12 parsed=10 skipped=50 failed=2 total=74
 data_process/ragflow_sync/
 ├── __main__.py          # 支持 python -m data_process.ragflow_sync
 ├── main.py              # 命令行入口
-├── config.py            # 读取数据库、MinIO、RAGFlow 配置
+├── config.py            # 读取数据库、对象存储 (COS)、RAGFlow 配置
 ├── database.py          # SQLAlchemy 数据库访问
 ├── document_builder.py  # 构建文件名、Markdown 和 metadata
-├── minio_store.py       # MinIO 下载封装
+├── s3_store.py          # 腾讯云 COS 下载封装 (S3 兼容)
 ├── ragflow_client.py    # RAGFlow HTTP API 客户端
 ├── service.py           # 同步主流程
 ├── orm.py               # ragflow_sync_status ORM

@@ -302,7 +302,7 @@ class RagflowSyncService:
     @staticmethod
     def _validate_pdf_bytes(storage_path: str, content: bytes) -> None:
         if not content:
-            raise RuntimeError(f"upload failed: MinIO object is empty: {storage_path}")
+            raise RuntimeError(f"upload failed: S3 object is empty: {storage_path}")
         if not content.startswith(b"%PDF"):
-            raise RuntimeError(f"upload failed: MinIO object is not a PDF file: {storage_path}")
+            raise RuntimeError(f"upload failed: S3 object is not a PDF file: {storage_path}")
 

@@ -10,7 +10,7 @@ from sqlalchemy import String, case, func, or_, text
 from sqlalchemy.orm import Session
 
 from app.config import PostgresSettings, SearchSettings
-from app.models.graph import CoreFile, Edge, LitMetadata, MedCase, Node
+from app.models import CoreFile, Edge, LitMetadata, MedCase, Node
 from app.models.search_history import SearchBackendMode
 
 

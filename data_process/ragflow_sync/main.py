@@ -7,7 +7,7 @@ import sys
 
 from .config import RagflowSyncSettings
 from .database import RagflowSyncRepository, connect_database
-from .minio_store import MinioObjectStore
+from .s3_store import S3ObjectStore
 from .ragflow_client import RagflowClient
 from .service import RagflowSyncService
 
@@ -71,7 +71,7 @@ def main(argv: list[str] | None = None) -> int:
 
     engine = connect_database(settings)
     repository = RagflowSyncRepository(engine)
-    object_store = None if args.dry_run else MinioObjectStore(settings)
+    object_store = None if args.dry_run else S3ObjectStore(settings)
     ragflow_clients = {}
     if not args.dry_run:
         ragflow_clients = {

@@ -5,7 +5,7 @@ from __future__ import annotations
 from sqlalchemy import func, select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from data_process.lit_metadata.app.models.orm import (
+from UI.backend.app.models import (
     CoreFile,
     GuidelineMetadata,
     LitMetadata,
