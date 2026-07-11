@@ -45,7 +45,7 @@ class S3Client:
     code paths that need direct access (e.g. presigned URL customisation).
     """
 
-    def __init__(self, config: S3Config, *, auto_create_bucket: bool = False) -> None:
+    def __init__(self, config: S3Config) -> None:
         self._config = config
         parsed = _parse_endpoint(config.endpoint)
 
@@ -62,9 +62,6 @@ class S3Client:
         if parsed.endpoint.endswith(".myqcloud.com"):
             self._client._base_url.virtual_style_flag = True
 
-        if auto_create_bucket:
-            self.ensure_bucket()
-
     @property
     def bucket_name(self) -> str:
         return self._config.bucket_name
@@ -72,11 +69,6 @@ class S3Client:
     @property
     def client(self) -> Minio:
         return self._client
-
-    def ensure_bucket(self) -> None:
-        """Ensure target bucket exists; create it when missing."""
-        if not self._client.bucket_exists(self._config.bucket_name):
-            self._client.make_bucket(self._config.bucket_name)
 
     def put_object(
         self,

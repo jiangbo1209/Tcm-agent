@@ -46,7 +46,7 @@ def _build_s3_client() -> S3Client | None:
         logging.warning("S3 credentials are missing; file URL APIs will be unavailable")
         return None
     try:
-        return S3Client(config, auto_create_bucket=False)
+        return S3Client(config)
     except Exception:
         logging.exception("Failed to initialize S3 client")
         return None

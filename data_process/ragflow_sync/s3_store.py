@@ -16,7 +16,7 @@ class S3ObjectStore:
             bucket_name=settings.s3_bucket_name,
             region=settings.s3_region,
         )
-        self._client = S3Client(config, auto_create_bucket=False)
+        self._client = S3Client(config)
 
     def get_object(self, object_name: str) -> bytes:
         return self._client.get_object(object_name)

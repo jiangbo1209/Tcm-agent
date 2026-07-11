@@ -338,17 +338,19 @@ class GraphService:
         else:
             download_name = base_name
 
-        disposition_kind = "attachment" if download else "inline"
-        encoded_name = quote(download_name)
-        content_disposition = (
-            f'{disposition_kind}; filename="document{ext}"; '
-            f"filename*=UTF-8''{encoded_name}"
-        )
-
-        response_headers = {
+        response_headers: dict[str, str] = {
             "response-content-type": "application/pdf",
-            "response-content-disposition": content_disposition,
         }
+
+        if download:
+            encoded_name = quote(download_name)
+            content_disposition = (
+                f'attachment; filename="document{ext}"; '
+                f"filename*=UTF-8''{encoded_name}"
+            )
+            response_headers["response-content-disposition"] = content_disposition
+        else:
+            response_headers["response-content-disposition"] = "inline"
 
         presigned_url = self._s3_client.presigned_get_object(
             object_name=object_name,
