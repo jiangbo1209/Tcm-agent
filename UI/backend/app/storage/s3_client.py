@@ -57,6 +57,11 @@ class S3Client:
             region=config.region,
         )
 
+        # Tencent COS no longer supports path-style for buckets created
+        # after 2024-01-01 (returns NoSuchBucket). Force virtual-hosted-style.
+        if parsed.endpoint.endswith(".myqcloud.com"):
+            self._client._base_url.virtual_style_flag = True
+
         if auto_create_bucket:
             self.ensure_bucket()
 
