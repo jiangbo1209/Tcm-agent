@@ -177,5 +177,5 @@ python create_professional_user.py
 | `S3_ENDPOINT` | https://cos.ap-beijing.myqcloud.com | 对象存储地址 |
 | `S3_ACCESS_KEY` | (空) | SecretId |
 | `S3_SECRET_KEY` | (空) | SecretKey |
-| `S3_BUCKET` | tcm-documents-1387425381 | COS 存储桶名 |
+| `S3_BUCKET_NAME` | tcm-documents-1387425381 | COS 存储桶名 |
 | `S3_REGION` | ap-beijing | COS 地域 |
