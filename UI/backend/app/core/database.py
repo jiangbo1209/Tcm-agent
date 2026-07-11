@@ -57,28 +57,37 @@ def get_db():
 
 _async_engine = None
 _async_session_factory: async_sessionmaker[AsyncSession] | None = None
+_async_engine_lock = None
 
 
 def _ensure_async_engine() -> None:
-    global _async_engine, _async_session_factory
+    global _async_engine, _async_session_factory, _async_engine_lock
     if _async_engine is not None:
         return
-    cfg = get_database_config()
-    try:
-        _async_engine = create_async_engine(
-            cfg.async_dsn,
-            echo=False,
-            pool_size=5,
-            pool_pre_ping=True,
-        )
-        _async_session_factory = async_sessionmaker(
-            _async_engine,
-            expire_on_commit=False,
-            class_=AsyncSession,
-        )
-    except Exception:
-        LOGGER.exception("Failed to initialize async DB engine")
-        raise
+    if _async_engine_lock is None:
+        import threading
+
+        _async_engine_lock = threading.Lock()
+
+    with _async_engine_lock:
+        if _async_engine is not None:
+            return
+        cfg = get_database_config()
+        try:
+            _async_engine = create_async_engine(
+                cfg.async_dsn,
+                echo=False,
+                pool_size=5,
+                pool_pre_ping=True,
+            )
+            _async_session_factory = async_sessionmaker(
+                _async_engine,
+                expire_on_commit=False,
+                class_=AsyncSession,
+            )
+        except Exception:
+            LOGGER.exception("Failed to initialize async DB engine")
+            raise
 
 
 async def get_async_db():
