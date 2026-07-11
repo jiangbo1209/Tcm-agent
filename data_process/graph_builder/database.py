@@ -1,8 +1,8 @@
 """Database IO helpers for graph building.
 
 The graph tables (``nodes`` / ``edges``) are defined as SQLAlchemy ORM
-models in :mod:`UI.backend.app.models.graph`. This module is responsible
-for reading source rows, building in-memory :class:`GraphNode` /
+models in :mod:`UI.backend.app.models` (see :class:`~UI.backend.app.models.GraphBase`).
+This module is responsible for reading source rows, building in-memory :class:`GraphNode` /
 :class:`GraphEdge` objects, and writing them back to the database.
 """
 
