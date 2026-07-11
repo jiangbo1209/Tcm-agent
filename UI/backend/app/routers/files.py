@@ -7,6 +7,7 @@ written to ``core_file.uploader_id`` for audit purposes.
 from __future__ import annotations
 
 import logging
+from urllib.parse import quote
 
 from fastapi import (
     APIRouter,
@@ -219,7 +220,8 @@ def stream_file(token: str = Query(..., description="Signed file access token"),
     except S3Error as exc:
         raise HTTPException(status_code=404, detail=f"file not found: {exc.code}") from exc
 
-    content_disposition = f"{disposition}; filename=\"{file_name}\""
+    encoded_name = quote(file_name, safe="")
+    content_disposition = f"{disposition}; filename*=UTF-8''{encoded_name}"
     return Response(
         content=data,
         media_type="application/pdf",
