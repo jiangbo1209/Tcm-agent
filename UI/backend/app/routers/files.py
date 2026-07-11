@@ -15,13 +15,15 @@ from fastapi import (
     Form,
     HTTPException,
     Query,
+    Request,
     UploadFile,
 )
+from fastapi.responses import Response
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.auth.dependencies import get_current_user
 from app.dependencies.files import get_upload_service
-from app.storage import S3Error
+from app.storage import S3Client, S3Error
 from app.models.user import User
 from app.storage import (
     BatchDeleteRequest,
@@ -34,6 +36,7 @@ from app.storage import (
     UploadResponse,
     UploadService,
 )
+from app.storage.file_token import validate_file_token
 
 LOGGER = logging.getLogger("file_upload")
 
@@ -198,6 +201,30 @@ async def list_files(
     service: UploadService = Depends(get_upload_service),
 ):
     return await service.list_files(page=page, size=size)
+
+
+@router.get("/stream")
+def stream_file(token: str = Query(..., description="Signed file access token"), request: Request = None):
+    try:
+        storage_path, file_name, disposition = validate_file_token(token)
+    except ValueError as exc:
+        raise HTTPException(status_code=403, detail=str(exc)) from exc
+
+    s3_client: S3Client | None = getattr(request.app.state, "s3_client", None)
+    if not s3_client:
+        raise HTTPException(status_code=503, detail="storage not available")
+
+    try:
+        data = s3_client.get_object(storage_path)
+    except S3Error as exc:
+        raise HTTPException(status_code=404, detail=f"file not found: {exc.code}") from exc
+
+    content_disposition = f"{disposition}; filename=\"{file_name}\""
+    return Response(
+        content=data,
+        media_type="application/pdf",
+        headers={"Content-Disposition": content_disposition},
+    )
 
 
 @router.get("/{file_uuid}", response_model=UploadResponse)

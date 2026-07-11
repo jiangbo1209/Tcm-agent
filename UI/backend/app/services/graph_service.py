@@ -3,14 +3,13 @@
 from __future__ import annotations
 
 from collections import deque
-from datetime import timedelta
 from typing import Any
 import json
 import math
-from urllib.parse import quote
 
 from app.repositories.graph_repository import GraphRepository
 from app.storage import S3Client
+from app.storage.file_token import generate_file_token
 
 RECORD_COLUMNS = [
     "论文名称",
@@ -338,25 +337,13 @@ class GraphService:
         else:
             download_name = base_name
 
-        response_headers: dict[str, str] = {
-            "response-content-type": "application/pdf",
-        }
-
-        if download:
-            encoded_name = quote(download_name)
-            content_disposition = (
-                f'attachment; filename="document{ext}"; '
-                f"filename*=UTF-8''{encoded_name}"
-            )
-            response_headers["response-content-disposition"] = content_disposition
-        else:
-            response_headers["response-content-disposition"] = "inline"
-
-        presigned_url = self._s3_client.presigned_get_object(
-            object_name=object_name,
-            expires=timedelta(hours=1),
-            response_headers=response_headers,
+        disposition = "attachment" if download else "inline"
+        token = generate_file_token(
+            storage_path=object_name,
+            file_name=download_name,
+            disposition=disposition,
         )
+        stream_url = f"/api/files/stream?token={token}"
 
         return {
             "node_id": node_id,
@@ -365,5 +352,5 @@ class GraphService:
             "object_name": object_name,
             "file_name": download_name,
             "download": download,
-            "url": presigned_url,
+            "url": stream_url,
         }

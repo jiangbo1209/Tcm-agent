@@ -268,11 +268,17 @@ class UploadService:
         core_file = await self._repository.get_by_uuid(file_uuid)
         if not core_file:
             return None
-        url = await self._s3.presigned_get_object_async(core_file.storage_path)
+        from app.storage.file_token import generate_file_token
+
+        token = generate_file_token(
+            storage_path=core_file.storage_path,
+            file_name=core_file.original_name,
+            disposition="attachment",
+        )
         return {
             "file_uuid": file_uuid,
             "original_name": core_file.original_name,
-            "url": url,
+            "url": f"/api/files/stream?token={token}",
             "expires_in": 3600,
         }
 
