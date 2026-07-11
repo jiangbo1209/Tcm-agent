@@ -27,7 +27,7 @@ class RagflowSyncSettings(BaseSettings):
     s3_endpoint: str = Field(default="https://cos.ap-beijing.myqcloud.com", validation_alias=AliasChoices("S3_ENDPOINT"))
     s3_access_key: str = Field(default="", validation_alias=AliasChoices("S3_ACCESS_KEY"))
     s3_secret_key: str = Field(default="", validation_alias=AliasChoices("S3_SECRET_KEY"))
-    s3_bucket_name: str = Field(default="tcm-documents", validation_alias=AliasChoices("S3_BUCKET"))
+    s3_bucket_name: str = Field(default="tcm-documents", validation_alias=AliasChoices("S3_BUCKET", "S3_BUCKET_NAME"))
     s3_region: str = Field(default="ap-beijing", validation_alias=AliasChoices("S3_REGION"))
 
     ragflow_base_url: str = Field(default="http://127.0.0.1:9380", validation_alias=AliasChoices("RAGFLOW_BASE_URL"))
