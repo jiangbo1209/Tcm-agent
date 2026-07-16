@@ -16,7 +16,7 @@ export function deleteConversation(conversationId) {
   return request.delete(`/chat/conversations/${conversationId}`);
 }
 
-export async function sendMessageStream(conversationId, content, onChunk, onDone) {
+export async function sendMessageStream(conversationId, content, onChunk, onDone, onEvent) {
   const token = localStorage.getItem("token");
   const response = await fetch(`/api/chat/conversations/${conversationId}/messages`, {
     method: "POST",
@@ -26,6 +26,10 @@ export async function sendMessageStream(conversationId, content, onChunk, onDone
     },
     body: JSON.stringify({ content }),
   });
+
+  if (!response.ok || !response.body) {
+    throw new Error(`消息发送失败：${response.status}`);
+  }
 
   const reader = response.body.getReader();
   const decoder = new TextDecoder();
@@ -44,9 +48,11 @@ export async function sendMessageStream(conversationId, content, onChunk, onDone
         try {
           const data = JSON.parse(line.slice(6));
           if (data.done) {
-            onDone?.();
+            onDone?.(data);
+          } else if (data.event && data.event !== "answer_delta") {
+            onEvent?.(data.event, data.payload || {});
           } else {
-            onChunk?.(data.content);
+            onChunk?.(data.content || "");
           }
         } catch {}
       }

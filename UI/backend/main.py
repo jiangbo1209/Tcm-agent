@@ -14,19 +14,27 @@ logging.basicConfig(level=logging.INFO)
 from app.auth.router import router as auth_router
 from app.config import get_database_config, get_s3_config, get_search_config
 from app.core.database import dispose_async_engine, engine
+from app.core.schema_migration import (
+    ensure_agent_message_columns,
+    ensure_conversation_memory_columns,
+    ensure_core_file_uploader_column,
+)
 from app.models import Base, GraphBase
 from app.repositories.graph_repository import GraphRepository
-from app.routers.admin import router as admin_router
 from app.routers.chat import router as chat_router
 from app.routers.files import router as files_router
 from app.routers.graph import router as graph_router
 from app.routers.history import router as history_router
 from app.routers.search import router as search_router
+from app.routers.admin import router as admin_router
 from app.routers.users import router as users_router
 from app.services.graph_service import GraphService
 from app.storage import S3Client
 
 Base.metadata.create_all(bind=engine)
+ensure_agent_message_columns(engine)
+ensure_conversation_memory_columns(engine)
+ensure_core_file_uploader_column(engine)
 GraphBase.metadata.create_all(bind=engine)
 
 

@@ -57,6 +57,48 @@ export const useChatStore = defineStore("chat", () => {
     }
   }
 
+  function addStepToLastAssistant(step) {
+    const last = messages.value[messages.value.length - 1];
+    if (last && last.role === "assistant") {
+      last.agent_steps = [...(last.agent_steps || []), step];
+    }
+  }
+
+  function mergeLastAssistantMeta(meta) {
+    const last = messages.value[messages.value.length - 1];
+    if (last && last.role === "assistant") {
+      Object.assign(last, meta);
+    }
+  }
+
+  function upsertConversation(conversation) {
+    if (!conversation?.id) return;
+    const index = conversations.value.findIndex((item) => item.id === conversation.id);
+    if (index >= 0) {
+      const updated = {
+        ...conversations.value[index],
+        ...conversation,
+      };
+      conversations.value = [
+        updated,
+        ...conversations.value.filter((item) => item.id !== conversation.id),
+      ];
+      return;
+    }
+    conversations.value.unshift(conversation);
+  }
+
+  function replaceLastAssistant(savedMessage) {
+    const index = messages.value.length - 1;
+    const current = messages.value[index];
+    if (index >= 0 && current?.role === "assistant" && savedMessage) {
+      messages.value[index] = {
+        ...savedMessage,
+        agent_steps: current.agent_steps || savedMessage.agent_steps,
+      };
+    }
+  }
+
   return {
     conversations,
     currentConversationId,
@@ -68,5 +110,9 @@ export const useChatStore = defineStore("chat", () => {
     removeConversation,
     addMessage,
     appendToLastAssistant,
+    addStepToLastAssistant,
+    mergeLastAssistantMeta,
+    upsertConversation,
+    replaceLastAssistant,
   };
 });
