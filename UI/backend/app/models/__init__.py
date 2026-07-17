@@ -5,7 +5,9 @@ All canonical models live in :mod:`app.models`. Other code (including
 ``data_process.*`` subpackage, to keep a single source of truth.
 """
 
+from .agent_tool_run import AgentToolRun
 from .base import Base
+from .conversation_memory import ConversationMemory
 from .core_file import CoreFile
 from .graph_base import GraphBase
 from .graph_edge import Edge
@@ -16,6 +18,8 @@ from .med_case import MedCase
 
 __all__ = [
     "Base",
+    "AgentToolRun",
+    "ConversationMemory",
     "CoreFile",
     "Edge",
     "GraphBase",
