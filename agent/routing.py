@@ -21,8 +21,25 @@ def apply_route(
     question: str,
     plan: QueryPlan,
     memory_context: MemoryContext | None = None,
+    preserve_model_route: bool = False,
 ) -> QueryPlan:
-    """Attach a stable task route while keeping the existing retrieval intent."""
+    """Apply the rule route or use rules as deterministic guardrails."""
+
+    rule_values = _rule_route_values(question, plan, memory_context)
+    if not preserve_model_route:
+        return plan.model_copy(update=rule_values)
+
+    return plan.model_copy(
+        update=_guardrail_values(question, plan, memory_context, rule_values)
+    )
+
+
+def _rule_route_values(
+    question: str,
+    plan: QueryPlan,
+    memory_context: MemoryContext | None = None,
+) -> dict[str, Any]:
+    """Build the deterministic route used when model analysis is unavailable."""
 
     text = question.lower()
     resolver = MemoryResolver()
@@ -131,7 +148,52 @@ def apply_route(
             retrieval_required=True,
         )
 
-    return plan.model_copy(update=values)
+    return values
+
+
+def _guardrail_values(
+    question: str,
+    plan: QueryPlan,
+    memory_context: MemoryContext | None,
+    rule_values: dict[str, Any],
+) -> dict[str, Any]:
+    """Keep valid model routing while enforcing deterministic safety boundaries."""
+
+    text = question.lower()
+    resolver = MemoryResolver()
+    has_citation = (
+        resolver.citation_reference_index(question) is not None
+        or resolver.all_citations_requested(question)
+    )
+    history_needed = bool(memory_context and resolver.needs_context(question))
+    stage_hits = [term for term in STAGE_TERMS if term.lower() in text]
+    is_report = any(term.lower() in text for term in REPORT_INTERPRETATION_KEYWORDS)
+    is_safety = any(term.lower() in text for term in SAFETY_TERMS)
+    is_compare = any(term.lower() in text for term in COMPARE_TERMS)
+
+    if has_citation and memory_context:
+        return rule_values
+
+    high_confidence_route = (
+        is_report
+        or is_safety
+        or len(stage_hits) >= 2
+        or ("阶段" in question and bool(stage_hits))
+        or (is_compare and plan.intent == "clinical_decision_question")
+    )
+    if high_confidence_route:
+        return rule_values
+
+    overrides: dict[str, Any] = {
+        "retrieval_required": True,
+    }
+    if rule_values.get("risk_level") == "high" or plan.risk_level == "high":
+        overrides["risk_level"] = "high"
+    if plan.answer_mode == "source_detail" and not (has_citation and memory_context):
+        overrides.update(rule_values)
+    if history_needed and plan.context_mode == "new_question":
+        overrides["context_mode"] = "follow_up"
+    return overrides
 
 
 def route_contract(
@@ -139,18 +201,51 @@ def route_contract(
     user_context: UserContext | None = None,
     evidence_status: str = "not_checked",
 ) -> dict[str, Any]:
-    structures = {
-        "source_detail": ["来源基本信息", "与当前问题的关联", "资料明确说明的内容", "资料没有说明的内容"],
-        "report_interpretation": ["指标或检查结果含义", "可能影响", "仍需补充的信息", "下一步就医或检查建议"],
-        "phase_guidance": ["按阶段分别说明", "阶段目标", "监测重点", "常见风险", "证据不足的部分"],
-        "safety_risk": ["可能情况", "需要立即就医的信号", "当前不能确定的部分", "安全建议"],
-        "option_comparison": ["方案适用情况", "优点和局限", "风险与监测", "证据强度", "不替代医生决策的提示"],
-        "case_analysis": ["病例已知信息", "关键问题", "证据支持的分析框架", "缺失信息", "后续评估重点"],
-        "case_review": ["病案基本情况", "辨证和治疗思路", "疗效与局限", "可借鉴内容"],
-        "evidence_summary": ["研究结论", "研究对象和干预", "主要结果", "证据局限"],
-        "patient_education": ["先用通俗语言回答", "可以做什么", "需要避免什么", "何时就医"],
-        "follow_up": ["承接上一轮问题", "补充说明", "仍需结合的条件"],
-        "general": ["直接回答问题", "必要的依据", "风险提示"],
+    response_guidance = {
+        "source_detail": {
+            "primary_focus": ["来源基本信息", "资料明确说明的内容", "资料没有说明的内容"],
+            "optional_focus": ["证据局限", "原文核查建议"],
+        },
+        "report_interpretation": {
+            "primary_focus": ["指标或检查结果的含义", "与当前情况相关的影响因素"],
+            "optional_focus": ["仍需补充的信息", "下一步就医或检查建议"],
+        },
+        "phase_guidance": {
+            "primary_focus": ["用户提到的阶段", "阶段目标", "监测重点"],
+            "optional_focus": ["常见风险", "证据不足的部分"],
+        },
+        "safety_risk": {
+            "primary_focus": ["可能情况", "安全边界", "需要立即就医的信号"],
+            "optional_focus": ["当前不能确定的部分", "监测或就医建议"],
+        },
+        "option_comparison": {
+            "primary_focus": ["方案差异", "适用情况", "优点和局限"],
+            "optional_focus": ["风险与监测", "证据强度", "决策限制"],
+        },
+        "case_analysis": {
+            "primary_focus": ["病例已知信息", "关键问题", "证据支持的分析框架"],
+            "optional_focus": ["缺失信息", "后续评估重点"],
+        },
+        "case_review": {
+            "primary_focus": ["病案基本情况", "辨证和治疗思路"],
+            "optional_focus": ["疗效与局限", "可借鉴内容"],
+        },
+        "evidence_summary": {
+            "primary_focus": ["研究结论", "研究对象和干预", "主要结果"],
+            "optional_focus": ["证据局限", "需要进一步核实的问题"],
+        },
+        "patient_education": {
+            "primary_focus": ["先用通俗语言回答", "用户可以做什么"],
+            "optional_focus": ["需要避免什么", "何时就医"],
+        },
+        "follow_up": {
+            "primary_focus": ["承接上一轮问题", "直接补充当前追问"],
+            "optional_focus": ["仍需结合的条件", "下一步方向"],
+        },
+        "general": {
+            "primary_focus": ["直接回答问题", "必要的依据"],
+            "optional_focus": ["风险提示", "补充说明"],
+        },
     }
     user = user_context or UserContext()
     role_guidance = {
@@ -162,11 +257,13 @@ def route_contract(
         "task_type": plan.task_type,
         "answer_mode": plan.answer_mode,
         "retrieval_strategy": plan.retrieval_strategy,
+        "context_mode": plan.context_mode,
+        "retrieval_required": plan.retrieval_required,
         "risk_level": plan.risk_level,
         "evidence_status": evidence_status,
-        "required_structure": structures.get(plan.answer_mode, structures["general"]),
+        "response_guidance": response_guidance.get(plan.answer_mode, response_guidance["general"]),
         "role_guidance": role_guidance,
-        "format_rule": "按当前路由组织内容，不强制套用其他问题的固定标题；内部路由字段只用于控制回答，不要在正文中解释。",
+        "format_rule": "response_guidance 是软性建议，不是固定提纲；先回答用户最关心的问题，再按相关性选择补充角度，不必逐项覆盖；内部路由字段只用于控制回答，不要在正文中解释。",
     }
 
 

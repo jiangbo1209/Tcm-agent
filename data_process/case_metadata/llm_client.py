@@ -21,14 +21,30 @@ LOGGER = logging.getLogger("case_metadata")
 
 # ==================== Config ====================
 
-RELAY_BASE_URL = (
-    os.getenv("RELAY_BASE_URL")
-    or os.getenv("LLM_BASE_URL")
+GEMINI_BASE_URL = (
+    os.getenv("DATA_PROCESS_GEMINI_BASE_URL")
+    or os.getenv("CASE_METADATA_LLM_BASE_URL")
+    or os.getenv("RELAY_BASE_URL")
     or "https://runanytime.hxi.me"
 )
-RELAY_API_KEY = os.getenv("RELAY_API_KEY") or os.getenv("LLM_API_KEY", "")
-GEMINI_MODEL = os.getenv("GEMINI_MODEL") or os.getenv("LLM_MODEL", "gemini-3-flash-preview")
-GEMINI_AUTH_HEADER = os.getenv("GEMINI_AUTH_HEADER") or os.getenv("RELAY_AUTH_HEADER") or "x-goog-api-key"
+GEMINI_API_KEY = (
+    os.getenv("DATA_PROCESS_GEMINI_API_KEY")
+    or os.getenv("CASE_METADATA_LLM_API_KEY")
+    or os.getenv("RELAY_API_KEY", "")
+)
+GEMINI_MODEL = (
+    os.getenv("DATA_PROCESS_GEMINI_MODEL")
+    or os.getenv("CASE_METADATA_LLM_MODEL")
+    or os.getenv("GEMINI_MODEL")
+    or "gemini-3.5-flash"
+)
+GEMINI_AUTH_HEADER = (
+    os.getenv("DATA_PROCESS_GEMINI_AUTH_HEADER")
+    or os.getenv("CASE_METADATA_LLM_AUTH_HEADER")
+    or os.getenv("GEMINI_AUTH_HEADER")
+    or os.getenv("RELAY_AUTH_HEADER")
+    or "x-goog-api-key"
+)
 
 CONNECT_TIMEOUT = 100
 READ_TIMEOUT = 180
@@ -122,7 +138,7 @@ def build_payload(final_prompt: str, pdf_bytes: bytes, gemini_schema: dict[str, 
 # ==================== SSE streaming call ====================
 
 def build_gemini_endpoint() -> str:
-    base_url = RELAY_BASE_URL.rstrip("/")
+    base_url = GEMINI_BASE_URL.rstrip("/")
     if "{model}" in base_url:
         return base_url.format(model=GEMINI_MODEL)
     if "/v1beta/models/" in base_url:
@@ -135,13 +151,13 @@ def build_gemini_endpoint() -> str:
 def build_auth_headers() -> dict[str, str]:
     header_name = GEMINI_AUTH_HEADER.strip() or "x-goog-api-key"
     if header_name.lower() in {"authorization", "bearer"}:
-        return {"Authorization": f"Bearer {RELAY_API_KEY}"}
-    return {header_name: RELAY_API_KEY}
+        return {"Authorization": f"Bearer {GEMINI_API_KEY}"}
+    return {header_name: GEMINI_API_KEY}
 
 
 def call_gemini_stream(payload: dict[str, Any]) -> str:
-    if not RELAY_API_KEY:
-        raise RuntimeError("RELAY_API_KEY not set in environment")
+    if not GEMINI_API_KEY:
+        raise RuntimeError("DATA_PROCESS_GEMINI_API_KEY not set in environment")
 
     url = build_gemini_endpoint()
     headers = {

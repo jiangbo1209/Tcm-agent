@@ -54,9 +54,11 @@ class QueryAnalyzer:
         user_context: UserContext | None = None,
     ) -> QueryPlan:
         safe_top_k = top_k or self._default_top_k
+        preserve_model_route = False
         if self._use_llm:
             try:
                 plan = self._analyze_with_llm(question, safe_top_k, memory_context, user_context)
+                preserve_model_route = True
             except Exception:
                 plan = self._analyze_with_rules(question, safe_top_k, memory_context)
         else:
@@ -64,7 +66,12 @@ class QueryAnalyzer:
 
         if top_k:
             plan.top_k = top_k
-        return apply_route(question, plan, memory_context)
+        return apply_route(
+            question,
+            plan,
+            memory_context,
+            preserve_model_route=preserve_model_route,
+        )
 
     def _analyze_with_llm(
         self,
@@ -174,9 +181,68 @@ class QueryAnalyzer:
         )
 
     def _normalize_plan(self, plan: QueryPlan, fallback_question: str, fallback_top_k: int) -> QueryPlan:
+        valid_intents = {
+            "literature_question",
+            "case_question",
+            "clinical_decision_question",
+            "patient_education_question",
+            "general_medical_question",
+            "guideline_validation_question",
+        }
+        valid_task_types = {
+            "source_detail",
+            "report_interpretation",
+            "case_analysis",
+            "option_comparison",
+            "assisted_reproduction_stages",
+            "literature_evidence",
+            "case_review",
+            "patient_education",
+            "safety_risk",
+            "follow_up",
+            "general_qa",
+        }
+        valid_answer_modes = {
+            "source_detail",
+            "report_interpretation",
+            "phase_guidance",
+            "option_comparison",
+            "case_analysis",
+            "case_review",
+            "evidence_summary",
+            "patient_education",
+            "safety_risk",
+            "follow_up",
+            "general",
+        }
+        valid_retrieval_strategies = {
+            "single_query",
+            "literature_first",
+            "case_first",
+            "literature_case_mix",
+            "guideline_first",
+            "source_targeted",
+            "report_evidence",
+            "multi_query",
+            "hybrid",
+        }
+        valid_context_modes = {"new_question", "follow_up", "case_analysis", "citation_follow_up"}
+        valid_risk_levels = {"low", "medium", "high"}
         valid_search_types = {"literature", "case", "both", "guideline"}
         valid_source_types = {"paper", "record", "guideline", None}
 
+        if plan.intent not in valid_intents:
+            plan.intent = "general_medical_question"
+        if plan.task_type not in valid_task_types:
+            plan.task_type = "general_qa"
+        if plan.answer_mode not in valid_answer_modes:
+            plan.answer_mode = "general"
+        if plan.retrieval_strategy not in valid_retrieval_strategies:
+            plan.retrieval_strategy = "single_query"
+        if plan.context_mode not in valid_context_modes:
+            plan.context_mode = "new_question"
+        if plan.risk_level not in valid_risk_levels:
+            plan.risk_level = "medium"
         if plan.search_type not in valid_search_types:
             plan.search_type = "both"
         if plan.source_type not in valid_source_types:
