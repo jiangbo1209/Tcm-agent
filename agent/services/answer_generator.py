@@ -94,7 +94,7 @@ class AnswerGenerator:
                 "当前知识库没有检索到足够相关资料，无法直接支撑本问题。以下只能提供一般性医学说明，不代表本地知识库证据。\n\n"
                 f"问题理解：{self._intent_label(query_plan)}。\n"
                 "当前回答生成服务没有正常返回，因此暂时无法给出完整回答。"
-                "建议稍后重试，或检查 LLM_BASE_URL、LLM_API_KEY、LLM_MODEL 配置。"
+                "建议稍后重试，或检查 AGENT_LLM_BASE_URL、AGENT_LLM_API_KEY、AGENT_LLM_MODEL 配置。"
             )
 
         lines = [

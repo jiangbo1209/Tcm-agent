@@ -63,11 +63,11 @@ class LLMClient:
 
     def _body(self, prompt: str, system_prompt: str | None, stream: bool) -> dict[str, Any]:
         if not self._settings.llm_base_url:
-            raise LLMClientError("LLM_BASE_URL is not configured")
+            raise LLMClientError("AGENT_LLM_BASE_URL is not configured")
         if not self._settings.llm_api_key:
-            raise LLMClientError("LLM_API_KEY is not configured")
+            raise LLMClientError("AGENT_LLM_API_KEY is not configured")
         if not self._settings.llm_model:
-            raise LLMClientError("LLM_MODEL is not configured")
+            raise LLMClientError("AGENT_LLM_MODEL is not configured")
 
         messages = []
         if system_prompt:

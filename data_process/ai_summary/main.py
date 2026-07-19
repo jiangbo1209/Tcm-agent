@@ -28,7 +28,7 @@ logging.basicConfig(
 
 
 def current_model_name() -> str:
-    return os.getenv("GEMINI_MODEL") or os.getenv("LLM_MODEL", "gemini-3-flash-preview")
+    return os.getenv("DATA_PROCESS_GEMINI_MODEL") or os.getenv("GEMINI_MODEL", "gemini-3.5-flash")
 
 
 def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
