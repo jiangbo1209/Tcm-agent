@@ -24,6 +24,12 @@ playwright install chromium
 cd UI/frontend && npm install
 ```
 
+### 初始化数据库
+
+```bash
+python scripts/init_db.py
+```
+
 ### 启动后端
 
 ```bash
@@ -42,11 +48,14 @@ npm run dev
 
 ### 测试账号
 
-通过 CSV 文件批量创建用户：
+先初始化数据库，再通过 CSV 批量创建用户：
 
 ```bash
-cd UI/backend
-python create_professional_user.py users.csv
+# 1. 初始化数据库表
+python scripts/init_db.py
+
+# 2. 批量导入用户（参考 scripts/users.csv.example 准备 CSV）
+python scripts/import_users.py scripts/users.csv
 ```
 
 ## 核心业务数据流
@@ -230,6 +239,10 @@ graph TD
 │   ├── guideline_metadata/         # 指南元数据
 │   ├── pdf_upload/                 # TUI 上传工具
 │   └── db_init.py                  # 数据库表初始化
+├── scripts                         # 管理脚本
+│   ├── init_db.py                  # 初始化所有数据库表
+│   ├── import_users.py             # 从 CSV 批量导入用户
+│   └── users.csv.example           # 用户导入模板
 ├── docker-compose.yaml
 ├── docker/
 └── docs/
@@ -237,10 +250,10 @@ graph TD
 
 ### 数据处理入口
 
-首次初始化数据库表结构：
+数据库表结构初始化（业务表 + 图谱表）：
 
 ```bash
-python -m data_process.db_init
+python scripts/init_db.py
 ```
 
 离线生成图谱底表 `nodes` / `edges`：
@@ -266,8 +279,8 @@ python data_process/pdf_upload/pdf_manager_tui.py
 所有表均位于同一 PostgreSQL 数据库，按功能域分为三组。
 
 **初始化方式**：
-- 用户/对话/业务表：后端启动时 `main.py` 自动执行 `Base.metadata.create_all`，也可手动执行 `python -m data_process.db_init`
-- 图谱表：`main.py` 创建空表结构，数据需通过 `python -m data_process.graph_builder.main` 离线构建
+- 所有表通过 `python scripts/init_db.py` 统一创建（幂等，可重复执行）
+- 图谱数据需额外通过 `python -m data_process.graph_builder.main` 离线构建填充
 
 ### 1. 用户与对话
 
