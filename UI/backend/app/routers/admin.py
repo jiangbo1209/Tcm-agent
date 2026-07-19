@@ -7,15 +7,17 @@ import re
 from datetime import datetime, timezone
 from typing import Any
 
-from fastapi import APIRouter, Depends, HTTPException, Query
+from fastapi import APIRouter, Depends, HTTPException, Query, Request
 from pydantic import BaseModel
 from sqlalchemy import Integer, func, or_, select, update
 from sqlalchemy.orm import Session
 
 from app.auth.dependencies import require_admin
 from app.core.database import get_db
-from app.models import GuidelineMetadata, LitMetadata, MedCase
+from app.models import CoreFile, GuidelineMetadata, LitMetadata, MedCase, Node, Edge
 from app.models.user import User
+from app.storage import S3Client
+from app.config import get_s3_config
 
 LOGGER = logging.getLogger("admin_api")
 
@@ -207,6 +209,74 @@ def get_record(
     if record is None:
         raise HTTPException(status_code=404, detail="Record not found")
     return {"record": _serialize(record, table), "editable_fields": _EDITABLE_FIELDS.get(table, [])}
+
+
+def _delete_s3_file(storage_path: str) -> None:
+    try:
+        s3_config = get_s3_config()
+        if s3_config.access_key and s3_config.secret_key:
+            s3 = S3Client(s3_config)
+            s3.remove_object(storage_path)
+    except Exception:
+        LOGGER.exception("S3 deletion failed for %s, proceeding", storage_path)
+
+
+@router.delete("/lit/{record_id}")
+def delete_lit_record(
+    record_id: int,
+    request: Request,
+    db: Session = Depends(get_db),
+    _admin: User = Depends(require_admin),
+):
+    record = db.query(LitMetadata).filter(LitMetadata.id == record_id).first()
+    if record is None:
+        raise HTTPException(status_code=404, detail="Literature record not found")
+
+    file_uuid = record.file_uuid
+
+    core_file = db.query(CoreFile).filter(CoreFile.file_uuid == file_uuid).first()
+    if core_file:
+        _delete_s3_file(core_file.storage_path)
+        db.delete(core_file)
+
+    related_cases = db.query(MedCase).filter(MedCase.file_uuid == file_uuid).all()
+    for case in related_cases:
+        db.delete(case)
+
+    node = db.query(Node).filter(Node.title == record.title, Node.node_type == "paper").first()
+    if node:
+        db.query(Edge).filter(
+            or_(Edge.source_id == node.id, Edge.target_id == node.id)
+        ).delete()
+        db.delete(node)
+
+    db.delete(record)
+    db.commit()
+    return {"deleted": True, "id": record_id, "file_uuid": file_uuid}
+
+
+@router.delete("/case/{record_id}")
+def delete_case_record(
+    record_id: int,
+    db: Session = Depends(get_db),
+    _admin: User = Depends(require_admin),
+):
+    record = db.query(MedCase).filter(MedCase.id == record_id).first()
+    if record is None:
+        raise HTTPException(status_code=404, detail="Case record not found")
+
+    lit = db.query(LitMetadata).filter(LitMetadata.file_uuid == record.file_uuid).first()
+    if lit:
+        node = db.query(Node).filter(Node.title == lit.title, Node.node_type == "record").first()
+        if node:
+            db.query(Edge).filter(
+                or_(Edge.source_id == node.id, Edge.target_id == node.id)
+            ).delete()
+            db.delete(node)
+
+    db.delete(record)
+    db.commit()
+    return {"deleted": True, "id": record_id}
 
 
 @router.put("/{table}/{record_id}")

@@ -20,7 +20,7 @@ from app.core.schema_migration import (
     ensure_core_file_uploader_column,
 )
 from app.models import Base, GraphBase
-from app.repositories.graph_repository import GraphRepository
+from app.repositories import GraphRepository
 from app.routers.chat import router as chat_router
 from app.routers.files import router as files_router
 from app.routers.graph import router as graph_router

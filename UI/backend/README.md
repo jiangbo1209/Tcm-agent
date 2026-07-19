@@ -40,7 +40,11 @@ backend/
     ├── services/
     │   └── graph_service.py    # 图谱业务逻辑（BFS 扩展、详情聚合）
     ├── repositories/
-    │   └── graph_repository.py # 图谱数据访问（SQLAlchemy ORM）
+    │   ├── base.py              # 公共工具方法与基类
+    │   ├── graph_repo.py        # 图谱节点/边查询
+    │   ├── detail_repo.py       # 文献/病案详情查询
+    │   ├── search_repo.py       # 搜索与 facet 统计
+    │   └── fulltext_checker.py  # 全文索引检测
     ├── storage/                # 对象存储 (S3 / 腾讯云 COS) 客户端 + 上传服务
     │   ├── s3_client.py
     │   ├── service.py

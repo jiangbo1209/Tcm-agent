@@ -87,6 +87,7 @@
             </span>
           </div>
           <button class="btn-edit" @click.stop="startEdit(record)">编辑</button>
+          <button class="btn-delete" @click.stop="handleDelete(record)">删除</button>
         </div>
         <div v-if="record.crawl_status === 'partial' && record.error_message" class="record-error">
           {{ record.error_message }}
@@ -171,7 +172,7 @@
 
 <script setup>
 import { ref, computed, onMounted, onBeforeUnmount } from "vue";
-import { fetchAdminList, updateAdminRecord, fetchFileUrl } from "../api/admin";
+import { fetchAdminList, updateAdminRecord, deleteAdminRecord, fetchFileUrl } from "../api/admin";
 
 const tabs = [
   { key: "lit", label: "文献元数据 (lit_metadata)", count: null },
@@ -447,6 +448,23 @@ function onResize(e) {
 
 onBeforeUnmount(stopResize);
 
+async function handleDelete(record) {
+  const label = activeTable.value === "lit" ? "文献" : "病案";
+  const msg = activeTable.value === "lit"
+    ? `确定删除文献「${getRecordTitle(record)}」？\n将同时删除关联的病案及存储文件，此操作不可恢复！`
+    : `确定删除病案「${getRecordTitle(record)}」？\n仅删除病案记录，不影响文献，此操作不可恢复！`;
+  if (!confirm(msg)) return;
+  try {
+    await deleteAdminRecord(activeTable.value, record.id);
+    records.value = records.value.filter(r => r.id !== record.id);
+    total.value -= 1;
+    const tab = tabs.find(t => t.key === activeTable.value);
+    if (tab) tab.count = (tab.count || 1) - 1;
+  } catch (e) {
+    alert("删除失败: " + (e.response?.data?.detail || e.message));
+  }
+}
+
 async function saveEdit() {
   const fields = {};
   fieldErrors.value = {};
@@ -558,6 +576,8 @@ onBeforeUnmount(() => {
 .status-tag.status-failed { background: #ffebee; color: #c62828; }
 .btn-edit { padding: 4px 12px; border: 1px solid #d0d0d0; border-radius: 4px; background: #fff; font-size: 12px; color: #00796b; cursor: pointer; flex-shrink: 0; }
 .btn-edit:hover { background: #e0f2f1; }
+.btn-delete { padding: 4px 12px; border: 1px solid #e53935; border-radius: 4px; background: #fff; font-size: 12px; color: #e53935; cursor: pointer; flex-shrink: 0; }
+.btn-delete:hover { background: #ffebee; }
 
 .record-detail { border-top: 1px solid #e8e8e8; padding: 16px; background: #fafafa; }
 .field-table { width: 100%; border-collapse: collapse; }

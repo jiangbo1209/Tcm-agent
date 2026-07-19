@@ -16,6 +16,10 @@ export function updateAdminRecord(table, id, fields, updatedAt) {
   return request.put(`/admin/${table}/${id}`, { fields, updated_at: updatedAt });
 }
 
+export function deleteAdminRecord(table, id) {
+  return request.delete(`/admin/${table}/${id}`);
+}
+
 export function fetchFileUrl(fileUuid, sourceType = "paper") {
   return request.get("/graph/file-url-by-uuid", {
     params: { file_uuid: fileUuid, source_type: sourceType, mode: "view" },
