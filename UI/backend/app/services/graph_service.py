@@ -7,7 +7,7 @@ from typing import Any
 import json
 import math
 
-from app.repositories.graph_repository import GraphRepository
+from app.repositories import GraphRepository
 from app.storage import S3Client
 from app.storage.file_token import generate_file_token
 

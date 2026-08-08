@@ -56,6 +56,7 @@ const nodeMap = new Map();
 const edgeMap = new Map();
 const inFlightSeeds = new Set();
 const expansionHistory = [];
+let visibleLimit = 3;
 
 function clamp(v, min, max) { return Math.max(min, Math.min(max, v)); }
 function normalize(v, d) { const s = Number.isFinite(v) ? v : d[0]; return d[0] === d[1] ? 0.5 : (clamp(s, d[0], d[1]) - d[0]) / (d[1] - d[0]); }
@@ -176,54 +177,44 @@ function syncNodePositions() {
   });
 }
 
-function renderCurrentGraph() {
+function getVisibleIds(limit) {
+  if (limit <= 0 || expansionHistory.length === 0) {
+    return { nodeIds: new Set(), edgeIds: new Set() };
+  }
+  const limited = expansionHistory.slice(-limit);
+  const nodeIds = new Set();
+  const edgeIds = new Set();
+  for (const exp of limited) {
+    exp.nodeIds.forEach(id => nodeIds.add(id));
+    exp.edgeIds.forEach(id => edgeIds.add(id));
+  }
+  if (activeSeedNodeId) nodeIds.add(activeSeedNodeId);
+  return { nodeIds, edgeIds };
+}
+
+function renderCurrentGraph({ relayout = false } = {}) {
   if (!graph) return;
   syncNodePositions();
-  const edges = Array.from(edgeMap.values()).filter(e => nodeMap.has(e.source) && nodeMap.has(e.target));
-  graph.changeData({ nodes: Array.from(nodeMap.values()), edges });
-  nodeCount.value = nodeMap.size;
+
+  const { nodeIds, edgeIds } = getVisibleIds(visibleLimit);
+  const visibleNodes = Array.from(nodeMap.values()).filter(n => nodeIds.has(n.id));
+  const visibleEdges = Array.from(edgeMap.values()).filter(e =>
+    edgeIds.has(e.id) && nodeIds.has(e.source) && nodeIds.has(e.target)
+  );
+
+  graph.changeData({ nodes: visibleNodes, edges: visibleEdges });
+  nodeCount.value = visibleNodes.length;
+
   if (activeSeedNodeId && nodeMap.has(activeSeedNodeId)) {
     const item = graph.findById(activeSeedNodeId);
     if (item) applyNodeBaseStyle(item);
   }
+  if (relayout) graph.layout();
 }
 
-function trimExpansions({ relayout = false } = {}) {
-  const limit = Math.max(0, Number(props.maxExpansions) || 0);
-  if (limit <= 0 || expansionHistory.length <= limit) return;
-
-  expansionHistory.splice(0, expansionHistory.length - limit);
-
-  // Keep the union of the latest complete expansion payloads, then derive
-  // visible nodes from the remaining edges so stale isolated nodes disappear.
-  const keptEdgeIds = new Set();
-  for (const exp of expansionHistory) {
-    exp.edgeIds.forEach(id => keptEdgeIds.add(id));
-  }
-
-  for (const [eid, edge] of Array.from(edgeMap.entries())) {
-    if (!keptEdgeIds.has(eid) || !nodeMap.has(edge.source) || !nodeMap.has(edge.target)) {
-      edgeMap.delete(eid);
-    }
-  }
-
-  const connectedNodeIds = new Set();
-  for (const edge of edgeMap.values()) {
-    connectedNodeIds.add(edge.source);
-    connectedNodeIds.add(edge.target);
-  }
-
-  if (edgeMap.size === 0 && activeSeedNodeId && nodeMap.has(activeSeedNodeId)) {
-    connectedNodeIds.add(activeSeedNodeId);
-  }
-
-  for (const nid of Array.from(nodeMap.keys())) {
-    if (!connectedNodeIds.has(nid)) nodeMap.delete(nid);
-  }
-
-  if (activeSeedNodeId && !nodeMap.has(activeSeedNodeId)) activeSeedNodeId = null;
-  renderCurrentGraph();
-  if (relayout) graph.layout();
+function applyExpansionLimit({ relayout = false } = {}) {
+  visibleLimit = Math.max(0, Number(props.maxExpansions) || 0);
+  renderCurrentGraph({ relayout });
 }
 
 async function fetchAndExpand(seedId) {
@@ -263,7 +254,7 @@ async function fetchAndExpand(seedId) {
     if (item) graph.updateItem(item, { x: centerX, y: centerY });
 
     // 裁剪超出限制的旧扩展
-    trimExpansions();
+    applyExpansionLimit();
 
     // 运行一次性布局
     graph.layout();
@@ -281,9 +272,9 @@ function zoomIn() { graph?.zoom(1.12); }
 function zoomOut() { graph?.zoom(0.9); }
 function fitView() { graph?.fitView(20); }
 function focusNode(id) { const item = graph?.findById(id); if (item && graph.focusItem) graph.focusItem(item, true, { easing: "easeCubic", duration: 400 }); }
-function clearGraph() { activeSeedNodeId = null; nodeMap.clear(); edgeMap.clear(); inFlightSeeds.clear(); expansionHistory.length = 0; nodeCount.value = 0; graph?.changeData({ nodes: [], edges: [] }); }
+function clearGraph() { activeSeedNodeId = null; nodeMap.clear(); edgeMap.clear(); inFlightSeeds.clear(); expansionHistory.length = 0; nodeCount.value = 0; visibleLimit = 3; graph?.changeData({ nodes: [], edges: [] }); }
 
-function applyMaxExpansions() { trimExpansions({ relayout: true }); }
+function applyMaxExpansions() { applyExpansionLimit({ relayout: true }); }
 
 onMounted(() => {
   const container = graphRef.value;

@@ -1,28 +1,27 @@
 """批量创建/更新用户账号。
 
 用法:
-    python create_professional_user.py users.csv
+    python scripts/import_users.py <文件.csv>
 
 CSV 格式 (无表头):
     username,email,password,role
     # role 可选: admin, professional, normal
     # 以 # 开头的行会被忽略
+
+注意: 请先执行 python scripts/init_db.py 初始化数据库表。
 """
 
 import csv
 import os
 import sys
 
-sys.path.insert(0, os.path.dirname(__file__))
+sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), "..", "UI", "backend")))
 
-from app.core.database import SessionLocal, engine
-from app.models.base import Base
+from app.core.database import SessionLocal
 from app.models.user import User
 from app.auth.service import get_password_hash
 
 VALID_ROLES = {"admin", "professional", "normal"}
-
-Base.metadata.create_all(bind=engine)
 
 
 def upsert_user(db, username: str, email: str, password: str, role: str):
@@ -52,7 +51,7 @@ def upsert_user(db, username: str, email: str, password: str, role: str):
 
 def main():
     if len(sys.argv) < 2:
-        print("用法: python create_professional_user.py <文件.csv>", file=sys.stderr)
+        print("用法: python scripts/import_users.py <文件.csv>", file=sys.stderr)
         sys.exit(1)
 
     csv_path = sys.argv[1]
