@@ -96,3 +96,57 @@ def patch_pool(
         raise HTTPException(status_code=404, detail="Pool not found") from None
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+
+class AssignRequest(BaseModel):
+    pool_id: int
+    user_ids: list[int]
+
+
+@router.post("/tasks/assign")
+def assign_tasks(
+    body: AssignRequest,
+    db: Session = Depends(get_db),
+    admin: User = Depends(require_admin),
+):
+    """把池代派给若干标注员：逐用户走与 claim 完全相同的抽取路径。
+
+    池级问题（不存在/未开放）整体 404/400；单个用户的问题（不存在、
+    非标注员、已禁用、已有任务等）只落该用户的错误条目，不影响其他用户。
+    """
+    try:
+        annotation_service.resolve_pool(db, body.pool_id)
+    except annotation_service.PoolNotFoundError:
+        raise HTTPException(status_code=404, detail="Pool not found") from None
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+    results: list[dict] = []
+    for user_id in body.user_ids:
+        target = db.get(User, user_id)
+        if target is None:
+            results.append({"user_id": user_id, "ok": False, "error": "用户不存在"})
+            continue
+        if target.role != "annotator":
+            results.append({"user_id": user_id, "ok": False, "error": "用户不是标注员"})
+            continue
+        if not target.is_active:
+            results.append({"user_id": user_id, "ok": False, "error": "用户已禁用"})
+            continue
+        try:
+            drawn = annotation_service.draw_and_create_task(
+                db, target, pool_id=body.pool_id, action="assign", actor=admin
+            )
+        except ValueError as exc:
+            results.append({"user_id": user_id, "ok": False, "error": str(exc)})
+            continue
+        results.append(
+            {
+                "user_id": user_id,
+                "ok": True,
+                "task_id": drawn["task_id"],
+                "count": drawn["count"],
+                "deadline_at": drawn["deadline_at"],
+            }
+        )
+    return {"results": results}
