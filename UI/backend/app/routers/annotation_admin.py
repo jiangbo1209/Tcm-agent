@@ -7,6 +7,8 @@
 
 from __future__ import annotations
 
+from datetime import datetime
+
 from fastapi import APIRouter, Depends, HTTPException, Query
 from pydantic import BaseModel
 from sqlalchemy.orm import Session
@@ -205,5 +207,56 @@ def reject_submission(
     """逐条驳回：必须附复核意见；条目进返工箱。"""
     try:
         return annotation_service.reject_submission(db, admin, submission_id, body.comment)
+    except ValueError as exc:
+        raise _map_review_errors(exc) from exc
+
+
+@router.get("/logs")
+def query_logs(
+    table_name: str | None = Query(None),
+    record_id: int | None = Query(None),
+    actor_id: int | None = Query(None),
+    action: str | None = Query(None),
+    date_from: str | None = Query(None),
+    date_to: str | None = Query(None),
+    page: int = Query(1),
+    page_size: int = Query(20),
+    db: Session = Depends(get_db),
+    _admin: User = Depends(require_admin),
+):
+    """分页检索审计日志（id 倒序）；日期参数为 ISO 字符串，非法 -> 400。"""
+    try:
+        parsed_from = datetime.fromisoformat(date_from) if date_from else None
+        parsed_to = datetime.fromisoformat(date_to) if date_to else None
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail="日期格式无效，应为 ISO 格式") from exc
+    try:
+        return annotation_service.query_logs(
+            db,
+            table_name=table_name,
+            record_id=record_id,
+            actor_id=actor_id,
+            action=action,
+            date_from=parsed_from,
+            date_to=parsed_to,
+            page=page,
+            page_size=page_size,
+        )
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+
+@router.post("/logs/{log_id}/rollback")
+def rollback_log(
+    log_id: int,
+    db: Session = Depends(get_db),
+    admin: User = Depends(require_admin),
+):
+    """一键回滚：反向应用源日志 old_fields 并追加一条 rollback 审计行。
+
+    404 缺失 / 400 无可回滚字段 / 409 乐观锁冲突（复用复核错误映射）。
+    """
+    try:
+        return annotation_service.rollback_log(db, admin, log_id)
     except ValueError as exc:
         raise _map_review_errors(exc) from exc

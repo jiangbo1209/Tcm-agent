@@ -1107,3 +1107,143 @@ def reject_submission(db: Session, reviewer: User, submission_id: int, comment: 
     )
     db.commit()
     return {"submission_id": submission.id, "item_id": item.id, "status": "rejected"}
+
+
+# ---------------------------------------------------------------------------
+# 审计日志检索与一键回滚（plan todo #9）：history append-only，回滚只追加新行
+# ---------------------------------------------------------------------------
+
+
+def query_logs(
+    db: Session,
+    *,
+    table_name: str | None = None,
+    record_id: int | None = None,
+    actor_id: int | None = None,
+    action: str | None = None,
+    date_from: datetime | None = None,
+    date_to: datetime | None = None,
+    page: int = 1,
+    page_size: int = 20,
+) -> dict[str, Any]:
+    """分页检索审计日志：过滤条件 AND 组合，created_at 区间含两端，按 id 倒序。
+
+    纯只读；分页参数非法（page<1 或 page_size 越出 1..100）抛 ValueError，
+    由路由映射 400。T8 的 approve/reject/expire 日志无需任何改造即天然可查。
+    """
+    if page < 1:
+        raise ValueError("page 必须 >= 1")
+    if not 1 <= page_size <= 100:
+        raise ValueError("page_size 必须在 1..100 之间")
+
+    predicates = []
+    if table_name:
+        predicates.append(AnnotationLog.table_name == table_name)
+    if record_id is not None:
+        predicates.append(AnnotationLog.record_id == record_id)
+    if actor_id is not None:
+        predicates.append(AnnotationLog.actor_id == actor_id)
+    if action:
+        predicates.append(AnnotationLog.action == action)
+    if date_from is not None:
+        predicates.append(AnnotationLog.created_at >= date_from)
+    if date_to is not None:
+        predicates.append(AnnotationLog.created_at <= date_to)
+
+    stmt = select(AnnotationLog)
+    if predicates:
+        stmt = stmt.where(*predicates)
+
+    total = _count(db, stmt)
+    rows = (
+        db.execute(
+            stmt.order_by(AnnotationLog.id.desc())
+            .offset((page - 1) * page_size)
+            .limit(page_size)
+        )
+        .scalars()
+        .all()
+    )
+
+    items = [
+        {
+            "id": log.id,
+            "table_name": log.table_name,
+            "record_id": log.record_id,
+            "actor_id": log.actor_id,
+            "username": log.username,
+            "action": log.action,
+            "old_fields": log.old_fields,
+            "new_fields": log.new_fields,
+            "submission_id": log.submission_id,
+            "created_at": log.created_at.isoformat() if log.created_at else None,
+        }
+        for log in rows
+    ]
+    return {"total": total, "page": page, "page_size": page_size, "items": items}
+
+
+def rollback_log(db: Session, reviewer: User, log_id: int) -> dict[str, Any]:
+    """一键回滚：把源日志的 old_fields 经 update_record 反向写回核心表。
+
+    - 历史追加不改：源日志原样保留；回滚动作另记一条 action='rollback' 的
+      **新**日志（old=回滚前现值，new=被恢复旧值），绝不 delete/update 任何行；
+    - 乐观锁与审批同源（approve_submission）：以读取时的核心行 updated_at 为
+      基准传入 update_record，期间被人改过即 StaleRecordError ->
+      ValueError（路由映射 409），核心表保持不动、不留任何审计行。
+    """
+    source = db.get(AnnotationLog, log_id)
+    if source is None:
+        raise AnnotationNotFoundError("日志不存在")
+
+    restore_fields = dict(source.old_fields) if source.old_fields else {}
+    if not restore_fields:
+        raise AnnotationFieldValidationError("该日志不含可回滚的字段变更")
+
+    model = _TABLE_MAP.get(source.table_name)
+    core = (
+        None if model is None else db.query(model).filter(model.id == source.record_id).first()
+    )
+    if core is None:
+        raise AnnotationNotFoundError("核心记录不存在")
+
+    # 应用前快照：新审计行的 old_fields 必须是回滚前的现值；
+    # 锁基准取当前 updated_at（与审批同语义）。
+    before_values = {field: getattr(core, field) for field in restore_fields}
+    lock_token = core.updated_at.isoformat() if core.updated_at is not None else None
+
+    try:
+        AdminQueryRepository(db).update_record(
+            source.table_name, source.record_id, restore_fields, lock_token
+        )
+    except StaleRecordError:
+        raise ValueError("记录已被他人修改，无法回滚，请刷新后重试") from None
+
+    _write_log(
+        db,
+        table_name=source.table_name,
+        record_id=source.record_id,
+        actor=reviewer,
+        action="rollback",
+        old_fields=before_values,
+        new_fields=restore_fields,
+        submission_id=source.submission_id,
+    )
+    db.commit()
+
+    entry = (
+        db.query(AnnotationLog)
+        .filter(
+            AnnotationLog.action == "rollback",
+            AnnotationLog.table_name == source.table_name,
+            AnnotationLog.record_id == source.record_id,
+        )
+        .order_by(AnnotationLog.id.desc())
+        .first()
+    )
+    return {
+        "log_id": entry.id if entry is not None else None,
+        "record_id": source.record_id,
+        "table_name": source.table_name,
+        "restored_fields": sorted(restore_fields),
+    }
