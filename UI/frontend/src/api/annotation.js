@@ -53,7 +53,48 @@ export function submitTask(taskId) {
 /**
  * 任务池列表（管理端只读）：GET /api/annotation/admin/pools
  * 仅管理员可用；普通标注员调用会得到 403，由调用方自行处理。
+ * 数组元素：{ id, table_name, status, priority, deadline_days,
+ *            total_items, remaining_items, created_at }
  */
 export function listPools() {
   return request.get("/annotation/admin/pools");
+}
+
+/**
+ * 建池预览（管理端，零写入）：POST /api/annotation/admin/pools/preview
+ * @param {{ table_name: string, q?: string|null, crawl_status?: string|null,
+ *           year_min?: number|null, year_max?: number|null }} payload
+ * @returns {Promise<{ total_matched: number, eligible: number }>}
+ */
+export function previewPool(payload) {
+  return request.post("/annotation/admin/pools/preview", payload);
+}
+
+/**
+ * 按筛选快照建池：POST /api/annotation/admin/pools
+ * 响应：{ pool_id, total, ... , shortfall? }；shortfall>0 表示有命中记录
+ * 因被占用/已完成标注未能入池。空候选集返回 400。
+ */
+export function createPool(payload) {
+  return request.post("/annotation/admin/pools", payload);
+}
+
+/**
+ * 调整池优先级/状态：PATCH /api/annotation/admin/pools/{poolId}
+ * @param {number|string} poolId
+ * @param {{ priority?: number, status?: "paused"|"closed" }} payload
+ */
+export function updatePool(poolId, payload) {
+  return request.patch(`/annotation/admin/pools/${poolId}`, payload);
+}
+
+/**
+ * 管理员代派：POST /api/annotation/admin/tasks/assign
+ * body { pool_id, user_ids }；响应 { results: [{ user_id, ok, task_id?, count?, error? }] }
+ */
+export function assignTasks(poolId, userIds) {
+  return request.post("/annotation/admin/tasks/assign", {
+    pool_id: poolId,
+    user_ids: userIds,
+  });
 }
