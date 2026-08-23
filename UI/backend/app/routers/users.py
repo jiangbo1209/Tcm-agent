@@ -6,8 +6,8 @@ from fastapi import APIRouter, Depends, HTTPException, status
 from pydantic import BaseModel
 from sqlalchemy.orm import Session
 
-from app.auth.dependencies import require_admin
 from app.auth.service import get_password_hash
+from app.dependencies.auth import require_admin
 from app.core.database import get_db
 from app.models.user import User
 

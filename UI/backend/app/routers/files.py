@@ -24,7 +24,7 @@ from fastapi import (
 from fastapi.responses import Response
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.auth.dependencies import get_current_user, require_admin
+from app.dependencies.auth import get_current_user, require_admin
 from app.dependencies.files import get_upload_service
 from app.storage import S3Client, S3Error
 from app.models.user import User

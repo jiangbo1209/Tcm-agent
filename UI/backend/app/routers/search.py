@@ -8,8 +8,8 @@ from fastapi import APIRouter, Depends, HTTPException, Query, Request
 from sqlalchemy import func
 from sqlalchemy.orm import Session
 
-from app.auth.dependencies import get_current_user, require_professional
 from app.core.database import get_db
+from app.dependencies.auth import get_current_user, require_professional
 from app.core.formatting import format_list_field
 from app.models.search_history import SearchHistory
 from app.models.user import User

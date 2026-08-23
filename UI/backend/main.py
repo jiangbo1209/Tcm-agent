@@ -16,7 +16,6 @@ from fastapi.responses import JSONResponse
 
 logging.basicConfig(level=logging.INFO)
 
-from app.auth.dependencies import require_professional
 from app.auth.router import router as auth_router
 from app.config import (
     DEFAULT_JWT_SECRET_KEY,
@@ -26,6 +25,7 @@ from app.config import (
     get_search_config,
 )
 from app.core.database import dispose_async_engine, engine
+from app.dependencies.auth import require_professional
 from app.core.schema_migration import (
     ensure_agent_message_columns,
     ensure_conversation_memory_columns,

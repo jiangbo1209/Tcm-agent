@@ -8,8 +8,8 @@ from fastapi import APIRouter, Depends, HTTPException, Query
 from pydantic import BaseModel
 from sqlalchemy.orm import Session
 
-from app.auth.dependencies import require_admin
 from app.core.database import get_db
+from app.dependencies.auth import require_admin
 from app.models.user import User
 from app.repositories.admin_repo import (
     AdminQueryRepository,

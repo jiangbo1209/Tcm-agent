@@ -17,7 +17,7 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_async_engine
 from sqlalchemy.pool import StaticPool
 
-from app.auth.dependencies import get_current_user
+from app.dependencies.auth import get_current_user
 from app.dependencies.files import get_upload_service
 from app.models import (
     Base,

@@ -16,7 +16,7 @@ from pathlib import Path
 import pytest
 from fastapi import Depends, FastAPI
 
-from app.auth.dependencies import get_current_user, require_professional
+from app.dependencies.auth import get_current_user, require_professional
 from app.models.user import User
 from app.routers.graph import router as graph_router
 from app.schemas.graph import GraphExpandResponse, GraphNode, NodeDetailResponse

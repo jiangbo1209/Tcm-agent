@@ -10,8 +10,8 @@ from fastapi import APIRouter, Depends, HTTPException
 from fastapi.responses import StreamingResponse
 from sqlalchemy.orm import Session
 
-from app.auth.dependencies import get_current_user
 from app.core.database import get_db
+from app.dependencies.auth import get_current_user
 from app.models.agent_tool_run import AgentToolRun
 from app.models.conversation import Conversation
 from app.models.message import Message
