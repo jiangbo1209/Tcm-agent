@@ -17,9 +17,6 @@
         <button class="btn-search" @click="doSearch">搜索</button>
         <button v-if="searchQuery" class="btn-clear" @click="clearSearch">清除</button>
       </div>
-      <button v-if="totalPages > 1" class="btn-random" @click="randomPage" title="随机跳转到其他页面，避免多人同时修改同一条记录">
-        随机跳转
-      </button>
     </div>
 
     <div class="filters" v-if="activeTable !== 'case'">
@@ -348,21 +345,6 @@ function clearSearch() {
   searchQuery.value = "";
   page.value = 1;
   loadData();
-}
-
-function randomPage() {
-  if (totalPages.value <= 1) return;
-  let target;
-  if (totalPages.value === 2) {
-    target = page.value === 1 ? 2 : 1;
-  } else {
-    do {
-      target = Math.floor(Math.random() * totalPages.value) + 1;
-    } while (target === page.value);
-  }
-  page.value = target;
-  loadData();
-  expandedId.value = null;
 }
 
 function goPage(p) {

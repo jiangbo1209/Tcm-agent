@@ -15,7 +15,7 @@
           </svg>
         </button>
       </div>
-      <button v-if="!authStore.isAdmin" class="btn-new-chat" :class="{ compact: isCollapsed }" :title="isCollapsed ? '新建对话' : undefined" @click="handleNewChat">
+      <button v-if="!authStore.isAdmin && authStore.user?.role !== 'annotator'" class="btn-new-chat" :class="{ compact: isCollapsed }" :title="isCollapsed ? '新建对话' : undefined" @click="handleNewChat">
         <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
           <line x1="12" y1="5" x2="12" y2="19"></line>
           <line x1="5" y1="12" x2="19" y2="12"></line>
@@ -25,7 +25,7 @@
     </div>
 
     <nav class="sidebar-nav" :class="{ 'nav-admin': authStore.isAdmin }">
-      <template v-if="!authStore.isAdmin">
+      <template v-if="!authStore.isAdmin && authStore.user?.role !== 'annotator'">
         <router-link to="/" class="nav-item" :class="{ active: $route.path === '/' }" :title="isCollapsed ? '对话助手' : undefined">
           <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
             <path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"></path>
@@ -65,6 +65,31 @@
         </router-link>
       </template>
 
+      <template v-if="authStore.user?.role === 'annotator'">
+        <router-link
+          to="/annotate"
+          class="nav-item"
+          :class="{ active: $route.path.startsWith('/annotate') }"
+          :title="isCollapsed ? '标注工作台' : undefined"
+        >
+          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+            <path d="M9 11l3 3L22 4"></path>
+            <path d="M21 12v7a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11"></path>
+          </svg>
+          <span v-if="!isCollapsed">标注工作台</span>
+        </router-link>
+
+        <span class="nav-item nav-disabled" title="另行开发">
+          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+            <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"></path>
+            <polyline points="14 2 14 8 20 8"></polyline>
+            <line x1="16" y1="13" x2="8" y2="13"></line>
+            <line x1="16" y1="17" x2="8" y2="17"></line>
+          </svg>
+          <span v-if="!isCollapsed">标注规范</span>
+        </span>
+      </template>
+
       <router-link
         v-if="authStore.isAdmin"
         to="/admin"
@@ -94,9 +119,33 @@
         <span v-if="!isCollapsed">成员管理</span>
       </router-link>
 
+      <router-link
+        v-if="authStore.isAdmin"
+        to="/admin/annotation"
+        class="nav-item"
+        :class="{ active: $route.path.startsWith('/admin/annotation') }"
+        :title="isCollapsed ? '数据标注' : undefined"
+      >
+        <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+          <path d="M9 11l3 3L22 4"></path>
+          <path d="M21 12v7a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11"></path>
+        </svg>
+        <span v-if="!isCollapsed">数据标注</span>
+      </router-link>
+
+      <span v-if="authStore.isAdmin" class="nav-item nav-disabled" title="另行开发">
+        <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+          <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"></path>
+          <polyline points="14 2 14 8 20 8"></polyline>
+          <line x1="16" y1="13" x2="8" y2="13"></line>
+          <line x1="16" y1="17" x2="8" y2="17"></line>
+        </svg>
+        <span v-if="!isCollapsed">标注规范</span>
+      </span>
+
     </nav>
 
-    <div v-if="!isCollapsed && !authStore.isAdmin" class="sidebar-history">
+    <div v-if="!isCollapsed && !authStore.isAdmin && authStore.user?.role !== 'annotator'" class="sidebar-history">
       <div class="history-header">
         <span>历史记录</span>
       </div>
@@ -159,6 +208,7 @@ const userRoleLabel = computed(() => {
   switch (authStore.user?.role) {
     case "admin": return "管理员";
     case "professional": return "专业用户";
+    case "annotator": return "标注员";
     default: return "普通用户";
   }
 });
@@ -338,6 +388,16 @@ function handleLogout() {
 .nav-item.active {
   background: rgba(0, 121, 107, 0.25);
   color: #4db6ac;
+}
+
+.nav-item.nav-disabled {
+  cursor: not-allowed;
+  opacity: 0.45;
+}
+
+.nav-item.nav-disabled:hover {
+  background: transparent;
+  color: #b0b0b0;
 }
 
 .sidebar-history {

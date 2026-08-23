@@ -54,6 +54,18 @@ const routes = [
         component: () => import("../views/UserManagement.vue"),
         meta: { requiresAdmin: true },
       },
+      {
+        path: "annotate",
+        name: "AnnotateWorkbench",
+        component: () => import("../views/AnnotationWorkbench.vue"),
+        meta: { requiresAnnotator: true },
+      },
+      {
+        path: "admin/annotation",
+        name: "AdminAnnotation",
+        component: () => import("../views/admin/AnnotationManagement.vue"),
+        meta: { requiresAdmin: true },
+      },
     ],
   },
   {
@@ -99,6 +111,18 @@ router.beforeEach((to, from, next) => {
 
   if (to.meta.requiresAdmin && authStore.user?.role !== "admin") {
     return next("/");
+  }
+
+  if (to.meta.requiresAnnotator && authStore.user?.role !== "annotator") {
+    return next("/");
+  }
+
+  if (
+    authStore.user?.role === "annotator" &&
+    to.path !== "/annotate" &&
+    to.path !== "/login"
+  ) {
+    return next("/annotate");
   }
 
   next();

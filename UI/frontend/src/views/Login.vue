@@ -66,7 +66,13 @@ async function handleLogin() {
     const user = { id: payload.sub, role: payload.role };
 
     authStore.setAuth(token, user);
-    router.push(user.role === "admin" ? "/admin" : "/");
+    if (user.role === "admin") {
+      router.push("/admin");
+    } else if (user.role === "annotator") {
+      router.push("/annotate");
+    } else {
+      router.push("/");
+    }
   } catch (e) {
     const d = e.response?.data ?? {};
     error.value =
