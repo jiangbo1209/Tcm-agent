@@ -2,7 +2,19 @@
   <div class="admin-page">
     <div class="admin-header">
       <h1>成员管理</h1>
-      <button class="btn-create" @click="showCreate = true">添加成员</button>
+      <button class="btn-create" @click="openCreate">添加成员</button>
+    </div>
+
+    <div class="role-tabs">
+      <button
+        v-for="tab in TABS"
+        :key="tab.key"
+        class="role-tab"
+        :class="{ 'role-tab-active': activeTab === tab.key }"
+        @click="switchTab(tab.key)"
+      >
+        {{ tab.label }}({{ counts[tab.role] }})
+      </button>
     </div>
 
     <div v-if="loading" class="loading">加载中...</div>
@@ -21,7 +33,7 @@
           </tr>
         </thead>
         <tbody>
-          <tr v-for="user in users" :key="user.id" :class="{ 'row-admin': user.role === 'admin' }">
+          <tr v-for="user in filteredUsers" :key="user.id">
             <td>{{ user.id }}</td>
             <td class="cell-username">{{ user.username }}</td>
             <td>{{ user.email }}</td>
@@ -35,7 +47,14 @@
             </td>
             <td class="cell-time">{{ formatDate(user.created_at) }}</td>
             <td class="cell-actions">
-              <template v-if="user.role !== 'admin'">
+              <template v-if="activeTab === 'annotators'">
+                <button class="btn-sm btn-toggle" @click="toggleActive(user)">
+                  {{ user.is_active ? '停用' : '启用' }}
+                </button>
+                <button class="btn-sm btn-reset" @click="openResetPwd(user)">重置密码</button>
+                <button class="btn-sm btn-delete" @click="confirmDelete(user)">删除</button>
+              </template>
+              <template v-else>
                 <select
                   class="role-select"
                   :value="user.role"
@@ -47,8 +66,10 @@
                 <button class="btn-sm btn-reset" @click="openResetPwd(user)">重置密码</button>
                 <button class="btn-sm btn-delete" @click="confirmDelete(user)">删除</button>
               </template>
-              <span v-else class="admin-hint">无法修改管理员账号</span>
             </td>
+          </tr>
+          <tr v-if="filteredUsers.length === 0">
+            <td colspan="7" class="empty-row">暂无成员</td>
           </tr>
         </tbody>
       </table>
@@ -73,7 +94,7 @@
             <label>密码</label>
             <input v-model="form.password" type="text" placeholder="密码" />
           </div>
-          <div class="form-field">
+          <div v-if="activeTab !== 'annotators'" class="form-field">
             <label>角色</label>
             <select v-model="form.role">
               <option value="normal">普通用户</option>
@@ -112,8 +133,25 @@
 </template>
 
 <script setup>
-import { ref, onMounted } from "vue";
-import { fetchUsers, createUser, updateUserRole, resetUserPassword, deleteUser } from "../api/users";
+import { ref, computed, onMounted } from "vue";
+import { useRoute, useRouter } from "vue-router";
+import {
+  fetchUsers,
+  createUser,
+  updateUserRole,
+  resetUserPassword,
+  deleteUser,
+  setUserActive,
+} from "../api/users";
+
+const TABS = [
+  { key: "normal", label: "普通", role: "normal" },
+  { key: "professional", label: "专业", role: "professional" },
+  { key: "annotators", label: "标注员", role: "annotator" },
+];
+
+const route = useRoute();
+const router = useRouter();
 
 const users = ref([]);
 const loading = ref(false);
@@ -128,8 +166,30 @@ const resetPassword = ref("");
 const resetError = ref("");
 const resetting = ref(false);
 
+const activeTab = computed(() => {
+  const q = route.query.role;
+  return TABS.some((t) => t.key === q) ? q : "normal";
+});
+
+const activeRole = computed(() => TABS.find((t) => t.key === activeTab.value).role);
+
+const filteredUsers = computed(() => users.value.filter((u) => u.role === activeRole.value));
+
+const counts = computed(() => {
+  const result = { normal: 0, professional: 0, annotator: 0 };
+  for (const u of users.value) {
+    if (u.role in result) result[u.role] += 1;
+  }
+  return result;
+});
+
+function switchTab(key) {
+  if (key === activeTab.value) return;
+  router.replace({ query: { ...route.query, role: key } });
+}
+
 function roleLabel(role) {
-  return { admin: "管理员", professional: "专业用户", normal: "普通用户" }[role] || role;
+  return { admin: "管理员", professional: "专业用户", normal: "普通用户", annotator: "标注员" }[role] || role;
 }
 
 function formatDate(iso) {
@@ -149,9 +209,16 @@ async function loadUsers() {
   }
 }
 
+function openCreate() {
+  form.value = { username: "", email: "", password: "", role: activeTab.value === "annotators" ? "annotator" : "normal" };
+  formError.value = "";
+  showCreate.value = true;
+}
+
 async function handleCreate() {
   formError.value = "";
-  const { username, email, password, role } = form.value;
+  const { username, email, password } = form.value;
+  const role = activeTab.value === "annotators" ? "annotator" : form.value.role;
   if (!username.trim() || !email.trim() || !password.trim()) {
     formError.value = "所有字段均为必填";
     return;
@@ -160,7 +227,7 @@ async function handleCreate() {
   try {
     await createUser({ username: username.trim(), email: email.trim(), password: password.trim(), role });
     showCreate.value = false;
-    form.value = { username: "", email: "", password: "", role: "normal" };
+    form.value = { username: "", email: "", password: "", role: activeTab.value === "annotators" ? "annotator" : "normal" };
     await loadUsers();
   } catch (e) {
     formError.value = e.response?.data?.detail || "创建失败";
@@ -175,6 +242,16 @@ async function changeRole(userId, newRole) {
     await loadUsers();
   } catch (e) {
     alert(e.response?.data?.detail || "修改角色失败");
+    await loadUsers();
+  }
+}
+
+async function toggleActive(user) {
+  try {
+    await setUserActive(user.id, !user.is_active);
+    await loadUsers();
+  } catch (e) {
+    alert(e.response?.data?.detail || "操作失败");
     await loadUsers();
   }
 }
@@ -223,6 +300,11 @@ onMounted(loadUsers);
 .btn-create { padding: 8px 20px; border: none; border-radius: 6px; background: #00796b; color: #fff; font-size: 13px; cursor: pointer; }
 .btn-create:hover { background: #00695c; }
 
+.role-tabs { display: flex; gap: 4px; margin-bottom: 16px; border-bottom: 2px solid #e0e0e0; }
+.role-tab { padding: 9px 18px; border: none; background: transparent; font-size: 13px; color: #666; cursor: pointer; border-radius: 6px 6px 0 0; position: relative; top: 2px; border-bottom: 2px solid transparent; }
+.role-tab:hover { color: #00796b; background: #f0f7f6; }
+.role-tab-active { color: #00796b; font-weight: 600; border-bottom-color: #00796b; background: transparent; }
+
 .loading { text-align: center; padding: 48px 0; color: #999; font-size: 14px; }
 
 .user-table-wrap { overflow-x: auto; }
@@ -230,15 +312,16 @@ onMounted(loadUsers);
 .user-table th { text-align: left; padding: 10px 12px; background: #f5f5f5; color: #666; font-weight: 500; border-bottom: 2px solid #e0e0e0; white-space: nowrap; }
 .user-table td { padding: 10px 12px; border-bottom: 1px solid #eee; color: #333; vertical-align: middle; }
 .user-table tr:hover { background: #fafafa; }
-.user-table .row-admin { background: #f8f9fa; }
 .cell-username { font-weight: 500; }
 .cell-time { color: #888; font-size: 12px; white-space: nowrap; }
 .cell-actions { white-space: nowrap; display: flex; align-items: center; gap: 6px; flex-wrap: nowrap; }
+.empty-row { text-align: center; color: #999; padding: 40px 12px !important; }
 
 .role-badge { display: inline-block; padding: 2px 8px; border-radius: 4px; font-size: 12px; }
 .role-admin { background: #ede7f6; color: #5e35b1; }
 .role-professional { background: #e0f2f1; color: #00796b; }
 .role-normal { background: #f5f5f5; color: #666; }
+.role-annotator { background: #fff3e0; color: #e65100; }
 
 .status-active { color: #2e7d32; }
 .status-inactive { color: #c62828; }
@@ -246,12 +329,12 @@ onMounted(loadUsers);
 .role-select { padding: 3px 6px; border: 1px solid #d0d0d0; border-radius: 4px; font-size: 12px; background: #fff; }
 
 .btn-sm { padding: 3px 10px; border: 1px solid #d0d0d0; border-radius: 4px; font-size: 12px; cursor: pointer; background: #fff; }
+.btn-toggle { color: #e65100; border-color: #ffcc80; }
+.btn-toggle:hover { background: #fff3e0; }
 .btn-reset { color: #00796b; border-color: #b2dfdb; }
 .btn-reset:hover { background: #e0f2f1; }
 .btn-delete { color: #c62828; border-color: #ef9a9a; }
 .btn-delete:hover { background: #ffebee; }
-
-.admin-hint { font-size: 12px; color: #999; font-style: italic; }
 
 .modal-overlay { position: fixed; inset: 0; background: rgba(0,0,0,0.4); display: flex; align-items: center; justify-content: center; z-index: 1000; }
 .modal-box { background: #fff; border-radius: 12px; width: 440px; box-shadow: 0 8px 32px rgba(0,0,0,0.15); }

@@ -16,6 +16,10 @@ export function resetUserPassword(userId, newPassword) {
   return request.put(`/users/${userId}/password`, { new_password: newPassword });
 }
 
+export function setUserActive(userId, isActive) {
+  return request.put(`/users/${userId}/active`, { is_active: isActive });
+}
+
 export function deleteUser(userId) {
   return request.delete(`/users/${userId}`);
 }
