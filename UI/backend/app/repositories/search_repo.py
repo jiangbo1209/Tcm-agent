@@ -29,6 +29,7 @@ class SearchRepository(BaseRepository):
                 try:
                     return self._search_with_fulltext(session, keyword, limit, offset, source_type, filters)
                 except Exception:
+                    session.rollback()
                     return self._search_with_like(session, keyword, limit, offset, source_type, filters)
             return self._search_with_like(session, keyword, limit, offset, source_type, filters)
 
@@ -51,6 +52,7 @@ class SearchRepository(BaseRepository):
                     try:
                         return self._search_facet_rows_with_fulltext(session, keyword, source_type, facet_filters)
                     except Exception:
+                        session.rollback()
                         return self._search_facet_rows_with_like(session, keyword, source_type, facet_filters)
                 return self._search_facet_rows_with_like(session, keyword, source_type, facet_filters)
 
