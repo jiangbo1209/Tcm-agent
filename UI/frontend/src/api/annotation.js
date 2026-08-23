@@ -35,6 +35,19 @@ export function getMyRework() {
 }
 
 /**
+ * 查询当前任务条目明细：GET /api/annotation/my/task/detail
+ *
+ * ⚠️ 后端缺口：该端点尚未提供（后续 todo 落地），当前调用会得到 404。
+ * 工作台把任何错误一律降级为“空条目列表 + 条目接口尚未就绪”提示，
+ * 绝不伪造数据；后端就绪后本封装无需改动。
+ * 预期响应形状（宽松兼容）：{ items: [...] } 或裸数组，元素含
+ * item_id/table_name/record_id/status(+record/submission/editable_fields)。
+ */
+export function getMyTaskDetail() {
+  return request.get("/annotation/my/task/detail");
+}
+
+/**
  * 保存条目草稿：PUT /api/annotation/items/{itemId}/draft
  * @param {string|number} itemId 条目 ID
  * @param {object} proposedFields 字段级修改提案；请求体形状以 T8 后端契约为准
