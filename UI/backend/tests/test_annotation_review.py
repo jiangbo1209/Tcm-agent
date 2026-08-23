@@ -410,11 +410,22 @@ def test_reject_stores_comment_and_moves_item_to_rework(client, db, admin):
     assert target_item.status == "rejected"
     assert target_item.rejected_at is not None
 
+    from datetime import datetime, timedelta, timezone
+
+    from app.config import get_annotation_config
     from app.models import AnnotationTask
 
     reopened = db.get(AnnotationTask, task_id)
     assert reopened.status == "in_progress", (
         "已完成任务的条目被驳回后必须重新打开任务，否则返工死锁"
+    )
+    expected_deadline = datetime.now(timezone.utc).replace(tzinfo=None) + timedelta(
+        days=get_annotation_config().REWORK_DAYS
+    )
+    assert reopened.deadline_at is not None, "重开任务必须顺延截止时间"
+    assert abs(reopened.deadline_at - expected_deadline) < timedelta(minutes=1), (
+        "驳回重开任务时必须顺延 deadline_at 一个完整返工窗口，"
+        "否则惰性清扫会把任务又扫回 completed，标注员被锁在门外"
     )
 
     log = _log_for(db, "reject", target_sub.id)

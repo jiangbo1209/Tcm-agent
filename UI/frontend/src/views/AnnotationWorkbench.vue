@@ -248,6 +248,8 @@ const reworkCount = ref(0);
 const items = ref([]);
 const itemsLoading = ref(false);
 const itemsHint = ref(""); // 后端条目端点未就绪等降级提示
+// GET /my/task/detail 顶层的 editable_fields 元数据（数组）；null=后端未提供
+const detailEditableFields = ref(null);
 const activeFilter = ref("all");
 const submitting = ref(false);
 const submitError = ref("");
@@ -305,6 +307,11 @@ async function loadItems() {
   try {
     const res = await getMyTaskDetail();
     const data = res.data;
+    // editable_fields 在明细响应顶层（非逐条目）：编辑器只渲染可编辑字段，
+    // 否则回退到记录键会把 original_name/crawl_status 等系统字段一并提交 → 后端 400。
+    detailEditableFields.value = Array.isArray(data?.editable_fields)
+      ? data.editable_fields
+      : null;
     const list = Array.isArray(data)
       ? data
       : Array.isArray(data?.items)
@@ -313,6 +320,7 @@ async function loadItems() {
     items.value = list.map(normalizeItem);
   } catch {
     // 条目端点尚未落地（404）/网络失败：按空列表降级，不伪造数据、不中断页面
+    detailEditableFields.value = null;
     items.value = [];
     itemsHint.value = "条目接口尚未就绪";
   } finally {
@@ -561,9 +569,11 @@ function isLongField(field) {
 }
 
 function resolveEditorFields(item) {
-  // 1) 后端 editable_fields 元数据优先
-  if (Array.isArray(item.editableFields) && item.editableFields.length) {
-    return [...item.editableFields];
+  // 1) editable_fields 元数据优先：逐条目覆盖（未来契约）→ 明细响应顶层元数据。
+  //    顶层是当前后端 GET /my/task/detail 的真实位置；缺失时才走记录键回退。
+  const meta = item.editableFields ?? detailEditableFields.value;
+  if (Array.isArray(meta) && meta.length) {
+    return [...meta];
   }
   // 2) 回退：已有提案键 + 内嵌记录的可见字段，通用输入渲染
   const keys = [];

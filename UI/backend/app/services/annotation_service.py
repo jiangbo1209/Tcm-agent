@@ -1214,6 +1214,10 @@ def reject_submission(db: Session, reviewer: User, submission_id: int, comment: 
 
     F-02：任务已 completed 时驳回条目会把任务重新打开（in_progress），
     否则 item_draft 的「任务不在进行中」前置会让 rejected 条目永久死锁。
+    重开时同步顺延 deadline_at 一个完整返工窗口（REWORK_DAYS）：否则驳回发生在
+    原截止时间之后（或返工横跨截止线）时，惰性清扫会看到 in_progress+expired 而
+    把任务又扫回 completed，被驳回条目在 REWORK_DAYS 释放前持续 item_draft 409，
+    标注员最长被锁 5 天、返工承诺落空。
     标注员的活跃任务槽位由此被占用直至返工完成（与 MAX_PENDING_REWORK 口径一致）。
     """
     if not (comment or "").strip():
@@ -1230,6 +1234,7 @@ def reject_submission(db: Session, reviewer: User, submission_id: int, comment: 
     task = db.get(AnnotationTask, item.task_id)
     if task is not None and task.status == "completed":
         task.status = "in_progress"
+        task.deadline_at = now_utc + timedelta(days=get_annotation_config().REWORK_DAYS)
     _write_log(
         db,
         table_name=item.table_name,
