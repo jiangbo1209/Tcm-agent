@@ -1,27 +1,25 @@
 """Pydantic schemas."""
 
 from app.schemas.graph import (
-    FileUrlResponse,
     GraphEdge,
     GraphExpandResponse,
     GraphNode,
     NodeDetailResponse,
+    NodeSearchItem,
+    NodeSearchResponse,
     RecordField,
     RecordSummary,
-    SearchIndexStatusResponse,
-    SearchItem,
-    SearchResponse,
 )
+from app.schemas.search import SearchIndexStatusResponse
 
 __all__ = [
-    "FileUrlResponse",
     "GraphEdge",
     "GraphExpandResponse",
     "GraphNode",
     "NodeDetailResponse",
+    "NodeSearchItem",
+    "NodeSearchResponse",
     "RecordField",
     "RecordSummary",
     "SearchIndexStatusResponse",
-    "SearchItem",
-    "SearchResponse",
 ]

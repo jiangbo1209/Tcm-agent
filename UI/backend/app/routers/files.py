@@ -244,11 +244,14 @@ async def get_file(
 @router.get("/{file_uuid}/download-url", response_model=DownloadUrlResponse)
 async def get_download_url(
     file_uuid: str,
+    mode: str = Query("download", description="view | download"),
     current_user: User = Depends(get_current_user),
     service: UploadService = Depends(get_upload_service),
 ):
+    if mode not in ("view", "download"):
+        raise HTTPException(status_code=400, detail="mode must be view or download")
     try:
-        result = await service.get_download_url(file_uuid)
+        result = await service.get_download_url(file_uuid, mode=mode)
     except S3Error as exc:
         LOGGER.exception("Failed to generate presigned URL")
         raise HTTPException(status_code=502, detail=f"Storage error: {exc.code}") from exc

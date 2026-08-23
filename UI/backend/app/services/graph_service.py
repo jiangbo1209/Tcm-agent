@@ -4,12 +4,9 @@ from __future__ import annotations
 
 from collections import deque
 from typing import Any
-import json
-import math
 
-from app.repositories import GraphRepository
-from app.storage import S3Client
-from app.storage.file_token import generate_file_token
+from app.core.formatting import format_list_field
+from app.repositories import DetailRepository, GraphRepository
 
 RECORD_COLUMNS = [
     "论文名称",
@@ -37,9 +34,13 @@ RECORD_COLUMNS = [
 
 
 class GraphService:
-    def __init__(self, repository: GraphRepository, s3_client: S3Client | None = None) -> None:
-        self._repository = repository
-        self._s3_client = s3_client
+    def __init__(
+        self,
+        graph_repository: GraphRepository,
+        detail_repository: DetailRepository,
+    ) -> None:
+        self._graph_repository = graph_repository
+        self._detail_repository = detail_repository
 
     @staticmethod
     def _to_float(value: Any) -> float | None:
@@ -50,28 +51,11 @@ class GraphService:
         except (TypeError, ValueError):
             return None
 
-    @staticmethod
-    def _format_list_field(value: Any) -> str | None:
-        if value is None:
-            return None
-        if isinstance(value, list):
-            return ", ".join(str(item) for item in value if item is not None and str(item).strip()) or None
-        if isinstance(value, str):
-            raw = value.strip()
-            if raw.startswith("[") and raw.endswith("]"):
-                try:
-                    data = json.loads(raw)
-                except json.JSONDecodeError:
-                    return value
-                if isinstance(data, list):
-                    return ", ".join(str(item) for item in data if item is not None and str(item).strip()) or None
-            return value
-        return str(value)
-
     def _map_paper_detail(self, paper: dict[str, Any]) -> dict[str, Any]:
-        authors = self._format_list_field(paper.get("authors"))
-        keywords = self._format_list_field(paper.get("keywords"))
+        authors = format_list_field(paper.get("authors"), sep=", ")
+        keywords = format_list_field(paper.get("keywords"), sep=", ")
         return {
+            "file_uuid": paper.get("file_uuid"),
             "file_name": paper.get("original_name"),
             "file_key": paper.get("storage_path"),
             "title": paper.get("title"),
@@ -121,20 +105,6 @@ class GraphService:
         }
         return [{"name": col, "value": record_map.get(col)} for col in RECORD_COLUMNS]
 
-    @staticmethod
-    def clamp_limit(raw_limit: str | None) -> int:
-        if raw_limit is None or raw_limit.strip() == "":
-            return 10
-        requested = int(raw_limit)
-        return max(10, min(20, requested))
-
-    @staticmethod
-    def clamp_depth(raw_depth: str | None) -> int:
-        if raw_depth is None or raw_depth.strip() == "":
-            return 1
-        requested = int(raw_depth)
-        return max(1, min(3, requested))
-
     def expand_graph(self, seed_id: str, limit: int, depth: int) -> dict[str, list[dict[str, Any]]]:
         visited_nodes = {seed_id}
         queued_nodes = {seed_id}
@@ -147,7 +117,7 @@ class GraphService:
             if level >= depth:
                 continue
 
-            edges = self._repository.fetch_edges_by_seed(current_node, limit)
+            edges = self._graph_repository.fetch_edges_by_seed(current_node, limit)
             for edge in edges:
                 edge_id = str(edge["id"])
                 edge_map[edge_id] = {
@@ -168,7 +138,7 @@ class GraphService:
         if not visited_nodes:
             return {"nodes": [], "edges": []}
 
-        nodes = self._repository.fetch_nodes_by_ids(sorted(visited_nodes))
+        nodes = self._graph_repository.fetch_nodes_by_ids(sorted(visited_nodes))
         node_payload = []
         for row in nodes:
             node_type = row["node_type"]
@@ -188,7 +158,7 @@ class GraphService:
         return {"nodes": node_payload, "edges": list(edge_map.values())}
 
     def get_node_detail(self, node_id: str) -> dict[str, Any] | None:
-        node = self._repository.fetch_node_by_id(node_id)
+        node = self._graph_repository.fetch_node_by_id(node_id)
         if not node:
             return None
 
@@ -204,7 +174,7 @@ class GraphService:
 
         title = str(node.get("title") or "")
         if node.get("node_type") == "paper":
-            paper = self._repository.fetch_paper_detail_by_title(title)
+            paper = self._detail_repository.fetch_paper_detail_by_title(title)
             paper_payload = None
             if paper:
                 paper_payload = self._map_paper_detail(paper)
@@ -214,7 +184,7 @@ class GraphService:
                 "paper": paper_payload,
             }
 
-        record = self._repository.fetch_record_detail_by_title(title)
+        record = self._detail_repository.fetch_record_detail_by_title(title)
         record_fields = self._build_record_fields(record, title)
         record_summary = None
         if record:
@@ -238,14 +208,14 @@ class GraphService:
         node_payload = {"id": file_uuid, "node_type": source_type, "title": None,
                         "metric_value": None, "publish_year": None, "age": None, "top_k_value": None}
         if source_type == "paper":
-            paper = self._repository.fetch_paper_detail_by_file_uuid(file_uuid)
+            paper = self._detail_repository.fetch_paper_detail_by_file_uuid(file_uuid)
             paper_payload = self._map_paper_detail(paper) if paper else None
             if paper:
                 title = paper.get("title") or paper.get("matched_title") or paper.get("cleaned_title") or paper.get("original_name")
                 node_payload["title"] = title
                 node_payload["publish_year"] = paper.get("pub_year")
             return {"node": node_payload, "detail_type": "paper", "paper": paper_payload}
-        record = self._repository.fetch_record_detail_by_file_uuid(file_uuid)
+        record = self._detail_repository.fetch_record_detail_by_file_uuid(file_uuid)
         if record:
             title = record.get("literature_title") or file_uuid
             node_payload["title"] = title
@@ -259,98 +229,3 @@ class GraphService:
                 "prescription": record.get("prescription"),
             }
         return {"node": node_payload, "detail_type": "record", "record_fields": record_fields, "record": record_summary}
-
-    def search_graph(self, keyword: str, page: int, size: int) -> dict[str, Any]:
-        normalized = keyword.strip()
-        if not normalized:
-            return {
-                "items": [],
-                "total": 0,
-                "total_pages": 0,
-                "page": page,
-                "size": size,
-            }
-
-        safe_page = max(1, int(page))
-        safe_size = max(1, min(50, int(size)))
-        offset = (safe_page - 1) * safe_size
-
-        items, total = self._repository.search_graph(normalized, safe_size, offset)
-        normalized_items = []
-        for item in items:
-            item["authors"] = self._format_list_field(item.get("authors"))
-            item["keywords"] = self._format_list_field(item.get("keywords"))
-            normalized_items.append(item)
-        total_pages = int(math.ceil(total / safe_size)) if safe_size > 0 else 0
-
-        return {
-            "items": normalized_items,
-            "total": total,
-            "total_pages": total_pages,
-            "page": safe_page,
-            "size": safe_size,
-        }
-
-    def get_search_index_status(self) -> dict[str, Any]:
-        return self._repository.get_search_index_status()
-
-    def get_file_url(self, node_id: str, download: bool) -> dict[str, Any]:
-        if not self._s3_client:
-            raise RuntimeError("s3 client is not configured")
-        reference = self._repository.get_file_reference_by_node_id(node_id)
-        if not reference:
-            raise ValueError("node not found")
-        return self._build_file_url_payload(reference, download)
-
-    def get_file_url_by_file_uuid(self, file_uuid: str, source_type: str, download: bool) -> dict[str, Any]:
-        if not self._s3_client:
-            raise RuntimeError("s3 client is not configured")
-        reference = self._repository.get_file_reference_by_file_uuid(file_uuid)
-        if not reference:
-            raise ValueError("file not found")
-        reference["node_type"] = source_type
-        return self._build_file_url_payload(reference, download)
-
-    def _build_file_url_payload(self, reference: dict[str, Any], download: bool) -> dict[str, Any]:
-        node_id = str(reference.get("node_id") or "")
-        node_type = str(reference.get("node_type") or "").strip().lower()
-        if node_type != "paper":
-            raise ValueError("only paper nodes can generate file url")
-
-        file_key = str(reference.get("file_key") or "").strip()
-        file_name = str(reference.get("file_name") or "").strip()
-        node_title = str(reference.get("node_title") or "").strip()
-        object_name = file_key or file_name
-        if not object_name:
-            raise ValueError("file key is missing for this literature")
-
-        object_basename = object_name.split("/")[-1] if object_name else ""
-        ext = ".pdf"
-        if "." in object_basename:
-            suffix = object_basename.rsplit(".", 1)[-1].strip().lower()
-            if suffix:
-                ext = f".{suffix}"
-
-        base_name = node_title or file_name or object_basename.rsplit(".", 1)[0] or "document"
-        if not base_name.lower().endswith(ext.lower()):
-            download_name = f"{base_name}{ext}"
-        else:
-            download_name = base_name
-
-        disposition = "attachment" if download else "inline"
-        token = generate_file_token(
-            storage_path=object_name,
-            file_name=download_name,
-            disposition=disposition,
-        )
-        stream_url = f"/api/files/stream?token={token}"
-
-        return {
-            "node_id": node_id,
-            "node_type": node_type,
-            "bucket": self._s3_client.bucket_name,
-            "object_name": object_name,
-            "file_name": download_name,
-            "download": download,
-            "url": stream_url,
-        }

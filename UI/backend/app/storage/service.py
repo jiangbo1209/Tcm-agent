@@ -264,16 +264,17 @@ class UploadService:
             "failed": failed_count,
         }
 
-    async def get_download_url(self, file_uuid: str) -> dict | None:
+    async def get_download_url(self, file_uuid: str, mode: str = "download") -> dict | None:
         core_file = await self._repository.get_by_uuid(file_uuid)
         if not core_file:
             return None
         from app.storage.file_token import generate_file_token
 
+        disposition = "inline" if mode == "view" else "attachment"
         token = generate_file_token(
             storage_path=core_file.storage_path,
             file_name=core_file.original_name,
-            disposition="attachment",
+            disposition=disposition,
         )
         return {
             "file_uuid": file_uuid,

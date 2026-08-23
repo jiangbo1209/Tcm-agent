@@ -3,7 +3,12 @@
 from __future__ import annotations
 
 import logging
+import sys
 from contextlib import asynccontextmanager
+
+from pathlib import Path
+
+sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
 
 from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
@@ -20,7 +25,7 @@ from app.core.schema_migration import (
     ensure_core_file_uploader_column,
 )
 
-from app.repositories import GraphRepository
+from app.repositories import GraphRepository, DetailRepository, SearchRepository
 from app.routers.chat import router as chat_router
 from app.routers.files import router as files_router
 from app.routers.graph import router as graph_router
@@ -61,8 +66,13 @@ def _build_s3_client() -> S3Client | None:
 # Per-process singletons.
 app.state.s3_client = _build_s3_client()
 
-repository = GraphRepository(get_database_config(), get_search_config())
-app.state.graph_service = GraphService(repository, app.state.s3_client)
+graph_repository = GraphRepository(get_database_config(), get_search_config())
+detail_repository = DetailRepository(get_database_config(), get_search_config())
+search_repository = SearchRepository(get_database_config(), get_search_config())
+app.state.graph_repository = graph_repository
+app.state.detail_repository = detail_repository
+app.state.search_repository = search_repository
+app.state.graph_service = GraphService(graph_repository, detail_repository)
 
 app.add_middleware(
     CORSMiddleware,
