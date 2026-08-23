@@ -531,6 +531,46 @@ def _write_log(
     )
 
 
+def snapshot_core_record(db: Session, table_name: str, record_id: int) -> dict[str, Any] | None:
+    """核心记录全部可编辑字段的现值快照（admin 直改审计用）。
+
+    表未知或核心行缺失返回 None，由调用方决定是否跳过审计；
+    只读不写，绝不触碰会话事务。
+    """
+    model = _TABLE_MAP.get(table_name)
+    if model is None:
+        return None
+    core = db.query(model).filter(model.id == record_id).first()
+    if core is None:
+        return None
+    return {field: getattr(core, field) for field in _EDITABLE_FIELDS.get(table_name, [])}
+
+
+def log_direct_edit(
+    db: Session,
+    *,
+    table_name: str,
+    record_id: int,
+    actor: User | None,
+    old_values: dict[str, Any],
+    new_values: dict[str, Any],
+) -> None:
+    """管理员直改审计（F4-V1/G3）：action='save_direct' 落 annotation_logs。
+
+    与标注总闸无关——admin 路由不经 gate，直改也必须留痕；
+    只 add 不 commit，事务由调用方掌控。
+    """
+    _write_log(
+        db,
+        table_name=table_name,
+        record_id=record_id,
+        actor=actor,
+        action="save_direct",
+        old_fields=old_values,
+        new_fields=new_values,
+    )
+
+
 def _load_owned_task(db: Session, user: User, task_id: int) -> AnnotationTask:
     """取任务并校验属主；缺失 404、越权 403，由调用方继续做状态类校验。"""
     task = db.get(AnnotationTask, task_id)
@@ -627,8 +667,11 @@ def item_draft(
 
 
 def batch_submit(db: Session, user: User, task_id: int) -> dict[str, Any]:
-    """整批提交：全部条目已暂存才放行；瞬时完成任务（复核解耦，T8 再审批）。
+    """整批提交：无未暂存条目才放行；瞬时完成任务（复核解耦，T8 再审批）。
 
+    返工重提语义（F-02）：任务被驳回重开后，已是 submitted/approved 的条目
+    原样保留，仅 drafted 条目翻转为 submitted、其 draft 提交单转 pending；
+    pending/rejected 条目仍视为「未暂存」拦截提交。
     C8 base 失效检测：比对各 draft 提交单的 base_updated_at 与核心记录当前
     updated_at，失配者列入 stale_base_item_ids —— 仅预警，绝不拦截提交。
     """
@@ -642,8 +685,10 @@ def batch_submit(db: Session, user: User, task_id: int) -> dict[str, Any]:
         .order_by(AnnotationTaskItem.id)
         .all()
     )
-    undrafted = [it for it in items if it.status != "drafted"]
-    if items and undrafted:
+    undrafted = [
+        it for it in items if it.status not in ("drafted", "submitted", "approved")
+    ]
+    if undrafted:
         raise ValueError(f"还有 {len(undrafted)} 条未暂存")
 
     draft_submissions = {
@@ -658,6 +703,8 @@ def batch_submit(db: Session, user: User, task_id: int) -> dict[str, Any]:
 
     stale_item_ids: list[int] = []
     for it in items:
+        if it.status != "drafted":
+            continue
         submission = draft_submissions.get(it.id)
         model = _TABLE_MAP.get(it.table_name)
         core = (
@@ -675,6 +722,8 @@ def batch_submit(db: Session, user: User, task_id: int) -> dict[str, Any]:
     for submission in draft_submissions.values():
         submission.status = "pending"
     for it in items:
+        if it.status != "drafted":
+            continue
         it.status = "submitted"
         it.submitted_at = now_utc
     task.status = "completed"
@@ -735,6 +784,9 @@ def run_lazy_sweep(db: Session, now: datetime | None = None) -> dict[str, int]:
         .all()
     )
     for task in expired_tasks:
+        # 逐任务局部计数：expire_recover 日志只反映本任务，返回字典保持累计总量
+        task_recovered = 0
+        task_resubmitted = 0
         items = (
             db.query(AnnotationTaskItem)
             .filter(AnnotationTaskItem.task_id == task.id)
@@ -745,6 +797,7 @@ def run_lazy_sweep(db: Session, now: datetime | None = None) -> dict[str, int]:
             if item.status == "pending":
                 item.status = "recovered"
                 recovered += 1
+                task_recovered += 1
                 _release_pool_item(db, item.source_pool_item_id)
             elif item.status == "drafted":
                 # 等价 batch_submit 的落库动作，但只针对本任务的 drafted 条目，
@@ -756,6 +809,7 @@ def run_lazy_sweep(db: Session, now: datetime | None = None) -> dict[str, int]:
                 item.status = "submitted"
                 item.submitted_at = now_utc
                 resubmitted += 1
+                task_resubmitted += 1
 
         has_output = any(it.status in ("submitted", "approved") for it in items)
         task.status = "completed" if has_output else "cancelled"
@@ -770,7 +824,11 @@ def run_lazy_sweep(db: Session, now: datetime | None = None) -> dict[str, int]:
             record_id=0,
             actor=None,
             action="expire_recover",
-            new_fields={"task_id": task.id, "recovered": recovered, "resubmitted": resubmitted},
+            new_fields={
+                "task_id": task.id,
+                "recovered": task_recovered,
+                "resubmitted": task_resubmitted,
+            },
         )
 
     rework_days = timedelta(days=get_annotation_config().REWORK_DAYS)
@@ -894,8 +952,74 @@ def get_my_task(db: Session, user: User) -> dict[str, Any]:
             "status": task.status,
             "deadline_at": task.deadline_at.isoformat() if task.deadline_at else None,
             "total": len(items),
+            "count": len(items),
             **counts,
         }
+    }
+
+
+def get_my_task_detail(db: Session, user: User) -> dict[str, Any]:
+    """工作台条目明细（F-01）：当前任务的核心记录序列化行 + 每条目最新提交单。
+
+    无活动任务返回 {"task": None}；table_name 取 items[0]，空任务回退所属池；
+    核心行已被删除的条目 record 为 None（前端按缺失降级）。
+    """
+    task = (
+        db.query(AnnotationTask)
+        .filter(
+            AnnotationTask.claimed_by == user.id,
+            AnnotationTask.status.in_(_ACTIVE_TASK_STATUSES),
+        )
+        .order_by(AnnotationTask.id.desc())
+        .first()
+    )
+    if task is None:
+        return {"task": None}
+
+    items = (
+        db.query(AnnotationTaskItem)
+        .filter(AnnotationTaskItem.task_id == task.id)
+        .order_by(AnnotationTaskItem.id)
+        .all()
+    )
+    table_name: str | None = items[0].table_name if items else None
+    if table_name is None and task.pool_id is not None:
+        pool = db.get(AnnotationPool, task.pool_id)
+        table_name = pool.table_name if pool is not None else None
+
+    entries: list[dict[str, Any]] = []
+    for item in items:
+        model = _TABLE_MAP.get(item.table_name)
+        core = (
+            None if model is None else db.query(model).filter(model.id == item.record_id).first()
+        )
+        latest = _latest_submission(db, item.id)
+        entries.append(
+            {
+                "item_id": item.id,
+                "record_id": item.record_id,
+                "table_name": item.table_name,
+                "status": item.status,
+                "record": (
+                    AdminQueryRepository._serialize(core, item.table_name)
+                    if core is not None
+                    else None
+                ),
+                "submission": {
+                    "id": latest.id,
+                    "status": latest.status,
+                    "proposed_fields": latest.proposed_fields,
+                }
+                if latest is not None
+                else None,
+            }
+        )
+
+    return {
+        "task_id": task.id,
+        "table_name": table_name,
+        "editable_fields": _EDITABLE_FIELDS.get(table_name or "", []),
+        "items": entries,
     }
 
 
@@ -1086,7 +1210,12 @@ def approve_submission(db: Session, reviewer: User, submission_id: int) -> dict[
 
 
 def reject_submission(db: Session, reviewer: User, submission_id: int, comment: str) -> dict[str, Any]:
-    """逐条驳回：意见落提交单，条目带 rejected_at 进返工箱。"""
+    """逐条驳回：意见落提交单，条目带 rejected_at 进返工箱。
+
+    F-02：任务已 completed 时驳回条目会把任务重新打开（in_progress），
+    否则 item_draft 的「任务不在进行中」前置会让 rejected 条目永久死锁。
+    标注员的活跃任务槽位由此被占用直至返工完成（与 MAX_PENDING_REWORK 口径一致）。
+    """
     if not (comment or "").strip():
         raise AnnotationFieldValidationError("驳回必须填写评论")
 
@@ -1098,6 +1227,9 @@ def reject_submission(db: Session, reviewer: User, submission_id: int, comment: 
     submission.reviewer_id = reviewer.id
     item.status = "rejected"
     item.rejected_at = now_utc
+    task = db.get(AnnotationTask, item.task_id)
+    if task is not None and task.status == "completed":
+        task.status = "in_progress"
     _write_log(
         db,
         table_name=item.table_name,

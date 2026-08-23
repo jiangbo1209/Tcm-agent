@@ -571,3 +571,54 @@ def test_non_admin_forbidden_on_log_endpoints(client, db, admin):
 
     rollback_resp = client.post(f"{LOGS_URL}/1/rollback", headers=auth_header(plain))
     assert rollback_resp.status_code == 403
+
+
+# --- (i) F4-V1/G3：管理员直改必须落 save_direct 审计行（与标注总闸无关）--------
+
+
+def test_admin_direct_edit_writes_save_direct_log_gate_independent(
+    client, db, admin, monkeypatch
+):
+    from fastapi import FastAPI as _FastAPI
+
+    from app.core.database import get_db
+    from app.models import AnnotationLog, LitMetadata
+    from app.routers.admin import router as admin_router
+
+    # 总闸关闭（无 enabled-patch）：save_direct 审计不得依赖 ANNOTATION_ENABLED
+    monkeypatch.delenv("ANNOTATION_ENABLED", raising=False)
+    get_annotation_config.cache_clear()
+    assert get_annotation_config().ENABLED is False
+
+    record_id = _seed_core_lit(db, 1, prefix="t9i")[0]
+
+    app = _FastAPI()
+    app.include_router(admin_router)
+    app.dependency_overrides[get_db] = lambda: db
+    try:
+        admin_client = TestClient(app)
+        resp = admin_client.put(
+            f"/api/admin/lit/{record_id}",
+            json={"fields": {"title": "管理员直改标题"}},
+            headers=auth_header(admin),
+        )
+        assert resp.status_code == 200, resp.text
+        assert db.get(LitMetadata, record_id).title == "管理员直改标题"
+    finally:
+        app.dependency_overrides.clear()
+
+    log = (
+        db.query(AnnotationLog)
+        .filter(
+            AnnotationLog.action == "save_direct",
+            AnnotationLog.table_name == "lit",
+            AnnotationLog.record_id == record_id,
+        )
+        .one()
+    )
+    assert log.username == admin.username
+    assert log.actor_id == admin.id
+    assert log.old_fields == {"title": "针灸治疗不孕症研究1"}
+    assert log.new_fields == {"title": "管理员直改标题"}
+
+    get_annotation_config.cache_clear()

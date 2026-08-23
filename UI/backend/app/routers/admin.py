@@ -16,6 +16,7 @@ from app.repositories.admin_repo import (
     RecordNotFoundError,
     StaleRecordError,
 )
+from app.services import annotation_service
 from app.services.admin_service import AdminDeleteRecordNotFound, AdminService
 
 router = APIRouter(prefix="/api/admin", tags=["admin"])
@@ -64,10 +65,12 @@ def update_record(
     record_id: int,
     body: AdminUpdateRequest,
     db: Session = Depends(get_db),
-    _admin: User = Depends(require_admin),
+    admin: User = Depends(require_admin),
 ):
+    # F4-V1/G3：直改前快照可编辑字段现值，成功后落 save_direct 审计（与 gate 无关）
+    old_snapshot = annotation_service.snapshot_core_record(db, table, record_id)
     try:
-        return AdminQueryRepository(db).update_record(
+        result = AdminQueryRepository(db).update_record(
             table, record_id, body.fields, body.updated_at
         )
     except RecordNotFoundError:
@@ -79,6 +82,22 @@ def update_record(
         ) from None
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+    changed_keys = [
+        key
+        for key in result["updated_fields"]
+        if old_snapshot is not None and key in old_snapshot
+    ]
+    annotation_service.log_direct_edit(
+        db,
+        table_name=table,
+        record_id=record_id,
+        actor=admin,
+        old_values={key: old_snapshot[key] for key in changed_keys} if old_snapshot else {},
+        new_values={key: result["record"][key] for key in changed_keys},
+    )
+    db.commit()
+    return result
 
 
 @router.delete("/lit/{record_id}")

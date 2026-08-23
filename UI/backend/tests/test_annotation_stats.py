@@ -312,7 +312,7 @@ def test_coverage_counts_approved_distinct_records(client, db, admin):
 
 
 def test_users_section_aggregates_and_includes_zero_work_annotator(client, db, admin):
-    ann_a, _task_id, _items = _run_batch(
+    ann_a, task_id_a, _items = _run_batch(
         client,
         db,
         admin,
@@ -333,7 +333,8 @@ def test_users_section_aggregates_and_includes_zero_work_annotator(client, db, a
     assert row_a["completed"] == 2
     assert row_a["rejected_rate"] == 0.33, "1/(1+2) 保留两位"
     assert row_a["pending_rework"] == 1
-    assert row_a["in_progress"] == 0, "整批提交后任务已 completed，无进行中任务"
+    # F-02：已完成任务的条目被驳回 -> 任务重开，标注员占用活跃槽位直至返工完成
+    assert row_a["in_progress"] == 1
 
     assert row_b == {
         "user_id": zero_b.id,
@@ -344,7 +345,29 @@ def test_users_section_aggregates_and_includes_zero_work_annotator(client, db, a
         "in_progress": 0,
     }
 
-    # A 再次领取新任务后，in_progress 反映活动任务的存在
+    # 返工完成（redraft + 重提）后任务再次 completed，
+    # MAX_PENDING_REWORK=0 不限制返工过用户再领取新任务
+    from app.models import AnnotationSubmission, AnnotationTaskItem
+
+    rejected_item = (
+        db.query(AnnotationTaskItem)
+        .filter(
+            AnnotationTaskItem.task_id == task_id_a,
+            AnnotationTaskItem.status == "rejected",
+        )
+        .one()
+    )
+    redraft = client.put(
+        f"/api/annotation/items/{rejected_item.id}/draft",
+        json={"proposed_fields": {}},
+        headers=auth_header(ann_a),
+    )
+    assert redraft.status_code == 200
+    resubmit = client.post(
+        f"/api/annotation/tasks/{task_id_a}/submit", headers=auth_header(ann_a)
+    )
+    assert resubmit.status_code == 200
+
     fresh_record = _seed_core_lit(db, 1, prefix="t10c-extra")
     _seed_pool_with_records(db, fresh_record, priority=9)
     assert _claim_task(client, ann_a), "MAX_PENDING_REWORK=0 不限制返工中用户再领取"

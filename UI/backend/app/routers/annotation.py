@@ -140,3 +140,12 @@ def my_task(
 ):
     """当前标注员的进行中任务概览；无活动任务时 task 为 null。"""
     return annotation_service.get_my_task(db, annotator)
+
+
+@router.get("/my/task/detail")
+def my_task_detail(
+    db: Session = Depends(get_db),
+    annotator: User = Depends(require_annotator),
+):
+    """工作台条目明细（F-01）：核心记录序列化行 + 每条目最新提交单；无活动任务 task=null。"""
+    return annotation_service.get_my_task_detail(db, annotator)

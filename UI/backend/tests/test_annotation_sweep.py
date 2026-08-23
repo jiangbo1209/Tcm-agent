@@ -496,10 +496,12 @@ def test_my_task_active_shape_and_null(client, db):
         "status",
         "deadline_at",
         "total",
+        "count",
         "drafted",
         "submitted",
         "rejected",
     }
+    assert task["count"] == task["total"] == 3
     assert task["task_id"] == task_id
     assert task["table_name"] == "lit"
     assert task["status"] == "in_progress"

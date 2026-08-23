@@ -52,11 +52,14 @@ def db():
 
 @pytest.fixture()
 def client(db):
+    """同时挂载标注路由与管理复核路由（返工流需要真实 reject 端点）。"""
     from app.core.database import get_db
     from app.routers.annotation import router as annotation_router
+    from app.routers.annotation_admin import router as annotation_admin_router
 
     app = FastAPI()
     app.include_router(annotation_router)
+    app.include_router(annotation_admin_router)
     app.dependency_overrides[get_db] = lambda: db
     try:
         yield TestClient(app)
@@ -384,41 +387,65 @@ def test_other_annotators_item_and_task_forbidden(client, db, claimed):
     assert _submissions_for(db, items[0].id) == []
 
 
-# --- (i) 返工重做：rejected 条目重新暂存生成新 submission，历史保留 ----------
+# --- (i) 返工重做：真实全流程 claim→draft→submit→reject→redraft→resubmit ------
+#
+# 生产死锁回归（F-02）：batch_submit 完成任务后管理员驳回条目，任务必须被
+# 重新打开（in_progress），标注员才能对 rejected 条目重新暂存并再次整批提交。
+# 绝不手工播种 item.status='rejected'——那是不可达状态，必须走真实 API 链。
 
 
 def test_rework_rejected_item_creates_new_submission_then_submit(client, db, claimed):
     from app.models import AnnotationSubmission, AnnotationTask, AnnotationTaskItem
 
     annotator, task_id, items = claimed
+    admin = make_user(db, "rework-admin", role="admin")
     item1 = items[0]
 
-    # 模拟 T8 驳回后的现场：item rejected + 一条 rejected submission
-    item1.status = "rejected"
-    item1.rejected_at = _naive_utcnow()
-    old_sub = AnnotationSubmission(
-        item_id=item1.id,
-        annotator_id=annotator.id,
-        username=annotator.username,
-        proposed_fields={"title": "被驳回的旧稿"},
-        base_updated_at=CORE_TS,
-        status="rejected",
-        review_comment="标题不规范",
+    # 1) 全部暂存并整批提交 -> 任务 completed
+    assert _draft(client, annotator, item1.id, {"title": "初稿标题"}).status_code == 200
+    for it in items[1:]:
+        assert _draft(client, annotator, it.id, {}).status_code == 200
+    first_submit = client.post(
+        f"/api/annotation/tasks/{task_id}/submit", headers=auth_header(annotator)
     )
-    db.add(old_sub)
-    db.commit()
-    old_sub_id = old_sub.id
+    assert first_submit.status_code == 200
+    assert db.get(AnnotationTask, task_id).status == "completed"
 
-    resp = _draft(client, annotator, item1.id, {"title": "返工新稿"})
-    assert resp.status_code == 200
-    new_sub_id = resp.json()["submission_id"]
+    # 2) 管理员经真实复核端点驳回 item1 的 pending 提交单
+    pending_sub = (
+        db.query(AnnotationSubmission)
+        .filter(
+            AnnotationSubmission.item_id == item1.id,
+            AnnotationSubmission.status == "pending",
+        )
+        .one()
+    )
+    old_sub_id = pending_sub.id
+    reject = client.post(
+        f"/api/annotation/admin/review/{old_sub_id}/reject",
+        json={"comment": "标题不规范"},
+        headers=auth_header(admin),
+    )
+    assert reject.status_code == 200
+
+    # 3) 任务必须被重新打开，否则条目永久卡死在 rejected
+    db.refresh(item1)
+    assert item1.status == "rejected"
+    assert item1.rejected_at is not None
+    reopened = db.get(AnnotationTask, task_id)
+    assert reopened.status == "in_progress", "驳回已完成任务的条目必须重新打开任务"
+
+    # 4) 返工：rejected 条目重新暂存生成新 submission，历史驳回行保留
+    redraft = _draft(client, annotator, item1.id, {"title": "返工新稿"})
+    assert redraft.status_code == 200
+    new_sub_id = redraft.json()["submission_id"]
     assert new_sub_id != old_sub_id, "驳回后重新暂存必须新建 submission"
 
     subs = _submissions_for(db, item1.id)
     assert [s.id for s in subs] == sorted([old_sub_id, new_sub_id])
     old = db.get(AnnotationSubmission, old_sub_id)
     assert old.status == "rejected", "历史驳回记录必须原样保留"
-    assert old.proposed_fields == {"title": "被驳回的旧稿"}
+    assert old.proposed_fields == {"title": "初稿标题"}
     fresh = db.get(AnnotationSubmission, new_sub_id)
     assert fresh.status == "draft"
     assert fresh.proposed_fields == {"title": "返工新稿"}
@@ -426,11 +453,24 @@ def test_rework_rejected_item_creates_new_submission_then_submit(client, db, cla
     db.refresh(item1)
     assert item1.status == "drafted"
 
+    # 5) 再次整批提交：items[1:] 已是 submitted 原样保留，仅 item1 翻转
+    resubmit = client.post(f"/api/annotation/tasks/{task_id}/submit", headers=auth_header(annotator))
+    assert resubmit.status_code == 200
+    body = resubmit.json()
+    assert body["completed"] is True
+    assert body["count"] == 3
+    assert body["stale_base_item_ids"] == [], "已提交条目不得误报 base 失效"
+
+    db.refresh(item1)
+    assert item1.status == "submitted"
+    assert item1.submitted_at is not None
     for it in items[1:]:
-        assert _draft(client, annotator, it.id, {}).status_code == 200
-    submit = client.post(f"/api/annotation/tasks/{task_id}/submit", headers=auth_header(annotator))
-    assert submit.status_code == 200
-    assert submit.json()["count"] == 3
+        db.refresh(it)
+        assert it.status == "submitted"
+        kept = _submissions_for(db, it.id)[0]
+        assert kept.status == "pending", "先前已提交的条目提交单不得被二次翻转"
+    assert db.get(AnnotationSubmission, new_sub_id).status == "pending"
+    assert db.query(AnnotationSubmission).filter_by(status="draft").count() == 0
     assert db.get(AnnotationTask, task_id).status == "completed"
 
 
@@ -494,3 +534,65 @@ def test_draft_on_submitted_item_conflicts(client, db, claimed):
     resp = _draft(client, annotator, items[0].id, {"title": "x"})
     assert resp.status_code == 409
     assert "该条目当前状态不可暂存" in resp.json()["detail"]
+
+
+# --- (k) 工作台明细（F-01）：/my/task 携带 count；GET /my/task/detail ---------
+
+
+def test_my_task_includes_count(client, db, claimed):
+    annotator, _task_id, items = claimed
+
+    resp = client.get("/api/annotation/my/task", headers=auth_header(annotator))
+
+    assert resp.status_code == 200
+    task_body = resp.json()["task"]
+    assert task_body["count"] == len(items)
+    assert task_body["total"] == len(items)
+
+
+def test_my_task_detail_returns_items_records_and_submissions(client, db, claimed):
+    from app.models import LitMetadata
+
+    annotator, task_id, items = claimed
+    assert _draft(client, annotator, items[0].id, {"title": "明细稿"}).status_code == 200
+
+    resp = client.get("/api/annotation/my/task/detail", headers=auth_header(annotator))
+
+    assert resp.status_code == 200
+    body = resp.json()
+    assert body["task_id"] == task_id
+    assert body["table_name"] == "lit"
+    assert isinstance(body["editable_fields"], list)
+    assert "title" in body["editable_fields"]
+
+    assert [it["item_id"] for it in body["items"]] == [it.id for it in items]
+    first = body["items"][0]
+    assert first["record_id"] == items[0].record_id
+    assert first["table_name"] == "lit"
+    assert first["status"] == "drafted"
+    core = db.get(LitMetadata, items[0].record_id)
+    assert first["record"]["id"] == core.id
+    assert first["record"]["title"] == "针灸治疗不孕症研究1"
+    assert isinstance(first["record"]["updated_at"], str)
+    assert first["submission"]["status"] == "draft"
+    assert first["submission"]["proposed_fields"] == {"title": "明细稿"}
+    assert isinstance(first["submission"]["id"], int)
+
+    untouched = body["items"][1]
+    assert untouched["status"] == "pending"
+    assert untouched["submission"] is None
+    assert untouched["record"]["title"] == "针灸治疗不孕症研究2"
+
+
+def test_my_task_detail_without_active_task_returns_null(client, db):
+    annotator = _annotator(db, "detail-empty")
+
+    resp = client.get("/api/annotation/my/task/detail", headers=auth_header(annotator))
+
+    assert resp.status_code == 200
+    assert resp.json() == {"task": None}
+
+
+def test_my_task_detail_requires_auth(client, db):
+    resp = client.get("/api/annotation/my/task/detail")
+    assert resp.status_code in (401, 403)

@@ -7,6 +7,7 @@ overridden, so role checks read committed DB rows through production JWTs.
 """
 
 import re
+from datetime import datetime, timezone
 from pathlib import Path
 
 import pytest
@@ -199,6 +200,74 @@ def test_no_token_rejected(db):
         # 401/403 before any handler runs; assert exact framework behaviour.
         assert resp.status_code in (401, 403)
         assert resp.json() != {"users": []}
+
+
+# ---------------------------------------------------------------------------
+# (f) F4-V2/A2: annotator delete guard (active task / pending rework -> 409)
+# ---------------------------------------------------------------------------
+
+
+def _seed_task(db, annotator_id: int, *, status: str):
+    from app.models import AnnotationTask
+
+    task = AnnotationTask(pool_id=None, claimed_by=annotator_id, status=status)
+    db.add(task)
+    db.commit()
+    db.refresh(task)
+    return task
+
+
+def _seed_rework_item(db, task_id: int):
+    from app.models import AnnotationTaskItem
+
+    item = AnnotationTaskItem(
+        task_id=task_id,
+        table_name="lit",
+        record_id=1,
+        status="rejected",
+        rejected_at=datetime.now(timezone.utc).replace(tzinfo=None),
+    )
+    db.add(item)
+    db.commit()
+    return item
+
+
+def test_delete_annotator_with_active_task_conflicts(db):
+    admin = make_user(db, "del_guard_admin", "admin")
+    busy = make_user(db, "del_guard_busy", "annotator")
+    _seed_task(db, busy.id, status="in_progress")
+
+    with build_test_client(db) as client:
+        resp = client.delete(f"/api/users/{busy.id}", headers=auth_header(admin))
+
+    assert resp.status_code == 409
+    assert resp.json()["detail"] == "该标注员仍有进行中的任务或待返工条目，请先回收后再删除"
+    assert db.query(User).filter(User.id == busy.id).first() is not None
+
+
+def test_delete_annotator_with_pending_rework_item_conflicts(db):
+    admin = make_user(db, "del_rework_admin", "admin")
+    reworker = make_user(db, "del_guard_rework", "annotator")
+    task = _seed_task(db, reworker.id, status="completed")
+    _seed_rework_item(db, task.id)
+
+    with build_test_client(db) as client:
+        resp = client.delete(f"/api/users/{reworker.id}", headers=auth_header(admin))
+
+    assert resp.status_code == 409
+    assert db.query(User).filter(User.id == reworker.id).first() is not None
+
+
+def test_delete_annotator_without_tasks_succeeds(db):
+    admin = make_user(db, "del_ok_admin", "admin")
+    free = make_user(db, "del_guard_free", "annotator")
+
+    with build_test_client(db) as client:
+        resp = client.delete(f"/api/users/{free.id}", headers=auth_header(admin))
+
+    assert resp.status_code == 200
+    assert resp.json() == {"detail": "用户已删除"}
+    assert db.query(User).filter(User.id == free.id).first() is None
 
 
 # ---------------------------------------------------------------------------

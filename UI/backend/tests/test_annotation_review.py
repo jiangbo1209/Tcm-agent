@@ -390,7 +390,7 @@ def test_stale_base_expires_one_item_others_independent(client, db, admin):
 
 
 def test_reject_stores_comment_and_moves_item_to_rework(client, db, admin):
-    _annotator, _task_id, items, subs = _submit_batch(db, client, n=1, fields=[{"title": "驳回稿"}])
+    annotator, task_id, items, subs = _submit_batch(db, client, n=1, fields=[{"title": "驳回稿"}])
     target_item, target_sub = items[0], subs[0]
 
     resp = _reject(client, admin, target_sub.id, "标题不规范，请重写")
@@ -409,6 +409,13 @@ def test_reject_stores_comment_and_moves_item_to_rework(client, db, admin):
     db.refresh(target_item)
     assert target_item.status == "rejected"
     assert target_item.rejected_at is not None
+
+    from app.models import AnnotationTask
+
+    reopened = db.get(AnnotationTask, task_id)
+    assert reopened.status == "in_progress", (
+        "已完成任务的条目被驳回后必须重新打开任务，否则返工死锁"
+    )
 
     log = _log_for(db, "reject", target_sub.id)
     assert log.new_fields == {"comment": "标题不规范，请重写"}

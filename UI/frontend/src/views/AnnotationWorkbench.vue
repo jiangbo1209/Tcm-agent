@@ -692,9 +692,10 @@ function collectFields() {
 async function saveDraft(fieldsList) {
   if (!editingItem.value || savingDraft.value) return;
   const itemId = editingItem.value.id;
+  // 与 AdminDataEdit 同口径：null 原样透传（清空字段），[] 无变更 → {}
   const proposed = {};
   for (const [key, value] of Object.entries(fieldsList)) {
-    if (value !== null) proposed[key] = value;
+    proposed[key] = value;
   }
   savingDraft.value = true;
   draftError.value = "";
