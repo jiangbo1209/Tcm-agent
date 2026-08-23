@@ -141,3 +141,51 @@ export function rejectSubmission(submissionId, comment) {
     comment,
   });
 }
+
+/* ═══════════════ 管理端看板 / 导出 / 审计日志（T17） ═══════════════ */
+
+/**
+ * 仪表盘聚合（管理端）：GET /api/annotation/admin/stats
+ * 响应 { pools: [...], coverage: { lit|case|guideline: { annotated, total } },
+ *        users: [{ user_id, username, completed, rejected_rate,
+ *                  pending_rework, in_progress }] }
+ */
+export function dashboardStats() {
+  return request.get("/annotation/admin/stats");
+}
+
+/**
+ * 工作量明细 CSV 导出（管理端）：GET /api/annotation/admin/export.csv
+ * @param {{ user_id?: number, pool_id?: number, date_from?: string, date_to?: string }} params
+ * 全部可选；responseType 为 blob，调用方用 URL.createObjectURL 落盘下载
+ * （后端 Content-Disposition 固定文件名 workload.csv）。
+ */
+export function exportCsv(params = {}) {
+  return request.get("/annotation/admin/export.csv", {
+    params,
+    responseType: "blob",
+  });
+}
+
+/**
+ * 分页检索审计日志（管理端）：GET /api/annotation/admin/logs
+ * @param {{ table_name?: string, record_id?: number, actor_id?: number,
+ *           action?: string, date_from?: string, date_to?: string,
+ *           page?: number, page_size?: number }} params 全部可选
+ * 响应 { total, page, page_size, items: [{ id, table_name, record_id,
+ *          actor_id, username, action, old_fields, new_fields,
+ *          submission_id, created_at }] }；id 倒序。
+ */
+export function queryLogs(params = {}) {
+  return request.get("/annotation/admin/logs", { params });
+}
+
+/**
+ * 一键回滚（管理端）：POST /api/annotation/admin/logs/{logId}/rollback
+ * 反向应用源日志 old_fields 并追加一条 rollback 审计行；
+ * 响应 { log_id, record_id, table_name, restored_fields }；
+ * 404 缺失 / 400 无可回滚字段 / 409 乐观锁冲突。
+ */
+export function rollbackLog(logId) {
+  return request.post(`/annotation/admin/logs/${logId}/rollback`);
+}

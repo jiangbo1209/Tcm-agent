@@ -29,6 +29,12 @@
             <th>角色</th>
             <th>状态</th>
             <th>创建时间</th>
+            <template v-if="activeTab === 'annotators'">
+              <th data-testid="completed-col">已完成</th>
+              <th>驳回率</th>
+              <th data-testid="rework-col">待返工</th>
+              <th>在办</th>
+            </template>
             <th>操作</th>
           </tr>
         </thead>
@@ -46,6 +52,18 @@
               </span>
             </td>
             <td class="cell-time">{{ formatDate(user.created_at) }}</td>
+            <template v-if="activeTab === 'annotators'">
+              <td class="cell-workload" data-testid="workload-completed">{{ workloadOf(user.id).completed ?? "-" }}</td>
+              <td class="cell-workload">
+                <span :class="'rate-' + rateLevel(workloadOf(user.id).rejected_rate)">
+                  {{ formatRate(workloadOf(user.id).rejected_rate) }}
+                </span>
+              </td>
+              <td class="cell-workload" data-testid="workload-rework">{{ workloadOf(user.id).pending_rework ?? "-" }}</td>
+              <td class="cell-workload">
+                {{ workloadOf(user.id).in_progress == null ? "-" : workloadOf(user.id).in_progress ? "是" : "否" }}
+              </td>
+            </template>
             <td class="cell-actions">
               <template v-if="activeTab === 'annotators'">
                 <button class="btn-sm btn-toggle" @click="toggleActive(user)">
@@ -69,7 +87,7 @@
             </td>
           </tr>
           <tr v-if="filteredUsers.length === 0">
-            <td colspan="7" class="empty-row">暂无成员</td>
+            <td :colspan="activeTab === 'annotators' ? 11 : 7" class="empty-row">暂无成员</td>
           </tr>
         </tbody>
       </table>
@@ -133,7 +151,7 @@
 </template>
 
 <script setup>
-import { ref, computed, onMounted } from "vue";
+import { ref, computed, watch, onMounted } from "vue";
 import { useRoute, useRouter } from "vue-router";
 import {
   fetchUsers,
@@ -143,6 +161,7 @@ import {
   deleteUser,
   setUserActive,
 } from "../api/users";
+import { dashboardStats } from "../api/annotation";
 
 const TABS = [
   { key: "normal", label: "普通", role: "normal" },
@@ -206,6 +225,44 @@ async function loadUsers() {
     console.error("Failed to load users:", e);
   } finally {
     loading.value = false;
+  }
+}
+
+/* ───────── 标注员工作量（看板聚合，按 user_id 匹配） ───────── */
+const workloadMap = ref({});
+
+function workloadOf(userId) {
+  return (
+    workloadMap.value[userId] || {
+      completed: null,
+      rejected_rate: null,
+      pending_rework: null,
+      in_progress: null,
+    }
+  );
+}
+
+function formatRate(rate) {
+  if (rate === null || rate === undefined) return "-";
+  return `${Math.round(rate * 100)}%`;
+}
+
+function rateLevel(rate) {
+  if (rate === null || rate === undefined) return "none";
+  if (rate > 0.3) return "high";
+  if (rate > 0.1) return "mid";
+  return "low";
+}
+
+// 标注总闸关闭/非管理员时接口失败：清空映射，表格降级显示 "-"
+async function loadWorkload() {
+  try {
+    const res = await dashboardStats();
+    const map = {};
+    for (const u of res.data?.users || []) map[u.user_id] = u;
+    workloadMap.value = map;
+  } catch (e) {
+    workloadMap.value = {};
   }
 }
 
@@ -289,7 +346,15 @@ async function confirmDelete(user) {
   }
 }
 
-onMounted(loadUsers);
+onMounted(() => {
+  loadUsers();
+  loadWorkload();
+});
+
+// 切到标注员页签时刷新工作量，保证数字新鲜
+watch(activeTab, (tab) => {
+  if (tab === "annotators") loadWorkload();
+});
 </script>
 
 <style scoped>
@@ -325,6 +390,12 @@ onMounted(loadUsers);
 
 .status-active { color: #2e7d32; }
 .status-inactive { color: #c62828; }
+
+.cell-workload { white-space: nowrap; }
+.rate-high { color: #c62828; font-weight: 600; }
+.rate-mid { color: #f57f17; font-weight: 600; }
+.rate-low { color: #2e7d32; }
+.rate-none { color: #999; }
 
 .role-select { padding: 3px 6px; border: 1px solid #d0d0d0; border-radius: 4px; font-size: 12px; background: #fff; }
 

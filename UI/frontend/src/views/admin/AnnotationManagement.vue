@@ -10,6 +10,7 @@
         :key="tab.key"
         class="mgmt-tab"
         :class="{ 'mgmt-tab-active': activeTab === tab.key }"
+        :data-testid="tab.testid"
         @click="activeTab = tab.key"
       >
         {{ tab.label }}
@@ -235,7 +236,210 @@
       </div>
     </template>
 
-    <!-- ═══════════ 其他页签占位（T17 落地） ═══════════ -->
+    <!-- ═══════════ 看板 ═══════════ -->
+    <template v-else-if="activeTab === 'board'">
+      <div v-if="boardLoading" class="loading">加载中...</div>
+      <template v-else>
+        <div class="coverage-grid">
+          <div v-for="t in COVERAGE_TABLES" :key="t.key" class="coverage-card">
+            <h3>{{ t.label }}</h3>
+            <p class="coverage-num">已标注 {{ coverageOf(t.key).annotated }} / 共 {{ coverageOf(t.key).total }}</p>
+            <div class="progress-track coverage-track">
+              <div class="progress-fill" :style="{ width: coveragePct(t.key) + '%' }"></div>
+            </div>
+          </div>
+        </div>
+
+        <h2 class="board-section-title">任务池余量</h2>
+        <div v-if="stats.pools.length === 0" class="placeholder-card">暂无任务池</div>
+        <div v-else class="table-wrap">
+          <table class="pool-table">
+            <thead>
+              <tr>
+                <th>表类型</th>
+                <th>状态</th>
+                <th>余量</th>
+                <th>优先级</th>
+              </tr>
+            </thead>
+            <tbody>
+              <tr v-for="pool in stats.pools" :key="pool.id">
+                <td>{{ tableLabel(pool.table_name) }}</td>
+                <td>
+                  <span class="badge" :class="statusMeta(pool.status).cls">
+                    {{ statusMeta(pool.status).label }}
+                  </span>
+                </td>
+                <td>
+                  <div class="progress-cell">
+                    <div class="progress-track">
+                      <div class="progress-fill" :style="{ width: poolProgressPct(pool) + '%' }"></div>
+                    </div>
+                    <span class="progress-text">{{ pool.remaining_items }}/{{ pool.total_items }}</span>
+                  </div>
+                </td>
+                <td class="cell-priority">{{ pool.priority }}</td>
+              </tr>
+            </tbody>
+          </table>
+        </div>
+
+        <h2 class="board-section-title">标注员工作量</h2>
+        <div class="table-wrap">
+          <table class="pool-table" data-testid="board-users">
+            <thead>
+              <tr>
+                <th>标注员</th>
+                <th>已完成</th>
+                <th>驳回率</th>
+                <th>待返工</th>
+                <th>在办任务</th>
+              </tr>
+            </thead>
+            <tbody>
+              <tr v-for="u in stats.users" :key="u.user_id">
+                <td>{{ u.username }}</td>
+                <td>{{ u.completed }}</td>
+                <td>
+                  <span :class="'rate-' + rateLevel(u.rejected_rate)">{{ formatRate(u.rejected_rate) }}</span>
+                </td>
+                <td>{{ u.pending_rework }}</td>
+                <td>{{ u.in_progress ? "是" : "否" }}</td>
+              </tr>
+              <tr v-if="stats.users.length === 0">
+                <td colspan="5" class="empty-row">暂无标注员</td>
+              </tr>
+            </tbody>
+          </table>
+        </div>
+      </template>
+    </template>
+
+    <!-- ═══════════ 导出 ═══════════ -->
+    <template v-else-if="activeTab === 'export'">
+      <div class="wizard-card">
+        <div class="wizard-body export-body">
+          <div class="wizard-grid">
+            <div class="form-field">
+              <label>标注员</label>
+              <select v-model="exportFilter.user_id">
+                <option :value="null">全部</option>
+                <option v-for="u in annotators" :key="u.id" :value="u.id">{{ u.username }}</option>
+              </select>
+            </div>
+            <div class="form-field">
+              <label>任务池</label>
+              <select v-model="exportFilter.pool_id">
+                <option :value="null">全部</option>
+                <option v-for="p in pools" :key="p.id" :value="p.id">
+                  #{{ p.id }} {{ tableLabel(p.table_name) }}
+                </option>
+              </select>
+            </div>
+            <div class="form-field">
+              <label>开始时间</label>
+              <input v-model="exportFilter.date_from" type="datetime-local" />
+            </div>
+            <div class="form-field">
+              <label>结束时间</label>
+              <input v-model="exportFilter.date_to" type="datetime-local" />
+            </div>
+          </div>
+          <div class="wizard-actions">
+            <button class="btn-create" :disabled="exporting" @click="handleExportCsv">
+              {{ exporting ? "导出中..." : "导出 CSV" }}
+            </button>
+          </div>
+          <p v-if="exportError" class="form-error">{{ exportError }}</p>
+        </div>
+      </div>
+    </template>
+
+    <!-- ═══════════ 回滚日志 ═══════════ -->
+    <template v-else-if="activeTab === 'rollback'">
+      <div class="log-filters">
+        <select v-model="logFilters.table_name" class="filter-select" @change="resetAndLoadLogs">
+          <option value="">全部表</option>
+          <option value="lit">文献元数据</option>
+          <option value="case">病案元数据</option>
+          <option value="guideline">指南元数据</option>
+        </select>
+        <select v-model="logFilters.action" class="filter-select" @change="resetAndLoadLogs">
+          <option value="">全部动作</option>
+          <option v-for="a in LOG_ACTIONS" :key="a" :value="a">{{ actionMeta(a).label }}</option>
+        </select>
+        <input
+          v-model="logFilters.record_id"
+          type="number"
+          placeholder="记录 ID"
+          class="filter-input"
+          @keyup.enter="resetAndLoadLogs"
+        />
+        <button class="btn-sm btn-assign" @click="resetAndLoadLogs">查询</button>
+      </div>
+
+      <div v-if="logsLoading" class="loading">加载中...</div>
+      <template v-else>
+        <div class="table-wrap">
+          <table class="pool-table logs-table" data-testid="logs-table">
+            <thead>
+              <tr>
+                <th>ID</th>
+                <th>时间</th>
+                <th>操作人</th>
+                <th>表</th>
+                <th>记录</th>
+                <th>动作</th>
+                <th>变更摘要</th>
+                <th>操作</th>
+              </tr>
+            </thead>
+            <tbody>
+              <tr v-for="log in logs" :key="log.id">
+                <td>{{ log.id }}</td>
+                <td class="cell-time">{{ formatDate(log.created_at) }}</td>
+                <td>{{ log.username || "—" }}</td>
+                <td>{{ tableLabel(log.table_name) }}</td>
+                <td>#{{ log.record_id }}</td>
+                <td>
+                  <span class="badge" :class="actionMeta(log.action).cls">
+                    {{ actionMeta(log.action).label }}
+                  </span>
+                </td>
+                <td class="cell-summary">{{ changeSummary(log) }}</td>
+                <td class="cell-actions">
+                  <button
+                    v-if="hasOldFields(log)"
+                    class="btn-sm btn-toggle"
+                    :disabled="rollingBackId === log.id"
+                    @click="handleRollback(log)"
+                  >
+                    {{ rollingBackId === log.id ? "回滚中..." : "回滚" }}
+                  </button>
+                </td>
+              </tr>
+              <tr v-if="logs.length === 0">
+                <td colspan="8" class="empty-row">暂无日志</td>
+              </tr>
+            </tbody>
+          </table>
+        </div>
+        <div class="pager">
+          <button class="btn-sm" :disabled="logPage <= 1 || logsLoading" @click="goLogPage(logPage - 1)">
+            上一页
+          </button>
+          <span class="pager-info">第 {{ logPage }} 页 · 共 {{ logTotal }} 条</span>
+          <button
+            class="btn-sm"
+            :disabled="logPage >= logPageCount || logsLoading"
+            @click="goLogPage(logPage + 1)"
+          >
+            下一页
+          </button>
+        </div>
+      </template>
+    </template>
+
     <div v-else class="placeholder-card">建设中</div>
 
     <!-- ═══════════ 指派对话框 ═══════════ -->
@@ -337,16 +541,20 @@ import {
   reviewQueue,
   approveSubmission,
   rejectSubmission,
+  dashboardStats,
+  exportCsv,
+  queryLogs,
+  rollbackLog,
 } from "../../api/annotation";
 import { fetchUsers } from "../../api/users";
 
 /* ───────── 页签 ───────── */
 const TABS = [
-  { key: "pools", label: "任务池" },
-  { key: "review", label: "复核队列" },
-  { key: "board", label: "看板" },
-  { key: "export", label: "导出" },
-  { key: "rollback", label: "回滚" },
+  { key: "pools", label: "任务池", testid: "pools-tab" },
+  { key: "review", label: "复核队列", testid: "review-tab" },
+  { key: "board", label: "看板", testid: "board-tab" },
+  { key: "export", label: "导出", testid: "export-tab" },
+  { key: "rollback", label: "回滚", testid: "rollback-tab" },
 ];
 const activeTab = ref("pools");
 
@@ -683,11 +891,231 @@ async function confirmReject() {
   }
 }
 
+/* ───────── 看板 ───────── */
+const COVERAGE_TABLES = [
+  { key: "lit", label: "文献元数据" },
+  { key: "case", label: "病案元数据" },
+  { key: "guideline", label: "指南元数据" },
+];
+const boardLoading = ref(false);
+const stats = ref({ pools: [], coverage: {}, users: [] });
+
+function coverageOf(key) {
+  const c = stats.value.coverage?.[key];
+  return { annotated: c?.annotated ?? 0, total: c?.total ?? 0 };
+}
+
+function coveragePct(key) {
+  const { annotated, total } = coverageOf(key);
+  if (!total) return 0;
+  return Math.min(100, Math.round((annotated / total) * 100));
+}
+
+function poolProgressPct(pool) {
+  if (!pool.total_items) return 0;
+  return Math.min(100, Math.round((pool.remaining_items / pool.total_items) * 100));
+}
+
+function formatRate(rate) {
+  return `${Math.round((rate ?? 0) * 100)}%`;
+}
+
+function rateLevel(rate) {
+  const r = rate ?? 0;
+  if (r > 0.3) return "high";
+  if (r > 0.1) return "mid";
+  return "low";
+}
+
+async function loadBoard() {
+  boardLoading.value = true;
+  try {
+    const res = await dashboardStats();
+    stats.value = {
+      pools: Array.isArray(res.data?.pools) ? res.data.pools : [],
+      coverage: res.data?.coverage || {},
+      users: Array.isArray(res.data?.users) ? res.data.users : [],
+    };
+  } catch (e) {
+    showToast(e.response?.data?.detail || "加载看板失败", "error");
+  } finally {
+    boardLoading.value = false;
+  }
+}
+
+/* ───────── 导出 ───────── */
+const exportFilter = ref({ user_id: null, pool_id: null, date_from: "", date_to: "" });
+const exporting = ref(false);
+const exportError = ref("");
+
+async function loadExportOptions() {
+  try {
+    const res = await fetchUsers();
+    annotators.value = (res.data.users || []).filter((u) => u.role === "annotator");
+  } catch (e) {
+    annotators.value = [];
+  }
+  if (pools.value.length === 0) await loadPools();
+}
+
+function handleExportCsv() {
+  exportError.value = "";
+  exporting.value = true;
+  const f = exportFilter.value;
+  const params = {};
+  if (f.user_id != null) params.user_id = f.user_id;
+  if (f.pool_id != null) params.pool_id = f.pool_id;
+  if (f.date_from) params.date_from = f.date_from;
+  if (f.date_to) params.date_to = f.date_to;
+  exportCsv(params)
+    .then((res) => {
+      const url = URL.createObjectURL(res.data);
+      const link = document.createElement("a");
+      link.href = url;
+      link.download = "workload.csv";
+      document.body.appendChild(link);
+      link.click();
+      link.remove();
+      URL.revokeObjectURL(url);
+      showToast("导出成功：workload.csv 已开始下载");
+    })
+    .catch(() => {
+      // blob 响应的错误体无法读 detail，统一降级文案
+      exportError.value = "导出失败，请稍后重试";
+    })
+    .finally(() => {
+      exporting.value = false;
+    });
+}
+
+/* ───────── 回滚日志 ───────── */
+const LOG_ACTIONS = [
+  "approve",
+  "reject",
+  "expire",
+  "rollback",
+  "save_direct",
+  "claim",
+  "assign",
+  "draft",
+  "no_change",
+  "submit",
+];
+const ACTION_META = {
+  approve: { label: "通过", cls: "badge-action-approve" },
+  reject: { label: "驳回", cls: "badge-action-reject" },
+  expire: { label: "过期", cls: "badge-action-expire" },
+  rollback: { label: "回滚", cls: "badge-action-rollback" },
+  save_direct: { label: "直改", cls: "badge-action-neutral" },
+  claim: { label: "领取", cls: "badge-action-neutral" },
+  assign: { label: "代派", cls: "badge-action-neutral" },
+  draft: { label: "草稿", cls: "badge-action-neutral" },
+  no_change: { label: "无变更", cls: "badge-action-neutral" },
+  submit: { label: "提交", cls: "badge-action-submit" },
+};
+
+function actionMeta(action) {
+  return ACTION_META[action] || { label: action, cls: "badge-action-neutral" };
+}
+
+const LOG_PAGE_SIZE = 20;
+const logFilters = ref({ table_name: "", action: "", record_id: "" });
+const logPage = ref(1);
+const logTotal = ref(0);
+const logs = ref([]);
+const logsLoading = ref(false);
+const rollingBackId = ref(null);
+
+const logPageCount = computed(() => Math.max(1, Math.ceil(logTotal.value / LOG_PAGE_SIZE)));
+
+function logParams() {
+  const f = logFilters.value;
+  const params = { page: logPage.value, page_size: LOG_PAGE_SIZE };
+  if (f.table_name) params.table_name = f.table_name;
+  if (f.action) params.action = f.action;
+  if (f.record_id !== "" && f.record_id !== null && Number.isFinite(Number(f.record_id))) {
+    params.record_id = Number(f.record_id);
+  }
+  return params;
+}
+
+async function loadLogs() {
+  logsLoading.value = true;
+  try {
+    const res = await queryLogs(logParams());
+    logs.value = Array.isArray(res.data?.items) ? res.data.items : [];
+    logTotal.value = res.data?.total ?? 0;
+  } catch (e) {
+    logs.value = [];
+    showToast(e.response?.data?.detail || "加载日志失败", "error");
+  } finally {
+    logsLoading.value = false;
+  }
+}
+
+function resetAndLoadLogs() {
+  logPage.value = 1;
+  loadLogs();
+}
+
+function goLogPage(page) {
+  if (page < 1 || page > logPageCount.value) return;
+  logPage.value = page;
+  loadLogs();
+}
+
+function hasOldFields(log) {
+  return !!log.old_fields && typeof log.old_fields === "object" && Object.keys(log.old_fields).length > 0;
+}
+
+// 变更摘要单值：数组顿号连接，对象 JSON 化，空值显示 "-"
+function compactValue(v) {
+  if (v === null || v === undefined || v === "") return "-";
+  if (Array.isArray(v)) return v.length ? v.join("、") : "-";
+  if (typeof v === "object") return JSON.stringify(v);
+  return `"${String(v)}"`;
+}
+
+function changeSummary(log) {
+  const oldF = log.old_fields || {};
+  const newF = log.new_fields || {};
+  const keys = [...new Set([...Object.keys(oldF), ...Object.keys(newF)])];
+  if (keys.length === 0) return "-";
+  return keys.map((k) => `${k}: ${compactValue(oldF[k])} → ${compactValue(newF[k])}`).join("; ");
+}
+
+async function handleRollback(log) {
+  const restoreKeys = Object.keys(log.old_fields || {});
+  const detail = restoreKeys
+    .map((k) => `${k}: ${compactValue(log.new_fields?.[k])} → ${compactValue(log.old_fields[k])}`)
+    .join("; ");
+  if (
+    !confirm(
+      `确定回滚日志 #${log.id} 吗？\n将把记录 #${log.record_id}（${tableLabel(log.table_name)}）恢复为：\n${detail}`
+    )
+  ) {
+    return;
+  }
+  rollingBackId.value = log.id;
+  try {
+    await rollbackLog(log.id);
+    showToast(`日志 #${log.id} 已回滚，记录 #${log.record_id} 字段已恢复`);
+    await loadLogs(); // 重取当前页：列表顶部会出现新的 rollback 审计行
+  } catch (e) {
+    showToast(e.response?.data?.detail || "回滚失败", "error");
+  } finally {
+    rollingBackId.value = null;
+  }
+}
+
 onMounted(loadPools);
 
-// 进入复核页签时拉取/刷新队列
+// 进入复核/看板/导出/回滚页签时按需拉取数据
 watch(activeTab, (tab) => {
   if (tab === "review") loadReviewQueue();
+  else if (tab === "board") loadBoard();
+  else if (tab === "export") loadExportOptions();
+  else if (tab === "rollback") resetAndLoadLogs();
 });
 </script>
 
@@ -848,6 +1276,39 @@ watch(activeTab, (tab) => {
 .form-field textarea:focus { border-color: #00796b; }
 .btn-reject-confirm { background: #c62828; }
 .btn-reject-confirm:hover:not(:disabled) { background: #b71c1c; }
+
+/* ── 看板 ── */
+.coverage-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); gap: 14px; margin-bottom: 4px; }
+.coverage-card { border: 1px solid #e0e0e0; border-radius: 10px; background: #fff; padding: 16px; }
+.coverage-card h3 { margin: 0 0 8px; font-size: 13px; font-weight: 600; color: #666; }
+.coverage-num { margin: 0 0 10px; font-size: 15px; font-weight: 600; color: #00796b; }
+.coverage-track { height: 10px; }
+.board-section-title { margin: 22px 0 10px; font-size: 15px; font-weight: 600; color: #1a1a2e; }
+
+.rate-high { color: #c62828; font-weight: 600; }
+.rate-mid { color: #f57f17; font-weight: 600; }
+.rate-low { color: #2e7d32; }
+
+/* ── 导出 ── */
+.export-body { padding-top: 12px; }
+
+/* ── 回滚日志 ── */
+.log-filters { display: flex; align-items: center; gap: 10px; margin-bottom: 14px; flex-wrap: wrap; }
+.filter-select, .filter-input { padding: 7px 10px; border: 1px solid #d0d0d0; border-radius: 6px; font-size: 13px; background: #fff; outline: none; }
+.filter-select:focus, .filter-input:focus { border-color: #00796b; }
+.filter-input { width: 130px; }
+.logs-table .cell-summary { max-width: 420px; word-break: break-all; color: #555; font-size: 12px; }
+
+.badge-action-approve { background: #e8f5e9; color: #2e7d32; }
+.badge-action-reject { background: #ffebee; color: #c62828; }
+.badge-action-expire { background: #fff8e1; color: #f57f17; }
+.badge-action-rollback { background: #ede7f6; color: #5e35b1; }
+.badge-action-submit { background: #e0f2f1; color: #00695c; }
+.badge-action-neutral { background: #f5f5f5; color: #666; }
+
+.pager { display: flex; align-items: center; gap: 12px; margin-top: 14px; }
+.pager-info { font-size: 12px; color: #888; }
+.pager .btn-sm:disabled { opacity: 0.5; cursor: default; }
 
 /* ── toast ── */
 .toast { position: fixed; top: 24px; right: 24px; z-index: 2000; padding: 12px 18px; border-radius: 8px; font-size: 13px; box-shadow: 0 4px 16px rgba(0,0,0,0.18); max-width: 420px; }
