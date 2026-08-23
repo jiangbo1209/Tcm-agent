@@ -68,7 +68,9 @@ async function handleLogin() {
     authStore.setAuth(token, user);
     router.push(user.role === "admin" ? "/admin" : "/");
   } catch (e) {
-    error.value = e.response?.data?.error || "登录失败，请重试";
+    const d = e.response?.data ?? {};
+    error.value =
+      (typeof d.detail === "string" && d.detail) || d.error || "登录失败，请重试";
   } finally {
     loading.value = false;
   }

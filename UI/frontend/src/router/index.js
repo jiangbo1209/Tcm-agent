@@ -90,7 +90,10 @@ router.beforeEach((to, from, next) => {
     return next("/");
   }
 
-  if (to.meta.requiresProfessional && authStore.user?.role !== "professional") {
+  if (
+    to.meta.requiresProfessional &&
+    !["professional", "admin"].includes(authStore.user?.role)
+  ) {
     return next("/");
   }
 

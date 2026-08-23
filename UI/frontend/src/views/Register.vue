@@ -72,7 +72,9 @@ async function handleRegister() {
     await register(username.value, email.value, password.value);
     router.push("/login");
   } catch (e) {
-    error.value = e.response?.data?.error || "注册失败，请重试";
+    const d = e.response?.data ?? {};
+    error.value =
+      (typeof d.detail === "string" && d.detail) || d.error || "注册失败，请重试";
   } finally {
     loading.value = false;
   }
