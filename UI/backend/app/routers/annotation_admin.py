@@ -10,6 +10,7 @@ from __future__ import annotations
 from datetime import datetime
 
 from fastapi import APIRouter, Depends, HTTPException, Query
+from fastapi.responses import StreamingResponse
 from pydantic import BaseModel
 from sqlalchemy.orm import Session
 
@@ -260,3 +261,39 @@ def rollback_log(
         return annotation_service.rollback_log(db, admin, log_id)
     except ValueError as exc:
         raise _map_review_errors(exc) from exc
+
+
+@router.get("/stats")
+def dashboard_stats(
+    db: Session = Depends(get_db),
+    _admin: User = Depends(require_admin),
+):
+    """仪表盘聚合：先跑惰性清扫保证池余量/在办任务数字新鲜，再分组聚合。"""
+    annotation_service.run_lazy_sweep(db)
+    return annotation_service.dashboard_stats(db)
+
+
+@router.get("/export.csv")
+def export_workload_csv(
+    user_id: int | None = Query(None),
+    pool_id: int | None = Query(None),
+    date_from: str | None = Query(None),
+    date_to: str | None = Query(None),
+    db: Session = Depends(get_db),
+    _admin: User = Depends(require_admin),
+):
+    """工作量明细 CSV 导出（attachment）：先清扫再导出；日期参数非法 -> 400。"""
+    try:
+        parsed_from = datetime.fromisoformat(date_from) if date_from else None
+        parsed_to = datetime.fromisoformat(date_to) if date_to else None
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail="日期格式无效，应为 ISO 格式") from exc
+    annotation_service.run_lazy_sweep(db)
+    csv_text = annotation_service.export_workload_csv(
+        db, user_id=user_id, pool_id=pool_id, date_from=parsed_from, date_to=parsed_to
+    )
+    return StreamingResponse(
+        iter([csv_text]),
+        media_type="text/csv",
+        headers={"Content-Disposition": 'attachment; filename="workload.csv"'},
+    )

@@ -13,6 +13,8 @@ Python 里二次过滤。
 
 from __future__ import annotations
 
+import csv
+import io
 from datetime import datetime, timedelta, timezone
 from typing import Any
 
@@ -1247,3 +1249,175 @@ def rollback_log(db: Session, reviewer: User, log_id: int) -> dict[str, Any]:
         "table_name": source.table_name,
         "restored_fields": sorted(restore_fields),
     }
+
+
+# ---------------------------------------------------------------------------
+# 管理端仪表盘与工作量导出（plan todo #10）：分组聚合，禁止 N+1
+# ---------------------------------------------------------------------------
+
+# 覆盖率统计覆盖的核心表（与 _TABLE_MAP 的键保持一致）
+_COVERAGE_TABLES = ("lit", "case", "guideline")
+# CSV 表头（顺序即列序，逐字符对外契约）
+_WORKLOAD_CSV_HEADER = ("date", "username", "table_name", "record_id", "item_status", "review_outcome")
+
+
+def dashboard_stats(db: Session) -> dict[str, Any]:
+    """管理端仪表盘聚合：池余量 / 三类核心表覆盖率 / 标注员工作量。
+
+    全部为常数条数的分组查询（无逐用户/逐池循环 SQL）：
+    - pools：一条 GROUP BY（与 list_pools 同口径），按 priority 降序；
+    - coverage：一条按 table_name 分组的 DISTINCT 批准记录数，
+      外加每张核心表各一条全表计数（空表 0 安全）；
+    - users：一条 annotator 列表 + 一条按 (claimed_by, item.status) 分组的
+      条目计数 + 一条活动任务去重集合。
+    """
+    available_count = func.count(case((AnnotationPoolItem.status == "available", 1)))
+    pool_rows = db.execute(
+        select(AnnotationPool, func.count(AnnotationPoolItem.id), available_count)
+        .outerjoin(AnnotationPoolItem, AnnotationPoolItem.pool_id == AnnotationPool.id)
+        .group_by(AnnotationPool.id)
+        .order_by(
+            AnnotationPool.priority.desc(),
+            AnnotationPool.created_at.desc(),
+            AnnotationPool.id.desc(),
+        )
+    ).all()
+    pools = [
+        {
+            "id": pool.id,
+            "table_name": pool.table_name,
+            "status": pool.status,
+            "priority": pool.priority,
+            "total_items": int(total),
+            "remaining_items": int(remaining),
+        }
+        for pool, total, remaining in pool_rows
+    ]
+
+    annotated_rows = db.execute(
+        select(
+            AnnotationTaskItem.table_name,
+            func.count(func.distinct(AnnotationTaskItem.record_id)),
+        )
+        .where(AnnotationTaskItem.status == "approved")
+        .group_by(AnnotationTaskItem.table_name)
+    ).all()
+    annotated_map = {table: int(count) for table, count in annotated_rows}
+    coverage: dict[str, dict[str, int]] = {}
+    for name in _COVERAGE_TABLES:
+        model = _TABLE_MAP.get(name)
+        total = (
+            int(db.execute(select(func.count()).select_from(model)).scalar() or 0)
+            if model is not None
+            else 0
+        )
+        coverage[name] = {"annotated": annotated_map.get(name, 0), "total": total}
+
+    annotators = db.query(User).filter(User.role == "annotator").order_by(User.id).all()
+    status_counts: dict[int, dict[str, int]] = {}
+    per_user_status = (
+        select(AnnotationTask.claimed_by, AnnotationTaskItem.status, func.count())
+        .join(AnnotationTask, AnnotationTask.id == AnnotationTaskItem.task_id)
+        .where(AnnotationTask.claimed_by.isnot(None))
+        .group_by(AnnotationTask.claimed_by, AnnotationTaskItem.status)
+    )
+    for user_id, status, cnt in db.execute(per_user_status).all():
+        status_counts.setdefault(int(user_id), {})[str(status)] = int(cnt)
+
+    active_user_ids = {
+        int(user_id)
+        for (user_id,) in db.execute(
+            select(AnnotationTask.claimed_by)
+            .where(
+                AnnotationTask.claimed_by.isnot(None),
+                AnnotationTask.status.in_(_ACTIVE_TASK_STATUSES),
+            )
+            .distinct()
+        ).all()
+    }
+
+    users: list[dict[str, Any]] = []
+    for user in annotators:
+        counts = status_counts.get(user.id, {})
+        approved = counts.get("approved", 0)
+        rejected = counts.get("rejected", 0)
+        denominator = approved + rejected
+        users.append(
+            {
+                "user_id": user.id,
+                "username": user.username,
+                "completed": approved,
+                "rejected_rate": round(rejected / denominator, 2) if denominator else 0.0,
+                "pending_rework": rejected,
+                "in_progress": 1 if user.id in active_user_ids else 0,
+            }
+        )
+
+    return {"pools": pools, "coverage": coverage, "users": users}
+
+
+def export_workload_csv(
+    db: Session,
+    *,
+    user_id: int | None = None,
+    pool_id: int | None = None,
+    date_from: datetime | None = None,
+    date_to: datetime | None = None,
+) -> str:
+    """工作量明细 CSV 文本：每行一条任务条目，附最新提交单的复核结论。
+
+    过滤（AND 组合）：user 走 task.claimed_by；pool 走 task.pool_id；
+    date_from/date_to 作用于 item.created_at（含两端，与审计日志检索同口径）。
+    行序 created_at 升序再 id 升序；review_outcome 取该条目最新提交单的
+    status，无任何提交单时为 "-"。纯只读；两条 SQL 取数（条目 + 提交单），
+    无逐行查询。
+    """
+    predicates = []
+    if user_id is not None:
+        predicates.append(AnnotationTask.claimed_by == user_id)
+    if pool_id is not None:
+        predicates.append(AnnotationTask.pool_id == pool_id)
+    if date_from is not None:
+        predicates.append(AnnotationTaskItem.created_at >= date_from)
+    if date_to is not None:
+        predicates.append(AnnotationTaskItem.created_at <= date_to)
+
+    stmt = (
+        select(AnnotationTaskItem, AnnotationTask, User.username)
+        .join(AnnotationTask, AnnotationTask.id == AnnotationTaskItem.task_id)
+        .outerjoin(User, User.id == AnnotationTask.claimed_by)
+        .order_by(AnnotationTaskItem.created_at.asc(), AnnotationTaskItem.id.asc())
+    )
+    if predicates:
+        stmt = stmt.where(*predicates)
+    rows = db.execute(stmt).all()
+
+    latest_submission: dict[int, AnnotationSubmission] = {}
+    if rows:
+        item_ids = [item.id for item, _task, _username in rows]
+        submissions = (
+            db.query(AnnotationSubmission)
+            .filter(AnnotationSubmission.item_id.in_(item_ids))
+            .order_by(AnnotationSubmission.id.asc())
+            .all()
+        )
+        # id 升序遍历、后写覆盖先写 => 每个条目保留最新一条提交单
+        for submission in submissions:
+            latest_submission[submission.item_id] = submission
+
+    buffer = io.StringIO()
+    writer = csv.writer(buffer)
+    writer.writerow(_WORKLOAD_CSV_HEADER)
+    for item, _task, username in rows:
+        submission = latest_submission.get(item.id)
+        writer.writerow(
+            [
+                item.created_at.date().isoformat() if item.created_at is not None else "",
+                username or "-",
+                item.table_name,
+                item.record_id,
+                item.status,
+                submission.status if submission is not None else "-",
+            ]
+        )
+    return buffer.getvalue()
