@@ -688,3 +688,205 @@ def batch_submit(db: Session, user: User, task_id: int) -> dict[str, Any]:
         "count": len(items),
         "stale_base_item_ids": sorted(stale_item_ids),
     }
+
+
+def _release_pool_item(db: Session, source_pool_item_id: int | None) -> None:
+    """把条目占用的池位归还为 available（source 缺失或已被并发处理时静默跳过）。"""
+    if source_pool_item_id is None:
+        return
+    pool_item = db.get(AnnotationPoolItem, source_pool_item_id)
+    if pool_item is not None:
+        pool_item.status = "available"
+
+
+def run_lazy_sweep(db: Session, now: datetime | None = None) -> dict[str, int]:
+    """惰性清扫（plan todo #7）：超期任务恢复 + 返工过期释放，随请求触发。
+
+    (a) 截止恢复：status='in_progress' 且 deadline_at < now 的任务 ——
+        pending 条目 -> recovered 并把池位归还 available；
+        drafted 条目 -> 其 draft 提交单转 pending、条目转 submitted
+        （等价 batch_submit 落库语义但不经它——后者强制全部已暂存）；
+        收尾定态：任一条目 submitted/approved -> completed，否则 cancelled；
+        每任务仅落一行 expire_recover 审计（record_id=0 池级约定）。
+    (b) 返工释放：status='rejected' 且 rejected_at + REWORK_DAYS < now 的条目 ->
+        recovered 并归还池位；逐条落一行 expire_recover 审计。
+    幂等：两分支的筛选条件在处理后自然失配（终态不再命中），连跑第二次全零。
+    返回计数器字典供测试断言；now 可注入以保证确定性。
+    """
+    now_utc = now if now is not None else _utcnow()
+    recovered = 0
+    resubmitted = 0
+    completed_tasks = 0
+    cancelled_tasks = 0
+
+    expired_tasks = (
+        db.query(AnnotationTask)
+        .filter(AnnotationTask.status == "in_progress")
+        .filter(AnnotationTask.deadline_at.isnot(None))
+        .filter(AnnotationTask.deadline_at < now_utc)
+        .order_by(AnnotationTask.id)
+        .all()
+    )
+    for task in expired_tasks:
+        items = (
+            db.query(AnnotationTaskItem)
+            .filter(AnnotationTaskItem.task_id == task.id)
+            .order_by(AnnotationTaskItem.id)
+            .all()
+        )
+        for item in items:
+            if item.status == "pending":
+                item.status = "recovered"
+                recovered += 1
+                _release_pool_item(db, item.source_pool_item_id)
+            elif item.status == "drafted":
+                # 等价 batch_submit 的落库动作，但只针对本任务的 drafted 条目，
+                # 不复用该函数（其「全部条目必须已暂存」前置在这里不成立）。
+                db.query(AnnotationSubmission).filter(
+                    AnnotationSubmission.item_id == item.id,
+                    AnnotationSubmission.status == "draft",
+                ).update({AnnotationSubmission.status: "pending"}, synchronize_session=False)
+                item.status = "submitted"
+                item.submitted_at = now_utc
+                resubmitted += 1
+
+        has_output = any(it.status in ("submitted", "approved") for it in items)
+        task.status = "completed" if has_output else "cancelled"
+        if has_output:
+            completed_tasks += 1
+        else:
+            cancelled_tasks += 1
+
+        _write_log(
+            db,
+            table_name=items[0].table_name if items else "lit",
+            record_id=0,
+            actor=None,
+            action="expire_recover",
+            new_fields={"task_id": task.id, "recovered": recovered, "resubmitted": resubmitted},
+        )
+
+    rework_days = timedelta(days=get_annotation_config().REWORK_DAYS)
+    released_rework = 0
+    # 粗筛后 Python 侧精确比较：col + timedelta 的 SQL 算术在 SQLite 上不可靠
+    rejected_candidates = (
+        db.query(AnnotationTaskItem)
+        .filter(
+            AnnotationTaskItem.status == "rejected",
+            AnnotationTaskItem.rejected_at.isnot(None),
+            AnnotationTaskItem.rejected_at < now_utc,
+        )
+        .order_by(AnnotationTaskItem.id)
+        .all()
+    )
+    for item in rejected_candidates:
+        assert item.rejected_at is not None
+        if not (item.rejected_at + rework_days < now_utc):
+            continue
+        item.status = "recovered"
+        released_rework += 1
+        _release_pool_item(db, item.source_pool_item_id)
+        _write_log(
+            db,
+            table_name=item.table_name,
+            record_id=item.record_id,
+            actor=None,
+            action="expire_recover",
+            new_fields={"item_id": item.id, "reason": "rework_expired"},
+        )
+
+    db.commit()
+    return {
+        "expired_tasks": len(expired_tasks),
+        "recovered": recovered,
+        "resubmitted": resubmitted,
+        "completed_tasks": completed_tasks,
+        "cancelled_tasks": cancelled_tasks,
+        "released_rework": released_rework,
+    }
+
+
+def get_my_rework(db: Session, user: User) -> dict[str, Any]:
+    """当前标注员的待返工清单：本人未释放（仍为 rejected）的驳回条目。
+
+    review_comment 取最新一条 rejected 提交单的复核意见；
+    deadline_at = rejected_at + REWORK_DAYS，expired 与清扫判定同口径（严格小于）。
+    """
+    rows = (
+        db.query(AnnotationTaskItem)
+        .join(AnnotationTask, AnnotationTask.id == AnnotationTaskItem.task_id)
+        .filter(
+            AnnotationTask.claimed_by == user.id,
+            AnnotationTaskItem.status == "rejected",
+        )
+        .order_by(AnnotationTaskItem.id.desc())
+        .all()
+    )
+    rework_days = timedelta(days=get_annotation_config().REWORK_DAYS)
+    now_utc = _utcnow()
+    items: list[dict[str, Any]] = []
+    for item in rows:
+        latest_rejected = (
+            db.query(AnnotationSubmission)
+            .filter(
+                AnnotationSubmission.item_id == item.id,
+                AnnotationSubmission.status == "rejected",
+            )
+            .order_by(AnnotationSubmission.id.desc())
+            .first()
+        )
+        deadline = item.rejected_at + rework_days if item.rejected_at else None
+        items.append(
+            {
+                "item_id": item.id,
+                "table_name": item.table_name,
+                "record_id": item.record_id,
+                "review_comment": latest_rejected.review_comment if latest_rejected else None,
+                "rejected_at": item.rejected_at.isoformat() if item.rejected_at else None,
+                "deadline_at": deadline.isoformat() if deadline else None,
+                "expired": bool(deadline is not None and deadline < now_utc),
+            }
+        )
+    return {"count": len(items), "items": items}
+
+
+def get_my_task(db: Session, user: User) -> dict[str, Any]:
+    """当前标注员的进行中任务概览（open/in_progress 取最新一个）；无则 task=null。"""
+    task = (
+        db.query(AnnotationTask)
+        .filter(
+            AnnotationTask.claimed_by == user.id,
+            AnnotationTask.status.in_(_ACTIVE_TASK_STATUSES),
+        )
+        .order_by(AnnotationTask.id.desc())
+        .first()
+    )
+    if task is None:
+        return {"task": None}
+
+    items = (
+        db.query(AnnotationTaskItem)
+        .filter(AnnotationTaskItem.task_id == task.id)
+        .order_by(AnnotationTaskItem.id)
+        .all()
+    )
+    table_name: str | None = items[0].table_name if items else None
+    if table_name is None and task.pool_id is not None:
+        pool = db.get(AnnotationPool, task.pool_id)
+        table_name = pool.table_name if pool is not None else None
+
+    counts = {"drafted": 0, "submitted": 0, "rejected": 0}
+    for it in items:
+        if it.status in counts:
+            counts[it.status] += 1
+
+    return {
+        "task": {
+            "task_id": task.id,
+            "table_name": table_name,
+            "status": task.status,
+            "deadline_at": task.deadline_at.isoformat() if task.deadline_at else None,
+            "total": len(items),
+            **counts,
+        }
+    }

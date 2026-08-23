@@ -30,7 +30,15 @@ def annotation_gate() -> None:
         )
 
 
-router = APIRouter(prefix="/api/annotation", dependencies=[Depends(annotation_gate)])
+def lazy_sweep_dep(db: Session = Depends(get_db)) -> None:
+    """惰性清扫：超期任务恢复 + 返工过期释放，随首个到达的标注请求触发。"""
+    annotation_service.run_lazy_sweep(db)
+
+
+router = APIRouter(
+    prefix="/api/annotation",
+    dependencies=[Depends(annotation_gate), Depends(lazy_sweep_dep)],
+)
 
 
 @router.get("/health")
@@ -114,3 +122,21 @@ def submit_task(
         return annotation_service.batch_submit(db, annotator, task_id)
     except ValueError as exc:
         raise _map_item_errors(exc) from exc
+
+
+@router.get("/my/rework")
+def my_rework(
+    db: Session = Depends(get_db),
+    annotator: User = Depends(require_annotator),
+):
+    """当前标注员的待返工清单：本人未释放（仍为 rejected）的驳回条目。"""
+    return annotation_service.get_my_rework(db, annotator)
+
+
+@router.get("/my/task")
+def my_task(
+    db: Session = Depends(get_db),
+    annotator: User = Depends(require_annotator),
+):
+    """当前标注员的进行中任务概览；无活动任务时 task 为 null。"""
+    return annotation_service.get_my_task(db, annotator)
