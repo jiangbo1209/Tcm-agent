@@ -111,3 +111,33 @@ export function assignTasks(poolId, userIds) {
     user_ids: userIds,
   });
 }
+
+/**
+ * 复核队列（按任务分组）：GET /api/annotation/admin/review/queue?status=
+ * @param {"pending"|"expired"} status 待复核（默认）或基准冲突归档
+ * 数组元素：{ task_id, annotator_username, table_name, count, submitted_at,
+ *            items: [{ submission_id, item_id, record_id, current_values,
+ *                      proposed_fields, base_updated_at, core_missing? }] }
+ */
+export function reviewQueue(status = "pending") {
+  return request.get("/annotation/admin/review/queue", { params: { status } });
+}
+
+/**
+ * 逐条批准：POST /api/annotation/admin/review/{submissionId}/approve
+ * 响应 { submission_id, item_id, record_id, status }；
+ * status ∈ {"approved", "expired"}——expired 表示基准冲突已归档进返工箱，不报错。
+ */
+export function approveSubmission(submissionId) {
+  return request.post(`/annotation/admin/review/${submissionId}/approve`);
+}
+
+/**
+ * 逐条驳回：POST /api/annotation/admin/review/{submissionId}/reject body { comment }
+ * 意见必填（后端空串返回 400）；条目带意见进入返工箱。
+ */
+export function rejectSubmission(submissionId, comment) {
+  return request.post(`/annotation/admin/review/${submissionId}/reject`, {
+    comment,
+  });
+}
