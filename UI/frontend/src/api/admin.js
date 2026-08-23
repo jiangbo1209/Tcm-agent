@@ -21,7 +21,5 @@ export function deleteAdminRecord(table, id) {
 }
 
 export function fetchFileUrl(fileUuid, sourceType = "paper") {
-  return request.get("/graph/file-url-by-uuid", {
-    params: { file_uuid: fileUuid, source_type: sourceType, mode: "view" },
-  });
+  return request.get(`/files/${fileUuid}/download-url`, { params: { mode: "view" } }).then((res) => ({ data: { url: res.data.url } }));
 }

@@ -68,7 +68,7 @@
 
 <script setup>
 import { computed, ref } from "vue";
-import { getFileUrlByUuid } from "../api/graph";
+import { getFileUrlByUuid } from "../api/file";
 
 const props = defineProps({
   message: { type: Object, required: true },
@@ -302,7 +302,7 @@ async function openReference(ref) {
     targetWindow.opener = null;
   }
   try {
-    const { data } = await getFileUrlByUuid(ref.file_uuid, ref.source_type || "paper", "view");
+    const { data } = await getFileUrlByUuid(ref.file_uuid, "view");
     if (!data?.url) {
       throw new Error("后端未返回文件链接");
     }

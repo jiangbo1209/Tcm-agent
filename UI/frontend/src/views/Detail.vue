@@ -59,7 +59,8 @@
 <script setup>
 import { ref, computed, onMounted, watch } from "vue";
 import { useRoute } from "vue-router";
-import { getNodeDetail, getDetailByFile, getFileUrl, getFileUrlByUuid } from "../api/graph";
+import { getNodeDetail, getDetailByFile } from "../api/graph";
+import { getFileUrlByUuid } from "../api/file";
 
 const route = useRoute();
 
@@ -128,12 +129,8 @@ async function loadDetail(id, fid, stype) {
 async function viewFile() {
   fileError.value = "";
   try {
-    let resp;
-    if (hasFileUuid.value) {
-      resp = await getFileUrlByUuid(fileUuid.value, sourceType.value, "view");
-    } else {
-      resp = await getFileUrl(nodeId.value, "view");
-    }
+    const uuid = hasFileUuid.value ? fileUuid.value : detail.value?.paper?.file_uuid;
+    const resp = await getFileUrlByUuid(uuid, "view");
     window.open(resp.data.url, "_blank");
   } catch {
     fileError.value = "暂未挂载原始文献文件";
@@ -143,12 +140,8 @@ async function viewFile() {
 async function downloadFile() {
   fileError.value = "";
   try {
-    let resp;
-    if (hasFileUuid.value) {
-      resp = await getFileUrlByUuid(fileUuid.value, sourceType.value, "download");
-    } else {
-      resp = await getFileUrl(nodeId.value, "download");
-    }
+    const uuid = hasFileUuid.value ? fileUuid.value : detail.value?.paper?.file_uuid;
+    const resp = await getFileUrlByUuid(uuid, "download");
     const a = document.createElement("a");
     a.href = resp.data.url;
     a.download = resp.data.file_name || "";
