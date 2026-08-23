@@ -49,11 +49,16 @@ class SearchSettings(BaseSettings):
     suggest_default_size: int = 8
 
 
+DEFAULT_JWT_SECRET_KEY = "tcm-agent-secret-key-change-in-production"
+
+
 class AuthSettings(BaseSettings):
     model_config = SettingsConfigDict(env_prefix="JWT_", extra="ignore")
 
-    secret_key: str = "tcm-agent-secret-key-change-in-production"
+    secret_key: str = DEFAULT_JWT_SECRET_KEY
     expire_minutes: int = 1440
+    app_env: str = Field(default="development", alias="APP_ENV")
+    file_token_secret: str = Field(default="", alias="FILE_TOKEN_SECRET")
 
 
 class Settings(BaseSettings):

@@ -7,10 +7,17 @@ import hmac
 import json
 import time
 from base64 import urlsafe_b64decode, urlsafe_b64encode
+from functools import lru_cache
 
-_TOKEN_SECRET = b"tcm-file-stream-v1"
+from app.config import get_auth_config
 
-_SECRET_KEY = hashlib.sha256(_TOKEN_SECRET).digest()
+
+@lru_cache
+def _resolve_secret_key() -> bytes:
+    """FILE_TOKEN_SECRET 优先；否则由 JWT 密钥加域分隔串派生，防跨用途复用。"""
+    auth = get_auth_config()
+    material = auth.file_token_secret or f"{auth.secret_key}|file-stream"
+    return hashlib.sha256(material.encode()).digest()
 
 
 def generate_file_token(
@@ -29,7 +36,7 @@ def generate_file_token(
         separators=(",", ":"),
     )
     encoded = urlsafe_b64encode(payload.encode()).decode().rstrip("=")
-    sig = hmac.new(_SECRET_KEY, encoded.encode(), hashlib.sha256).hexdigest()[:16]
+    sig = hmac.new(_resolve_secret_key(), encoded.encode(), hashlib.sha256).hexdigest()[:16]
     return f"{encoded}.{sig}"
 
 
@@ -39,7 +46,7 @@ def validate_file_token(token: str) -> tuple[str, str, str]:
     except ValueError:
         raise ValueError("invalid token")
 
-    expected_sig = hmac.new(_SECRET_KEY, encoded.encode(), hashlib.sha256).hexdigest()[:16]
+    expected_sig = hmac.new(_resolve_secret_key(), encoded.encode(), hashlib.sha256).hexdigest()[:16]
     if not hmac.compare_digest(sig, expected_sig):
         raise ValueError("invalid token")
 
