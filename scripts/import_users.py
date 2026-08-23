@@ -5,7 +5,7 @@
 
 CSV 格式 (无表头):
     username,email,password,role
-    # role 可选: admin, professional, normal
+    # role 可选: admin, professional, normal, annotator
     # 以 # 开头的行会被忽略
 
 注意: 请先执行 python scripts/init_db.py 初始化数据库表。
@@ -21,7 +21,7 @@ from app.core.database import SessionLocal
 from app.models.user import User
 from app.auth.service import get_password_hash
 
-VALID_ROLES = {"admin", "professional", "normal"}
+VALID_ROLES = {"admin", "professional", "normal", "annotator"}
 
 
 def upsert_user(db, username: str, email: str, password: str, role: str):

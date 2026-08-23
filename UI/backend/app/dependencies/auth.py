@@ -62,3 +62,15 @@ def require_admin(
             detail="需要管理员权限才能访问此功能",
         )
     return current_user
+
+
+def require_annotator(
+    current_user: User = Depends(get_current_user),
+) -> User:
+    """Security contract: strict role check — admins do NOT pass (admin routes use require_admin)."""
+    if current_user.role != "annotator":
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="需要标注员权限才能访问此功能",
+        )
+    return current_user

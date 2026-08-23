@@ -13,7 +13,7 @@ from app.models.user import User
 
 router = APIRouter(prefix="/api/users", tags=["users"])
 
-VALID_ROLES = {"professional", "normal"}
+VALID_ROLES = {"professional", "normal", "annotator"}
 
 
 class UserCreateAdmin(BaseModel):
@@ -29,6 +29,10 @@ class RoleUpdate(BaseModel):
 
 class PasswordReset(BaseModel):
     new_password: str
+
+
+class ActiveUpdate(BaseModel):
+    is_active: bool
 
 
 def _serialize_user(user: User) -> dict:
@@ -130,3 +134,19 @@ def delete_user(
     db.delete(user)
     db.commit()
     return {"detail": "用户已删除"}
+
+
+@router.put("/{user_id}/active")
+def set_active(
+    user_id: int,
+    body: ActiveUpdate,
+    db: Session = Depends(get_db),
+    admin: User = Depends(require_admin),
+):
+    if user_id == admin.id:
+        raise HTTPException(status_code=400, detail="不能修改自己的启用状态")
+    user = _guard_admin_target(db, user_id)
+    user.is_active = body.is_active
+    db.commit()
+    db.refresh(user)
+    return {"user": _serialize_user(user)}
