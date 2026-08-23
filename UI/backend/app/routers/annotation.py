@@ -8,6 +8,8 @@
 
 from __future__ import annotations
 
+from typing import Any
+
 from fastapi import APIRouter, Depends, HTTPException, status
 from pydantic import BaseModel
 from sqlalchemy.orm import Session
@@ -64,3 +66,51 @@ def claim_task(
         "deadline_at": result["deadline_at"],
         "table_name": result["table_name"],
     }
+
+
+def _map_item_errors(exc: Exception) -> HTTPException:
+    """服务层异常 -> HTTP：403 越权 / 404 缺失 / 400 负载非法 / 其余 ValueError 409。
+
+    各子类均继承 ValueError，必须按 子类 -> ValueError 的顺序判定。
+    """
+    if isinstance(exc, annotation_service.AnnotationPermissionDeniedError):
+        return HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail=str(exc))
+    if isinstance(exc, annotation_service.AnnotationNotFoundError):
+        return HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(exc))
+    if isinstance(exc, annotation_service.AnnotationFieldValidationError):
+        return HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(exc))
+    assert isinstance(exc, ValueError)
+    return HTTPException(status_code=status.HTTP_409_CONFLICT, detail=str(exc))
+
+
+class DraftRequest(BaseModel):
+    """逐条暂存请求体；键值对为 {可编辑字段: 新值}，空 dict = 标记无需修改。"""
+
+    proposed_fields: dict[str, Any] = {}
+
+
+@router.put("/items/{item_id}/draft")
+def draft_item(
+    item_id: int,
+    body: DraftRequest,
+    db: Session = Depends(get_db),
+    annotator: User = Depends(require_annotator),
+):
+    """暂存单条目（含覆盖自己的草稿与驳回重做），返回提交单 id 与动作类型。"""
+    try:
+        return annotation_service.item_draft(db, annotator, item_id, body.proposed_fields)
+    except ValueError as exc:
+        raise _map_item_errors(exc) from exc
+
+
+@router.post("/tasks/{task_id}/submit")
+def submit_task(
+    task_id: int,
+    db: Session = Depends(get_db),
+    annotator: User = Depends(require_annotator),
+):
+    """整批提交复核：全部条目已暂存才放行；瞬时完成任务，响应携带 base 失效预警清单。"""
+    try:
+        return annotation_service.batch_submit(db, annotator, task_id)
+    except ValueError as exc:
+        raise _map_item_errors(exc) from exc

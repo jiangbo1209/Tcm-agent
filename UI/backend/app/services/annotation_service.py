@@ -24,11 +24,12 @@ from app.models import (
     AnnotationLog,
     AnnotationPool,
     AnnotationPoolItem,
+    AnnotationSubmission,
     AnnotationTask,
     AnnotationTaskItem,
 )
 from app.models.user import User
-from app.repositories.admin_repo import AdminQueryRepository, _TABLE_MAP
+from app.repositories.admin_repo import _EDITABLE_FIELDS, AdminQueryRepository, _TABLE_MAP
 
 # 占用记录的池状态：active/paused 中的记录不可再入新池
 _BLOCKING_POOL_STATUSES = ("active", "paused")
@@ -38,10 +39,32 @@ _ACTIVE_TASK_STATUSES = ("open", "in_progress")
 _PATCHABLE_POOL_STATUSES = ("paused", "closed")
 # 单次随机抽取的记录数上限
 _MAX_DRAW_SIZE = 50
+# pending=首次暂存 drafted=覆盖自己草稿 rejected=返工重做；submitted/approved 已进复核流
+_DRAFTABLE_ITEM_STATUSES = ("pending", "drafted", "rejected")
 
 
 class PoolNotFoundError(Exception):
     """PATCH 目标池不存在。"""
+
+
+class AnnotationNotFoundError(ValueError):
+    """条目/任务/核心记录不存在；路由须先于 ValueError 捕获并映射 404。"""
+
+
+class AnnotationPermissionDeniedError(ValueError):
+    """越权操作他人任务；路由须先于 ValueError 捕获并映射 403。
+
+    故意继承 ValueError：旧式 ``except ValueError`` 兜底仍能兜住，
+    但路由层必须按 子类 -> ValueError 的顺序捕获才能精确映射。
+    """
+
+
+class AnnotationFieldValidationError(ValueError):
+    """请求负载校验失败（如字段不可编辑）；路由映射 400。"""
+
+
+def _utcnow() -> datetime:
+    return datetime.now(timezone.utc).replace(tzinfo=None)
 
 
 def _validate_table(table_name: str) -> type:
@@ -499,3 +522,169 @@ def _write_log(
             submission_id=submission_id,
         )
     )
+
+
+def _load_owned_task(db: Session, user: User, task_id: int) -> AnnotationTask:
+    """取任务并校验属主；缺失 404、越权 403，由调用方继续做状态类校验。"""
+    task = db.get(AnnotationTask, task_id)
+    if task is None:
+        raise AnnotationNotFoundError("任务不存在")
+    if task.claimed_by != user.id:
+        raise AnnotationPermissionDeniedError("只能操作自己任务中的条目")
+    return task
+
+
+def _latest_submission(db: Session, item_id: int) -> AnnotationSubmission | None:
+    return (
+        db.query(AnnotationSubmission)
+        .filter(AnnotationSubmission.item_id == item_id)
+        .order_by(AnnotationSubmission.id.desc())
+        .first()
+    )
+
+
+def item_draft(
+    db: Session,
+    user: User,
+    item_id: int,
+    proposed_fields: dict[str, Any] | None,
+) -> dict[str, Any]:
+    """逐条暂存：upsert 一条 draft 提交单并快照核心记录 updated_at。
+
+    - proposed_fields 为空 dict 表达「标记无需修改」；
+    - 已有 draft 提交单 -> 原位覆盖（同一行）；rejected -> 新建行保留驳回历史；
+    - base_updated_at 取核心记录当前 updated_at，供整批提交时做 C8 失效预警；
+    - 本函数不把 proposed_fields 写入核心表（T8 审批时才落库）。
+    """
+    item = db.get(AnnotationTaskItem, item_id)
+    if item is None:
+        raise AnnotationNotFoundError("条目不存在")
+    task = _load_owned_task(db, user, item.task_id)
+    if task.status != "in_progress":
+        raise ValueError("任务不在进行中")
+    if item.status not in _DRAFTABLE_ITEM_STATUSES:
+        raise ValueError("该条目当前状态不可暂存")
+
+    fields = dict(proposed_fields or {})
+    allowed = set(_EDITABLE_FIELDS.get(item.table_name, []))
+    for key in fields:
+        if key not in allowed:
+            raise AnnotationFieldValidationError(f"字段不可编辑: {key}")
+
+    model = _TABLE_MAP.get(item.table_name)
+    core = None if model is None else db.query(model).filter(model.id == item.record_id).first()
+    if core is None:
+        raise AnnotationNotFoundError("核心记录不存在")
+
+    latest = _latest_submission(db, item.id)
+    if latest is not None and latest.status == "draft":
+        submission = latest
+    else:
+        submission = AnnotationSubmission(
+            item_id=item.id,
+            annotator_id=user.id,
+            username=user.username,
+            proposed_fields=fields,
+            base_updated_at=core.updated_at,
+            status="draft",
+        )
+        db.add(submission)
+        db.flush()
+    submission.proposed_fields = fields
+    submission.base_updated_at = core.updated_at
+    submission.annotator_id = user.id
+    submission.username = user.username
+
+    item.status = "drafted"
+    action = "no_change" if not fields else "draft"
+    _write_log(
+        db,
+        table_name=item.table_name,
+        record_id=item.record_id,
+        actor=user,
+        action=action,
+        new_fields=fields,
+        submission_id=submission.id,
+    )
+    db.commit()
+
+    return {
+        "item_id": item.id,
+        "task_id": task.id,
+        "submission_id": submission.id,
+        "action": action,
+        "base_updated_at": submission.base_updated_at.isoformat()
+        if submission.base_updated_at
+        else None,
+    }
+
+
+def batch_submit(db: Session, user: User, task_id: int) -> dict[str, Any]:
+    """整批提交：全部条目已暂存才放行；瞬时完成任务（复核解耦，T8 再审批）。
+
+    C8 base 失效检测：比对各 draft 提交单的 base_updated_at 与核心记录当前
+    updated_at，失配者列入 stale_base_item_ids —— 仅预警，绝不拦截提交。
+    """
+    task = _load_owned_task(db, user, task_id)
+    if task.status != "in_progress":
+        raise ValueError("任务不在进行中")
+
+    items = (
+        db.query(AnnotationTaskItem)
+        .filter(AnnotationTaskItem.task_id == task_id)
+        .order_by(AnnotationTaskItem.id)
+        .all()
+    )
+    undrafted = [it for it in items if it.status != "drafted"]
+    if items and undrafted:
+        raise ValueError(f"还有 {len(undrafted)} 条未暂存")
+
+    draft_submissions = {
+        s.item_id: s
+        for s in db.query(AnnotationSubmission)
+        .filter(
+            AnnotationSubmission.item_id.in_([it.id for it in items]),
+            AnnotationSubmission.status == "draft",
+        )
+        .all()
+    }
+
+    stale_item_ids: list[int] = []
+    for it in items:
+        submission = draft_submissions.get(it.id)
+        model = _TABLE_MAP.get(it.table_name)
+        core = (
+            None if model is None else db.query(model).filter(model.id == it.record_id).first()
+        )
+        current_updated_at = getattr(core, "updated_at", None) if core is not None else None
+        if (
+            submission is None
+            or current_updated_at is None
+            or submission.base_updated_at != current_updated_at
+        ):
+            stale_item_ids.append(it.id)
+
+    now_utc = _utcnow()
+    for submission in draft_submissions.values():
+        submission.status = "pending"
+    for it in items:
+        it.status = "submitted"
+        it.submitted_at = now_utc
+    task.status = "completed"
+
+    _write_log(
+        db,
+        table_name=items[0].table_name if items else "lit",
+        record_id=0,
+        actor=user,
+        action="submit",
+        new_fields={"task_id": task.id, "count": len(items)},
+    )
+    db.commit()
+
+    return {
+        "task_id": task.id,
+        "completed": True,
+        "count": len(items),
+        "stale_base_item_ids": sorted(stale_item_ids),
+    }
