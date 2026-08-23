@@ -29,7 +29,12 @@ from app.models import (
     AnnotationTaskItem,
 )
 from app.models.user import User
-from app.repositories.admin_repo import _EDITABLE_FIELDS, AdminQueryRepository, _TABLE_MAP
+from app.repositories.admin_repo import (
+    _EDITABLE_FIELDS,
+    AdminQueryRepository,
+    _TABLE_MAP,
+    StaleRecordError,
+)
 
 # 占用记录的池状态：active/paused 中的记录不可再入新池
 _BLOCKING_POOL_STATUSES = ("active", "paused")
@@ -890,3 +895,215 @@ def get_my_task(db: Session, user: User) -> dict[str, Any]:
             **counts,
         }
     }
+
+
+# ---------------------------------------------------------------------------
+# 管理员复核（plan todo #8）：复核队列 + 逐条批准/驳回/过期处理
+# ---------------------------------------------------------------------------
+
+
+def _core_current_values(db: Session, table_name: str, record_id: int) -> tuple[dict[str, Any], bool]:
+    """读核心记录全部可编辑字段现值；核心行缺失时返回 ({}, True) 交由调用方打标。"""
+    model = _TABLE_MAP.get(table_name)
+    core = None if model is None else db.query(model).filter(model.id == record_id).first()
+    if core is None:
+        return {}, True
+    values = {field: getattr(core, field) for field in _EDITABLE_FIELDS.get(table_name, [])}
+    return values, False
+
+
+def review_queue(db: Session, status: str = "pending") -> list[dict[str, Any]]:
+    """按任务分组的复核队列：只含 submission.status==status（默认 pending，可切 expired）。
+
+    组内条目按 submission id 升序；submitted_at 取组内最早值；
+    current_values 与 proposed_fields 并排展示供管理员对照基准漂移。
+    """
+    rows = (
+        db.query(AnnotationSubmission, AnnotationTaskItem, AnnotationTask)
+        .join(AnnotationTaskItem, AnnotationTaskItem.id == AnnotationSubmission.item_id)
+        .join(AnnotationTask, AnnotationTask.id == AnnotationTaskItem.task_id)
+        .filter(AnnotationSubmission.status == status)
+        .order_by(AnnotationSubmission.id)
+        .all()
+    )
+    groups: dict[int, dict[str, Any]] = {}
+    for submission, item, task in rows:
+        group = groups.get(task.id)
+        if group is None:
+            group = {
+                "task_id": task.id,
+                "annotator_username": submission.username,
+                "table_name": item.table_name,
+                "count": 0,
+                "items": [],
+                "_earliest_submitted_at": None,
+            }
+            groups[task.id] = group
+        current_values, core_missing = _core_current_values(db, item.table_name, item.record_id)
+        entry: dict[str, Any] = {
+            "submission_id": submission.id,
+            "item_id": item.id,
+            "record_id": item.record_id,
+            "current_values": current_values,
+            "proposed_fields": submission.proposed_fields,
+            "base_updated_at": submission.base_updated_at.isoformat()
+            if submission.base_updated_at
+            else None,
+        }
+        if core_missing:
+            entry["core_missing"] = True
+        group["items"].append(entry)
+        group["count"] += 1
+        submitted_at = item.submitted_at
+        if submitted_at is not None and (
+            group["_earliest_submitted_at"] is None or submitted_at < group["_earliest_submitted_at"]
+        ):
+            group["_earliest_submitted_at"] = submitted_at
+
+    result: list[dict[str, Any]] = []
+    for task_id in sorted(groups):
+        group = groups[task_id]
+        earliest = group.pop("_earliest_submitted_at")
+        group["submitted_at"] = earliest.isoformat() if earliest else None
+        result.append(group)
+    return result
+
+
+def _load_reviewable_submission(
+    db: Session, submission_id: int
+) -> tuple[AnnotationSubmission, AnnotationTaskItem]:
+    """取提交单并校验处于待复核态；缺失 404、非 pending 由路由映射 409。"""
+    submission = db.get(AnnotationSubmission, submission_id)
+    if submission is None:
+        raise AnnotationNotFoundError("提交单不存在")
+    if submission.status != "pending":
+        raise ValueError(f"该提交单状态为 {submission.status}，不可复核")
+    item = db.get(AnnotationTaskItem, submission.item_id)
+    if item is None:
+        raise AnnotationNotFoundError("条目不存在")
+    return submission, item
+
+
+def approve_submission(db: Session, reviewer: User, submission_id: int) -> dict[str, Any]:
+    """逐条批准：把 proposed_fields 经 update_record 落入核心表。
+
+    - 空差异快速通道：仅落 approved 状态与审计，绝不触核心表；
+    - 真实差异：复用 admin 直改唯一写入口 AdminQueryRepository.update_record
+      （白名单、abstract 清洗、crawl_status 自动晋升同源；内部乐观锁 +
+      commit），故每条目的核心写入天然独立成事务——单条 base 冲突转
+      expired（条目进返工箱）时绝不牵连其他条目。
+    返回 {"submission_id", "item_id", "record_id", "status"}，
+    status ∈ {"approved", "expired"}；expired 不抛错，由响应体标记。
+    """
+    submission, item = _load_reviewable_submission(db, submission_id)
+    now_utc = _utcnow()
+
+    if not submission.proposed_fields:
+        submission.status = "approved"
+        submission.reviewed_at = now_utc
+        submission.reviewer_id = reviewer.id
+        item.status = "approved"
+        _write_log(
+            db,
+            table_name=item.table_name,
+            record_id=item.record_id,
+            actor=reviewer,
+            action="approve",
+            old_fields={},
+            new_fields={},
+            submission_id=submission.id,
+        )
+        db.commit()
+        return {
+            "submission_id": submission.id,
+            "item_id": item.id,
+            "record_id": item.record_id,
+            "status": "approved",
+        }
+
+    model = _TABLE_MAP.get(item.table_name)
+    core = None if model is None else db.query(model).filter(model.id == item.record_id).first()
+    if core is None:
+        raise AnnotationNotFoundError("核心记录不存在")
+
+    # 应用前快照：审计的 old_fields 必须是落库前的现值。
+    old_fields = {field: getattr(core, field) for field in submission.proposed_fields}
+
+    try:
+        AdminQueryRepository(db).update_record(
+            item.table_name,
+            item.record_id,
+            submission.proposed_fields,
+            updated_at=submission.base_updated_at.isoformat(),
+        )
+    except StaleRecordError:
+        # 基准冲突：提交单转 expired 归档，条目进返工箱等标注员重做。
+        submission.status = "expired"
+        submission.reviewed_at = now_utc
+        submission.reviewer_id = reviewer.id
+        item.status = "rejected"
+        item.rejected_at = now_utc
+        _write_log(
+            db,
+            table_name=item.table_name,
+            record_id=item.record_id,
+            actor=reviewer,
+            action="expire",
+            new_fields={"reason": "base_conflict"},
+            submission_id=submission.id,
+        )
+        db.commit()
+        return {
+            "submission_id": submission.id,
+            "item_id": item.id,
+            "record_id": item.record_id,
+            "status": "expired",
+        }
+
+    submission.status = "approved"
+    submission.reviewed_at = now_utc
+    submission.reviewer_id = reviewer.id
+    item.status = "approved"
+    _write_log(
+        db,
+        table_name=item.table_name,
+        record_id=item.record_id,
+        actor=reviewer,
+        action="approve",
+        old_fields=old_fields,
+        new_fields=submission.proposed_fields,
+        submission_id=submission.id,
+    )
+    db.commit()
+    return {
+        "submission_id": submission.id,
+        "item_id": item.id,
+        "record_id": item.record_id,
+        "status": "approved",
+    }
+
+
+def reject_submission(db: Session, reviewer: User, submission_id: int, comment: str) -> dict[str, Any]:
+    """逐条驳回：意见落提交单，条目带 rejected_at 进返工箱。"""
+    if not (comment or "").strip():
+        raise AnnotationFieldValidationError("驳回必须填写评论")
+
+    submission, item = _load_reviewable_submission(db, submission_id)
+    now_utc = _utcnow()
+    submission.status = "rejected"
+    submission.review_comment = comment
+    submission.reviewed_at = now_utc
+    submission.reviewer_id = reviewer.id
+    item.status = "rejected"
+    item.rejected_at = now_utc
+    _write_log(
+        db,
+        table_name=item.table_name,
+        record_id=item.record_id,
+        actor=reviewer,
+        action="reject",
+        new_fields={"comment": comment},
+        submission_id=submission.id,
+    )
+    db.commit()
+    return {"submission_id": submission.id, "item_id": item.id, "status": "rejected"}

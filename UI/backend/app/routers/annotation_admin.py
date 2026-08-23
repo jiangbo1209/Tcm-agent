@@ -7,7 +7,7 @@
 
 from __future__ import annotations
 
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, HTTPException, Query
 from pydantic import BaseModel
 from sqlalchemy.orm import Session
 
@@ -150,3 +150,60 @@ def assign_tasks(
             }
         )
     return {"results": results}
+
+
+class ReviewRejectRequest(BaseModel):
+    comment: str
+
+
+@router.get("/review/queue")
+def review_queue(
+    status: str = Query("pending", description="pending | expired"),
+    db: Session = Depends(get_db),
+    _admin: User = Depends(require_admin),
+):
+    """按任务分组的复核队列；status 可切 expired 查看基准冲突归档。"""
+    try:
+        return annotation_service.review_queue(db, status=status)
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+
+def _map_review_errors(exc: Exception) -> HTTPException:
+    """服务层异常 -> HTTP：404 缺失 / 400 负载非法 / 其余 ValueError 409。
+
+    各子类均继承 ValueError，必须按 子类 -> ValueError 的顺序判定。
+    """
+    if isinstance(exc, annotation_service.AnnotationNotFoundError):
+        return HTTPException(status_code=404, detail=str(exc))
+    if isinstance(exc, annotation_service.AnnotationFieldValidationError):
+        return HTTPException(status_code=400, detail=str(exc))
+    assert isinstance(exc, ValueError)
+    return HTTPException(status_code=409, detail=str(exc))
+
+
+@router.post("/review/{submission_id}/approve")
+def approve_submission(
+    submission_id: int,
+    db: Session = Depends(get_db),
+    admin: User = Depends(require_admin),
+):
+    """逐条批准：经 update_record 落库；base 冲突转 expired（响应体标记，不报错）。"""
+    try:
+        return annotation_service.approve_submission(db, admin, submission_id)
+    except ValueError as exc:
+        raise _map_review_errors(exc) from exc
+
+
+@router.post("/review/{submission_id}/reject")
+def reject_submission(
+    submission_id: int,
+    body: ReviewRejectRequest,
+    db: Session = Depends(get_db),
+    admin: User = Depends(require_admin),
+):
+    """逐条驳回：必须附复核意见；条目进返工箱。"""
+    try:
+        return annotation_service.reject_submission(db, admin, submission_id, body.comment)
+    except ValueError as exc:
+        raise _map_review_errors(exc) from exc
