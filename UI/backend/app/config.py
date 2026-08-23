@@ -61,6 +61,17 @@ class AuthSettings(BaseSettings):
     file_token_secret: str = Field(default="", alias="FILE_TOKEN_SECRET")
 
 
+class AnnotationSettings(BaseSettings):
+    model_config = SettingsConfigDict(
+        env_prefix="ANNOTATION_", extra="ignore", case_sensitive=True
+    )
+
+    ENABLED: bool = False
+    TASK_DEADLINE_DAYS: int = 7
+    REWORK_DAYS: int = 5
+    MAX_PENDING_REWORK: int = 0
+
+
 class Settings(BaseSettings):
     model_config = SettingsConfigDict(
         env_file=(".env", "../.env", "../../.env"),
@@ -80,6 +91,11 @@ class Settings(BaseSettings):
 @lru_cache
 def get_settings() -> Settings:
     return Settings()
+
+
+@lru_cache
+def get_annotation_config() -> AnnotationSettings:
+    return AnnotationSettings()
 
 
 def get_database_config() -> PostgresSettings:

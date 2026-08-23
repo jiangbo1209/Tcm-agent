@@ -33,6 +33,8 @@ from app.core.schema_migration import (
 )
 
 from app.repositories import GraphRepository, DetailRepository, SearchRepository
+from app.routers.annotation import router as annotation_router
+from app.routers.annotation_admin import router as annotation_admin_router
 from app.routers.chat import router as chat_router
 from app.routers.files import router as files_router
 from app.routers.graph import router as graph_router
@@ -125,6 +127,8 @@ app.include_router(
 app.include_router(admin_router)
 app.include_router(users_router)
 app.include_router(files_router)
+app.include_router(annotation_router)
+app.include_router(annotation_admin_router)
 
 
 @app.exception_handler(HTTPException)

@@ -508,3 +508,7 @@ erDiagram
 | `S3_BUCKET_NAME` | tcm-documents-xxx | COS 存储桶名 |
 | `S3_REGION` | ap-beijing | COS 地域 |
 | `SEARCH_BACKEND_MODE` | auto | 搜索后端（auto/fulltext/like） |
+| `ANNOTATION_ENABLED` | false | 数据标注功能总闸 |
+| `ANNOTATION_TASK_DEADLINE_DAYS` | 7 | 任务超期天数 |
+| `ANNOTATION_REWORK_DAYS` | 5 | 返工期限天数 |
+| `ANNOTATION_MAX_PENDING_REWORK` | 0（不限） | 待返工领取上限 |
