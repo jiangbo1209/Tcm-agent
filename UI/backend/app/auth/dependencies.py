@@ -45,7 +45,7 @@ def get_current_user(
 def require_professional(
     current_user: User = Depends(get_current_user),
 ) -> User:
-    if current_user.role != "professional":
+    if current_user.role not in ("professional", "admin"):
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,
             detail="需要专业用户权限才能访问此功能",
