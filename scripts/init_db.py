@@ -19,6 +19,12 @@ sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "UI", "backend"
 from app.core.database import engine
 from app.models import (
     AgentToolRun,
+    AnnotationLog,
+    AnnotationPool,
+    AnnotationPoolItem,
+    AnnotationSubmission,
+    AnnotationTask,
+    AnnotationTaskItem,
     Base,
     ConversationMemory,
     CoreFile,
