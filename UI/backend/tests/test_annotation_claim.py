@@ -124,18 +124,18 @@ def _pool_item_rows(db, pool_id: int, status: str | None = None):
     return q.all()
 
 
-# --- (a) 抽取规模 min(50, available)，被抽中项全部置为 assigned ------------
+# --- (a) 抽取规模 min(20, available)，被抽中项全部置为 assigned ------------
 
 
-def test_claim_draws_at_most_50(client, db):
+def test_claim_draws_at_most_20(client, db):
     annotator = _annotator(db, "drawer-1")
-    pool = _seed_pool(db, n=60)
+    pool = _seed_pool(db, n=25)
 
     resp = client.post("/api/annotation/tasks/claim", json={}, headers=auth_header(annotator))
 
     assert resp.status_code == 200
     body = resp.json()
-    assert body["count"] == 50
+    assert body["count"] == 20
     assert body["table_name"] == "lit"
 
     from app.models import AnnotationTask, AnnotationTaskItem
@@ -145,14 +145,14 @@ def test_claim_draws_at_most_50(client, db):
     assert task.claimed_by == annotator.id
     assert task.pool_id == pool.id
     items = db.query(AnnotationTaskItem).filter(AnnotationTaskItem.task_id == task.id).all()
-    assert len(items) == 50
+    assert len(items) == 20
     assert all(it.status == "pending" for it in items)
 
     drawn_ids = {it.source_pool_item_id for it in items}
     assigned = _pool_item_rows(db, pool.id, status="assigned")
-    assert len(assigned) == 50
+    assert len(assigned) == 20
     assert {it.id for it in assigned} == drawn_ids
-    assert len(_pool_item_rows(db, pool.id, status="available")) == 10
+    assert len(_pool_item_rows(db, pool.id, status="available")) == 5
 
 
 def test_non_annotator_cannot_claim(client, db):
@@ -252,7 +252,7 @@ def test_assign_two_annotators_disjoint_items(client, db):
     admin = make_user(db, "assigner", role="admin")
     u1 = _annotator(db, "assignee-1")
     u2 = _annotator(db, "assignee-2")
-    pool = _seed_pool(db, n=100)
+    pool = _seed_pool(db, n=40)
 
     resp = client.post(
         "/api/annotation/admin/tasks/assign",
@@ -273,7 +273,7 @@ def test_assign_two_annotators_disjoint_items(client, db):
             .filter(AnnotationTaskItem.task_id == task_id)
             .all()
         )
-        assert len(rows) == 50
+        assert len(rows) == 20
         assert all(r.status == "pending" for r in rows)
         return {r.record_id for r in rows}
 
@@ -288,7 +288,7 @@ def test_assign_two_annotators_disjoint_items(client, db):
     assert all(t.deadline_at is not None and t.claimed_at is not None for t in tasks)
 
     assert len(_pool_item_rows(db, pool.id, status="available")) == 0
-    assert len(_pool_item_rows(db, pool.id, status="assigned")) == 100
+    assert len(_pool_item_rows(db, pool.id, status="assigned")) == 40
 
 
 # --- (e) 代派坏用户：逐条目报错，其余用户不受影响 --------------------------
@@ -299,7 +299,7 @@ def test_assign_bad_users_get_per_item_errors(client, db):
     good = _annotator(db, "good-annotator")
     wrong_role = make_user(db, "not-annotator", role="normal")
     inactive = _annotator(db, "sleepy-annotator", is_active=False)
-    pool = _seed_pool(db, n=60)
+    pool = _seed_pool(db, n=25)
 
     resp = client.post(
         "/api/annotation/admin/tasks/assign",
@@ -323,15 +323,15 @@ def test_assign_bad_users_get_per_item_errors(client, db):
 
     good_result = by_user[good.id]
     assert good_result["ok"] is True
-    assert good_result["count"] == 50
+    assert good_result["count"] == 20
 
     from app.models import AnnotationTask
 
     tasks = db.query(AnnotationTask).all()
     assert len(tasks) == 1
     assert tasks[0].claimed_by == good.id
-    # 坏用户失败后好用户仍能抽满：60 可用 - 50 抽中 = 10
-    assert len(_pool_item_rows(db, pool.id, status="available")) == 10
+    # 坏用户失败后好用户仍能抽满：25 可用 - 20 抽中 = 5
+    assert len(_pool_item_rows(db, pool.id, status="available")) == 5
 
 
 def test_assign_requires_admin(client, db):
@@ -433,9 +433,9 @@ def test_claim_retry_after_contention(client, db, monkeypatch):
 
     task_id = resp.json()["task_id"]
     items = db.query(AnnotationTaskItem).filter(AnnotationTaskItem.task_id == task_id).all()
-    assert len(items) == 50
+    assert len(items) == 20
     assert all(it.source_pool_item_id != stolen.id for it in items)
-    assert len(_pool_item_rows(db, pool.id, status="available")) == 9
+    assert len(_pool_item_rows(db, pool.id, status="available")) == 39
 
 
 def test_claim_gives_up_after_two_poisoned_attempts(client, db, monkeypatch):
@@ -521,7 +521,7 @@ def test_pg_concurrent_claims_exactly_one_winner():
         seed.add_all(
             [
                 AnnotationPoolItem(pool_id=pool.id, table_name="lit", record_id=i, status="available")
-                for i in range(1, 51)
+                for i in range(1, 21)
             ]
         )
         users = []

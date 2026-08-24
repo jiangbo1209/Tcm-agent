@@ -45,7 +45,7 @@ _ACTIVE_TASK_STATUSES = ("open", "in_progress")
 # PATCH 允许的目标池状态
 _PATCHABLE_POOL_STATUSES = ("paused", "closed")
 # 单次随机抽取的记录数上限
-_MAX_DRAW_SIZE = 50
+_MAX_DRAW_SIZE = 20
 # pending=首次暂存 drafted=覆盖自己草稿 rejected=返工重做；submitted/approved 已进复核流
 _DRAFTABLE_ITEM_STATUSES = ("pending", "drafted", "rejected")
 
@@ -682,7 +682,7 @@ def draw_and_create_task(
 ) -> dict[str, Any]:
     """随机抽取并创建标注任务（annotator 领取与 admin 代派共用的唯一路径）。
 
-    流程：前置约束校验 -> 解析目标池 -> min(50, available) 原子抽取 ->
+    流程：前置约束校验 -> 解析目标池 -> min(_MAX_DRAW_SIZE, available) 原子抽取 ->
     建 AnnotationTask(in_progress) + 逐条 TaskItem(pending) -> 审计日志 -> commit。
     抛出的 ValueError 由路由映射为 409/400 或逐用户错误条目。
     """
