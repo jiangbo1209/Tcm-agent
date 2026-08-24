@@ -28,7 +28,7 @@
       <div class="panel-card">
         <h2>领取标注任务</h2>
         <p class="panel-hint">
-          点击下方按钮领取一批待标注数据（每次最多 50 条），
+          点击下方按钮领取一批待标注数据（每次最多 20 条），
           领取后须在截止时间内完成并提交。
         </p>
         <p v-if="claimError" class="panel-error">{{ claimError }}</p>
@@ -38,47 +38,40 @@
       </div>
     </div>
 
-    <!-- 任务卡片：有进行中任务时展示 -->
-    <div v-else class="task-card" data-testid="task-card">
-      <template v-if="!taskCompleted">
-        <div class="task-meta">
-          <span class="meta-label">所属表</span>
-          <span class="meta-value">{{ task.table_name }}</span>
-        </div>
-        <div class="task-meta">
-          <span class="meta-label">进度</span>
-          <span class="meta-value">{{ completedCount }}/{{ task.count }}</span>
-        </div>
-        <div class="task-meta">
-          <span class="meta-label">剩余时间</span>
-          <span class="meta-value countdown" :class="{ expired }">{{ countdownText }}</span>
-        </div>
-      </template>
-      <!-- 整批提交成功后的完成态 -->
-      <template v-else>
-        <div class="task-done">
-          <span class="done-title">已提交复核</span>
-          <span class="done-hint">
-            本批 {{ submitResult?.count ?? task.count }} 条已进入复核流程，可领取下一批继续。
-          </span>
-          <p v-if="staleIds.length" class="stale-warning" data-testid="stale-warning">
-            ⚠ 以下条目的基准数据在暂存后被他人更新，请复核时留意：
-            #{{ staleIds.join("、#") }}
-          </p>
-          <button class="btn-primary" data-testid="claim-next" @click="claimNextBatch">
-            领取下一批
-          </button>
-        </div>
-      </template>
+    <!-- 整批提交成功后的完成态 -->
+    <div v-if="view === 'task' && taskCompleted" class="task-card" data-testid="task-card">
+      <div class="task-done">
+        <span class="done-title">已提交复核</span>
+        <span class="done-hint">
+          本批 {{ submitResult?.count ?? task.count }} 条已进入复核流程，可领取下一批继续。
+        </span>
+        <p v-if="staleIds.length" class="stale-warning" data-testid="stale-warning">
+          ⚠ 以下条目的基准数据在暂存后被他人更新，请复核时留意：
+          #{{ staleIds.join("、#") }}
+        </p>
+        <button class="btn-primary" data-testid="claim-next" @click="claimNextBatch">
+          领取下一批
+        </button>
+      </div>
     </div>
 
-    <!-- 条目列表（T14：真实渲染 + 筛选 chips） -->
-    <div v-if="view !== 'task' || !taskCompleted" class="item-list" data-testid="item-list">
-      <template v-if="view === 'claim'">
-        <p class="item-empty">领取任务后在此查看待标注条目</p>
-      </template>
-      <template v-else-if="!taskCompleted">
-        <div class="list-toolbar">
+    <!-- 工作台全屏分栏（进行中任务） -->
+    <div v-if="view === 'task' && !taskCompleted" class="wb-workspace">
+      <!-- 顶部工具条：meta + chips + 提交按钮 -->
+      <div class="wb-toolbar">
+        <div class="wb-meta-row">
+          <div class="task-meta">
+            <span class="meta-label">所属表</span>
+            <span class="meta-value">{{ task.table_name }}</span>
+          </div>
+          <div class="task-meta">
+            <span class="meta-label">进度</span>
+            <span class="meta-value">{{ completedCount }}/{{ task.count }}</span>
+          </div>
+          <div class="task-meta">
+            <span class="meta-label">剩余时间</span>
+            <span class="meta-value countdown" :class="{ expired }">{{ countdownText }}</span>
+          </div>
           <div class="chip-row" role="tablist">
             <button
               v-for="chip in visibleChips"
@@ -104,90 +97,113 @@
           </button>
         </div>
         <p v-if="submitError" class="list-error">{{ submitError }}</p>
+      </div>
 
-        <div v-if="itemsLoading" class="item-empty">条目加载中...</div>
-        <div v-else-if="itemsHint" class="item-empty">{{ itemsHint }}</div>
-        <div v-else-if="filteredItems.length === 0" class="item-empty">暂无符合条件的条目</div>
-        <div v-else class="item-rows">
-          <button
-            v-for="item in filteredItems"
-            :key="item.id"
-            type="button"
-            class="item-row"
-            :class="{ active: editingItem?.id === item.id }"
-            @click="openEditor(item)"
-          >
-            <span class="item-id">#{{ item.recordId ?? item.id }}</span>
-            <span class="item-title">{{ itemTitle(item) }}</span>
-            <span class="status-badge" :class="statusMeta(item.status).cls">
-              {{ statusMeta(item.status).label }}
-            </span>
-          </button>
+      <!-- 加载/空态提示 -->
+      <div v-if="itemsLoading" class="item-empty">条目加载中...</div>
+      <div v-else-if="itemsHint" class="item-empty">{{ itemsHint }}</div>
+      <div v-else-if="filteredItems.length === 0" class="item-empty">暂无符合条件的条目</div>
+
+      <!-- 主区分栏：左 PDF 右表单 -->
+      <div v-else class="wb-split">
+        <!-- 左：PDF 预览 -->
+        <div class="wb-pdf">
+          <iframe v-if="pdfUrl" :src="pdfUrl" class="pdf-frame" title="PDF 对照" frameborder="0"></iframe>
+          <div v-else-if="pdfLoading" class="pdf-placeholder">加载 PDF...</div>
+          <div v-else-if="editingItem" class="pdf-placeholder">
+            {{ pdfError || (editingItem.fileUuid ? "无法加载 PDF" : "当前条目无关联 PDF") }}
+          </div>
+          <div v-else class="pdf-placeholder">选择条目查看 PDF</div>
         </div>
-      </template>
+
+        <!-- 右：编辑表单 -->
+        <div class="wb-form" data-testid="editor-panel" role="dialog" aria-label="条目编辑">
+          <!-- 导航条 -->
+          <div class="wb-nav">
+            <button
+              type="button"
+              class="btn-nav"
+              :disabled="currentIndex <= 0"
+              @click="goPrev"
+            >
+              上一条
+            </button>
+            <span class="nav-info">
+              第 {{ currentIndex + 1 }}/{{ filteredItems.length }} 条
+              <span
+                v-if="editingItem"
+                class="status-badge"
+                :class="statusMeta(editingItem.status).cls"
+              >
+                {{ statusMeta(editingItem.status).label }}
+              </span>
+            </span>
+            <button
+              type="button"
+              class="btn-nav"
+              :disabled="currentIndex >= filteredItems.length - 1"
+              @click="goNext"
+            >
+              下一条
+            </button>
+          </div>
+
+          <!-- 字段编辑区 -->
+          <div class="wb-fields">
+            <template v-if="editingItem">
+              <p v-if="editorFields.length === 0" class="item-empty">
+                暂无可编辑字段（等待后端提供 editable_fields 元数据）
+              </p>
+              <div v-for="field in editorFields" :key="field" class="edit-field">
+                <label>{{ field }}</label>
+                <textarea
+                  v-if="isJsonField(field)"
+                  v-model="editForm[field]"
+                  rows="2"
+                  class="field-textarea"
+                ></textarea>
+                <span v-if="isJsonField(field)" class="field-hint">多个值用英文逗号分隔</span>
+                <textarea
+                  v-else-if="isLongField(field)"
+                  v-model="editForm[field]"
+                  rows="5"
+                  class="field-textarea"
+                ></textarea>
+                <input v-else v-model="editForm[field]" type="text" class="field-input" />
+              </div>
+            </template>
+            <div v-else class="item-empty">使用上一条/下一条浏览条目</div>
+          </div>
+
+          <!-- 底部操作按钮 -->
+          <div v-if="editingItem" class="wb-footer">
+            <p v-if="draftError" class="draft-error">{{ draftError }}</p>
+            <button
+              type="button"
+              class="btn-secondary"
+              data-testid="mark-no-change"
+              :disabled="savingDraft"
+              @click="saveDraft([])"
+            >
+              标记无需修改
+            </button>
+            <button
+              type="button"
+              class="btn-primary"
+              data-testid="complete-item"
+              :disabled="savingDraft"
+              @click="saveDraft(collectFields())"
+            >
+              {{ savingDraft ? "暂存中..." : "完成本条" }}
+            </button>
+          </div>
+        </div>
+      </div>
     </div>
 
-    <!-- 编辑抽屉：左侧字段编辑 / 右侧 PDF 对照 -->
-    <div v-if="editorOpen" class="editor-overlay" @click.self="requestCloseEditor">
-      <aside class="editor-panel" data-testid="editor-panel" role="dialog" aria-label="条目编辑">
-        <header class="pane-header">
-          <span class="pane-title">
-            编辑 #{{ editingItem?.recordId ?? editingItem?.id }}
-            <small v-if="editingItem?.tableName">（{{ editingItem.tableName }}）</small>
-          </span>
-          <button type="button" class="pane-close" aria-label="关闭" @click="requestCloseEditor">&times;</button>
-        </header>
-        <div class="editor-body">
-          <div class="editor-fields">
-            <p v-if="editorFields.length === 0" class="item-empty">
-              暂无可编辑字段（等待后端提供 editable_fields 元数据）
-            </p>
-            <div v-for="field in editorFields" :key="field" class="edit-field">
-              <label>{{ field }}</label>
-              <textarea
-                v-if="isJsonField(field)"
-                v-model="editForm[field]"
-                rows="2"
-                class="field-textarea"
-              ></textarea>
-              <span v-if="isJsonField(field)" class="field-hint">多个值用英文逗号分隔</span>
-              <textarea
-                v-else-if="isLongField(field)"
-                v-model="editForm[field]"
-                rows="5"
-                class="field-textarea"
-              ></textarea>
-              <input v-else v-model="editForm[field]" type="text" class="field-input" />
-            </div>
-          </div>
-          <div v-if="editingItem?.fileUuid" class="editor-pdf">
-            <iframe v-if="pdfUrl" :src="pdfUrl" class="pdf-frame" title="PDF 对照" frameborder="0"></iframe>
-            <div v-else-if="pdfLoading" class="pdf-placeholder">加载 PDF...</div>
-            <div v-else class="pdf-placeholder">{{ pdfError || "无法加载 PDF" }}</div>
-          </div>
-        </div>
-        <footer class="editor-footer">
-          <p v-if="draftError" class="draft-error">{{ draftError }}</p>
-          <button
-            type="button"
-            class="btn-secondary"
-            data-testid="mark-no-change"
-            :disabled="savingDraft"
-            @click="saveDraft([])"
-          >
-            标记无需修改
-          </button>
-          <button
-            type="button"
-            class="btn-primary"
-            data-testid="complete-item"
-            :disabled="savingDraft"
-            @click="saveDraft(collectFields())"
-          >
-            {{ savingDraft ? "暂存中..." : "完成本条" }}
-          </button>
-        </footer>
-      </aside>
+    <!-- 条目列表空态（仅领取面板） -->
+    <div v-if="view === 'claim'" class="item-list" data-testid="item-list">
+      <p class="item-empty">领取任务后在此查看待标注条目</p>
     </div>
 
     <!-- 返工抽屉 -->
@@ -232,7 +248,7 @@
 </template>
 
 <script setup>
-import { ref, computed, onMounted, onBeforeUnmount } from "vue";
+import { ref, computed, watch, onMounted, onBeforeUnmount } from "vue";
 import { claimTask, getMyTask, getMyTaskDetail, getMyRework, draftItem, submitTask } from "../api/annotation";
 import { fetchFileUrl } from "../api/admin";
 
@@ -535,12 +551,12 @@ function openReworkInEditor(entry) {
     return;
   }
   reworkDrawerOpen.value = false;
-  openEditor(target);
+  selectItem(target, true);
 }
 
-/* ---------- 编辑抽屉 ---------- */
+/* ---------- 编辑（分栏内联） ---------- */
 
-const editorOpen = ref(false);
+const currentIndex = ref(0);
 const editingItem = ref(null);
 const editForm = ref({});
 const editFormOriginal = ref({});
@@ -646,9 +662,11 @@ function clearPdf() {
   pdfError.value = "";
 }
 
-function openEditor(item) {
+function selectItem(item, force = false) {
+  if (!force && editingItem.value && editingItem.value.id !== item.id && hasUnsavedChanges()) {
+    if (!confirm("有未保存的修改，确定切换吗？")) return;
+  }
   editingItem.value = item;
-  editorOpen.value = true;
   draftError.value = "";
   buildEditForm(item);
   if (item.fileUuid) {
@@ -656,17 +674,23 @@ function openEditor(item) {
   } else {
     clearPdf();
   }
+  const idx = filteredItems.value.findIndex((i) => i.id === item.id);
+  if (idx >= 0) currentIndex.value = idx;
 }
 
-function requestCloseEditor() {
-  if (hasUnsavedChanges()) {
-    if (!confirm("有未保存的修改，确定关闭吗？")) return;
+function goNext() {
+  if (currentIndex.value < filteredItems.value.length - 1) {
+    selectItem(filteredItems.value[currentIndex.value + 1]);
   }
-  closeEditorAfterSave();
+}
+
+function goPrev() {
+  if (currentIndex.value > 0) {
+    selectItem(filteredItems.value[currentIndex.value - 1]);
+  }
 }
 
 function closeEditorAfterSave() {
-  editorOpen.value = false;
   editingItem.value = null;
   editForm.value = {};
   editFormOriginal.value = {};
@@ -674,6 +698,16 @@ function closeEditorAfterSave() {
   draftError.value = "";
   clearPdf();
 }
+
+/* chips 切换时 idx 归零并自动选中筛选后第一个条目 */
+watch(activeFilter, () => {
+  currentIndex.value = 0;
+  if (filteredItems.value.length > 0) {
+    selectItem(filteredItems.value[0], true);
+  } else {
+    closeEditorAfterSave();
+  }
+});
 
 /** 表单字符串 -> 提案负载（authors/keywords 逗号拆分，同 AdminDataEdit 口径）。 */
 function collectFields() {
@@ -829,9 +863,7 @@ async function handleClaim() {
 
 function handleKeydown(e) {
   if (e.key !== "Escape") return;
-  if (editorOpen.value) {
-    requestCloseEditor();
-  } else if (reworkDrawerOpen.value) {
+  if (reworkDrawerOpen.value) {
     reworkDrawerOpen.value = false;
   }
 }
@@ -855,7 +887,7 @@ onBeforeUnmount(() => {
 </script>
 
 <style scoped>
-.annotation-workbench { width: 100%; padding: 24px 32px; height: 100vh; overflow-y: scroll; box-sizing: border-box; }
+.annotation-workbench { display: flex; flex-direction: column; width: 100%; padding: 24px 32px; height: 100vh; overflow: hidden; box-sizing: border-box; }
 
 .wb-header { display: flex; align-items: center; gap: 12px; margin-bottom: 20px; }
 .wb-header h1 { font-size: 22px; font-weight: 600; color: #1a1a2e; margin: 0; }
@@ -895,7 +927,6 @@ onBeforeUnmount(() => {
 .stale-warning { margin: 0; padding: 8px 12px; background: #fff3e0; border: 1px solid #ffe0b2; border-radius: 6px; font-size: 12px; color: #e65100; line-height: 1.6; }
 
 .item-list { background: #fff; border: 1px solid #e8e8e8; border-radius: 12px; padding: 16px 20px; box-shadow: 0 2px 8px rgba(0, 0, 0, 0.04); min-height: 120px; }
-.list-toolbar { display: flex; align-items: center; justify-content: space-between; gap: 16px; padding-bottom: 12px; border-bottom: 1px solid #f0f0f0; margin-bottom: 8px; flex-wrap: wrap; }
 .chip-row { display: flex; gap: 8px; flex-wrap: wrap; }
 .chip { padding: 4px 12px; border: 1px solid #d0d0d0; border-radius: 14px; background: #fff; color: #666; font-size: 12px; cursor: pointer; transition: all 0.15s; font-family: inherit; }
 .chip:hover { border-color: #00796b; color: #00796b; }
@@ -906,13 +937,6 @@ onBeforeUnmount(() => {
 .btn-submit-batch:disabled { opacity: 0.6; cursor: default; }
 .list-error { margin: 8px 0; font-size: 12px; color: #c62828; }
 
-.item-rows { display: flex; flex-direction: column; }
-.item-row { display: flex; align-items: center; gap: 12px; width: 100%; padding: 11px 8px; border: none; border-bottom: 1px solid #f5f5f5; background: transparent; text-align: left; cursor: pointer; font-family: inherit; transition: background 0.15s; }
-.item-row:last-child { border-bottom: none; }
-.item-row:hover { background: #f7faf9; }
-.item-row.active { background: #e0f2f1; }
-.item-id { color: #999; font-size: 12px; flex-shrink: 0; min-width: 48px; }
-.item-title { flex: 1; font-size: 13px; color: #1a1a2e; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .status-badge { flex-shrink: 0; padding: 2px 10px; border-radius: 10px; font-size: 11px; font-weight: 500; }
 .st-pending { background: #f0f0f0; color: #666; }
 .st-drafted { background: #e0f2f1; color: #00796b; }
@@ -923,25 +947,37 @@ onBeforeUnmount(() => {
 
 .item-empty { text-align: center; padding: 36px 0; font-size: 13px; color: #999; margin: 0; }
 
-/* 编辑抽屉 */
-.editor-overlay, .rework-overlay { position: fixed; inset: 0; background: rgba(0, 0, 0, 0.45); z-index: 1000; }
-.editor-panel { position: absolute; top: 0; right: 0; height: 100%; width: min(960px, 92vw); background: #fff; box-shadow: -4px 0 24px rgba(0, 0, 0, 0.15); display: flex; flex-direction: column; }
+/* 全屏分栏工作台 */
+.wb-workspace { flex: 1; display: flex; flex-direction: column; min-height: 0; overflow: hidden; background: #fff; border: 1px solid #e8e8e8; border-radius: 12px; box-shadow: 0 2px 8px rgba(0, 0, 0, 0.04); }
+.wb-toolbar { flex-shrink: 0; padding: 12px 20px; border-bottom: 1px solid #f0f0f0; }
+.wb-meta-row { display: flex; align-items: center; gap: 20px; flex-wrap: wrap; }
+.wb-meta-row .task-meta { min-width: auto; flex-direction: row; align-items: center; gap: 6px; }
+.wb-meta-row .chip-row { margin-left: auto; }
+.wb-split { flex: 1; display: flex; min-height: 0; overflow: hidden; }
+.wb-pdf { flex: 1; min-width: 0; background: #525659; position: relative; border-right: 1px solid #e8e8e8; }
+.wb-pdf .pdf-frame { width: 100%; height: 100%; border: none; }
+.wb-pdf .pdf-placeholder { position: absolute; inset: 0; display: flex; align-items: center; justify-content: center; color: #ccc; font-size: 13px; padding: 0 16px; text-align: center; }
+.wb-form { flex: 1; min-width: 0; display: flex; flex-direction: column; overflow: hidden; }
+.wb-nav { display: flex; align-items: center; justify-content: center; gap: 16px; padding: 10px 20px; border-bottom: 1px solid #f0f0f0; flex-shrink: 0; }
+.btn-nav { padding: 5px 14px; border: 1px solid #d0d0d0; border-radius: 6px; background: #fff; color: #333; font-size: 13px; cursor: pointer; font-family: inherit; transition: all 0.15s; }
+.btn-nav:hover:not(:disabled) { border-color: #00796b; color: #00796b; }
+.btn-nav:disabled { opacity: 0.4; cursor: default; }
+.nav-info { font-size: 13px; color: #333; display: flex; align-items: center; gap: 8px; }
+.wb-fields { flex: 1; overflow-y: auto; padding: 16px 20px; box-sizing: border-box; }
+.wb-footer { display: flex; align-items: center; justify-content: flex-end; gap: 12px; padding: 12px 20px; border-top: 1px solid #e8e8e8; flex-shrink: 0; }
+
+/* 返工抽屉 + 重用样式 */
+.rework-overlay { position: fixed; inset: 0; background: rgba(0, 0, 0, 0.45); z-index: 1000; }
 .pane-header { display: flex; align-items: center; justify-content: space-between; padding: 12px 20px; border-bottom: 1px solid #e8e8e8; font-size: 14px; font-weight: 600; color: #1a1a2e; background: #fafafa; flex-shrink: 0; }
 .pane-title small { font-weight: 400; color: #999; font-size: 12px; }
 .pane-close { width: 30px; height: 30px; border: none; background: transparent; font-size: 22px; color: #888; cursor: pointer; border-radius: 6px; line-height: 1; }
 .pane-close:hover { background: #eee; color: #333; }
-.editor-body { flex: 1; display: flex; overflow: hidden; }
-.editor-fields { flex: 1; overflow-y: auto; padding: 16px 20px; box-sizing: border-box; }
-.editor-pdf { width: 46%; border-left: 1px solid #e8e8e8; background: #525659; position: relative; }
-.pdf-frame { width: 100%; height: 100%; border: none; }
-.pdf-placeholder { position: absolute; inset: 0; display: flex; align-items: center; justify-content: center; color: #ccc; font-size: 13px; padding: 0 16px; text-align: center; }
 .edit-field { margin-bottom: 14px; }
 .edit-field label { display: block; font-size: 12px; font-weight: 500; color: #666; margin-bottom: 4px; word-break: break-all; }
 .field-input, .field-textarea { width: 100%; padding: 8px 10px; border: 1px solid #d0d0d0; border-radius: 6px; font-size: 13px; outline: none; font-family: inherit; box-sizing: border-box; }
 .field-input:focus, .field-textarea:focus { border-color: #00796b; }
 .field-textarea { resize: vertical; min-height: 56px; }
 .field-hint { display: block; font-size: 11px; color: #999; margin-top: 2px; }
-.editor-footer { display: flex; align-items: center; justify-content: flex-end; gap: 12px; padding: 12px 20px; border-top: 1px solid #e8e8e8; flex-shrink: 0; }
 .draft-error { margin: 0 auto 0 0; font-size: 12px; color: #c62828; }
 
 /* 返工抽屉 */
