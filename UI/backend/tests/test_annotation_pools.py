@@ -194,7 +194,9 @@ def test_preview_applies_crawl_status_filter(client, db, admin):
         headers=auth_header(admin),
     )
     assert resp.status_code == 200
-    assert resp.json() == {"total_matched": 1, "eligible": 1}
+    body = resp.json()
+    assert body["total_matched"] == 1
+    assert body["eligible"] == 1
 
 
 # --- (b) create 仅快照 eligible 记录，shortfall 信息字段 -------------------
@@ -403,3 +405,279 @@ def test_create_writes_audit_log_with_username_snapshot(client, db, admin):
     assert log.table_name == "lit"
     assert log.new_fields == {"pool_id": created["pool_id"], "count": len(ids)}
     assert log.old_fields is None
+
+
+# --- (g) R3 预览候选明细：include_annotated / blocked 标记 / 分页 ------------
+
+
+def test_preview_default_excludes_approved_include_annotated_exposes(client, db, admin):
+    """① 默认不含 approved 行语义；include_annotated=true 时出现且 eligible=true。"""
+    ids = _seed_lit(db, n=4)
+    _occupy_approved_ever(db, ids[0])
+
+    default = client.post(
+        "/api/annotation/admin/pools/preview",
+        json=PREVIEW_BODY,
+        headers=auth_header(admin),
+    ).json()
+    assert default["total_matched"] == 4
+    assert default["eligible"] == 3
+    item0 = next(it for it in default["items"] if it["record_id"] == ids[0])
+    assert item0["eligible"] is False
+    assert item0["blocked"] == "approved"
+
+    included = client.post(
+        "/api/annotation/admin/pools/preview",
+        json={**PREVIEW_BODY, "include_annotated": True},
+        headers=auth_header(admin),
+    ).json()
+    assert included["total_matched"] == 4
+    assert included["eligible"] == 4
+    item0 = next(it for it in included["items"] if it["record_id"] == ids[0])
+    assert item0["eligible"] is True
+    assert item0["blocked"] is None
+    assert all(it["eligible"] for it in included["items"])
+
+
+def test_preview_items_mark_blocked_reasons_with_priority(client, db, admin):
+    """② blocked 三类标记各有断言；多命中取 pooled>task>approved 首个；eligible 行 blocked=None。"""
+    ids = _seed_lit(db)  # 6 条
+    _occupy_in_other_active_pool(db, ids[0])  # 同时补 approved 制造双重命中
+    _occupy_approved_ever(db, ids[0])
+    _occupy_in_running_task(db, ids[1])
+    _occupy_approved_ever(db, ids[2])
+
+    body = client.post(
+        "/api/annotation/admin/pools/preview",
+        json=PREVIEW_BODY,
+        headers=auth_header(admin),
+    ).json()
+    assert body["total_matched"] == 6
+    assert body["eligible"] == 3
+
+    by_id = {it["record_id"]: it for it in body["items"]}
+    assert by_id[ids[0]]["eligible"] is False
+    assert by_id[ids[0]]["blocked"] == "pooled"  # pooled 优先于 approved
+    assert by_id[ids[1]]["blocked"] == "task"
+    assert by_id[ids[2]]["blocked"] == "approved"
+
+    ok = by_id[ids[3]]
+    assert ok["eligible"] is True
+    assert ok["blocked"] is None
+    assert ok["title"] == "针灸治疗不孕症研究4"
+    assert ok["crawl_status"] == "success"
+    assert ok["pub_year"] == "2024"
+    assert ok["record_id"] == ids[3]
+
+
+def test_preview_paginates_by_id_desc(client, db, admin):
+    """分页按 id desc：page1 取最新两条，page2 取下两条。"""
+    ids = _seed_lit(db, n=5)
+
+    page1 = client.post(
+        "/api/annotation/admin/pools/preview",
+        json=PREVIEW_BODY,
+        params={"page": 1, "page_size": 2},
+        headers=auth_header(admin),
+    ).json()
+    assert page1["total_matched"] == 5
+    assert page1["eligible"] == 5
+    assert page1["page"] == 1
+    assert page1["page_size"] == 2
+    assert [it["record_id"] for it in page1["items"]] == [ids[4], ids[3]]
+
+    page2 = client.post(
+        "/api/annotation/admin/pools/preview",
+        json=PREVIEW_BODY,
+        params={"page": 2, "page_size": 2},
+        headers=auth_header(admin),
+    ).json()
+    assert [it["record_id"] for it in page2["items"]] == [ids[2], ids[1]]
+
+
+def test_preview_page_size_capped_by_router(client, db, admin):
+    """page_size 上限 100 由路由 Query(le=100) 校验 -> 超限 422。"""
+    _seed_lit(db, n=2)
+    resp = client.post(
+        "/api/annotation/admin/pools/preview",
+        json=PREVIEW_BODY,
+        params={"page_size": 101},
+        headers=auth_header(admin),
+    )
+    assert resp.status_code == 422
+
+
+def test_preview_case_rows_fallback_title(client, db, admin):
+    """case 表无 title/pub_year/crawl_status：标题兜底 病案#{id}，其余为 null。"""
+    from app.models import MedCase
+
+    rows = []
+    for i in range(1, 4):
+        rows.append(
+            MedCase(file_uuid=f"c{i}", western_diagnosis="不孕", created_at=TS, updated_at=TS)
+        )
+    db.add_all(rows)
+    db.commit()
+    case_ids = [r.id for r in db.query(MedCase).order_by(MedCase.id).all()]
+
+    body = client.post(
+        "/api/annotation/admin/pools/preview",
+        json={"table_name": "case"},
+        headers=auth_header(admin),
+    ).json()
+    assert body["total_matched"] == 3
+    by_id = {it["record_id"]: it for it in body["items"]}
+    for cid in case_ids:
+        assert by_id[cid]["title"] == f"病案#{cid}"
+        assert by_id[cid]["pub_year"] is None
+        assert by_id[cid]["crawl_status"] is None
+        assert by_id[cid]["eligible"] is True
+
+
+# --- (h) R3 显式 record_ids 建池 -------------------------------------------------
+
+
+def test_create_with_record_ids_builds_explicit_pool(client, db, admin):
+    """③ record_ids 建池 total=len(去重 ids) 且 filter_json 含 selected_record_ids。"""
+    ids = _seed_lit(db, n=5)
+    chosen = [ids[4], ids[2], ids[0], ids[2], ids[4]]  # 含重复验证去重保序
+
+    resp = client.post(
+        "/api/annotation/admin/pools",
+        json={"table_name": "lit", "record_ids": chosen, "deadline_days": 3},
+        headers=auth_header(admin),
+    )
+    assert resp.status_code == 200
+    body = resp.json()
+    assert body["pool_id"] > 0
+    assert body["total"] == 3
+    assert body["deadline_days"] == 3
+    assert body["status"] == "active"
+    assert "shortfall" not in body
+
+    from app.models import AnnotationLog, AnnotationPool, AnnotationPoolItem
+
+    pool = db.get(AnnotationPool, body["pool_id"])
+    expected = [ids[4], ids[2], ids[0]]
+    assert pool.filter_json["selected_record_ids"] == expected
+    assert pool.status == "active"
+
+    items = (
+        db.query(AnnotationPoolItem)
+        .filter(AnnotationPoolItem.pool_id == body["pool_id"])
+        .order_by(AnnotationPoolItem.id)
+        .all()
+    )
+    assert [it.record_id for it in items] == expected  # 按给定顺序入池
+    assert all(it.status == "available" for it in items)
+
+    log = db.query(AnnotationLog).one()
+    assert log.action == "create_pool"
+    assert log.new_fields == {"pool_id": body["pool_id"], "count": 3, "mode": "selected"}
+
+
+def test_create_record_ids_missing_rejected(client, db, admin):
+    ids = _seed_lit(db, n=2)
+    resp = client.post(
+        "/api/annotation/admin/pools",
+        json={"table_name": "lit", "record_ids": [ids[0], 99999]},
+        headers=auth_header(admin),
+    )
+    assert resp.status_code == 400
+    assert "99999" in resp.json()["detail"]
+    counts = _table_counts(db)
+    assert counts == {"pools": 0, "pool_items": 0, "logs": 0}
+
+
+def test_create_record_ids_occupied_rejected_listing_all_conflicts(client, db, admin):
+    """④ 占用 id 建池 -> 400 且 detail 含该 id；只列冲突 id，零残留。"""
+    ids = _seed_lit(db, n=4)
+    _occupy_in_other_active_pool(db, ids[0])
+    _occupy_in_running_task(db, ids[1])
+
+    resp = client.post(
+        "/api/annotation/admin/pools",
+        json={"table_name": "lit", "record_ids": [ids[0], ids[2]]},
+        headers=auth_header(admin),
+    )
+    assert resp.status_code == 400
+    detail = resp.json()["detail"]
+    assert str(ids[0]) in detail
+    assert str(ids[1]) not in detail  # 未选中的冲突不出现
+    # 除占用辅助函数自带的 1 池外零新增
+    counts = _table_counts(db)
+    assert counts == {"pools": 1, "pool_items": 1, "logs": 0}
+
+
+def test_create_record_ids_approved_without_flag_rejected_then_included(client, db, admin):
+    """⑤ include_annotated=false 选 approved id -> 400；勾选后成功并附 included_approved。"""
+    ids = _seed_lit(db, n=3)
+    _occupy_approved_ever(db, ids[0])
+
+    resp = client.post(
+        "/api/annotation/admin/pools",
+        json={"table_name": "lit", "record_ids": [ids[0], ids[1]]},
+        headers=auth_header(admin),
+    )
+    assert resp.status_code == 400
+    assert str(ids[0]) in resp.json()["detail"]
+
+    resp = client.post(
+        "/api/annotation/admin/pools",
+        json={
+            "table_name": "lit",
+            "record_ids": [ids[0], ids[1]],
+            "include_annotated": True,
+        },
+        headers=auth_header(admin),
+    )
+    assert resp.status_code == 200
+    body = resp.json()
+    assert body["total"] == 2
+    assert body["included_approved"] == 1
+
+
+def test_create_without_record_ids_keeps_filter_path_and_flag_applies(client, db, admin):
+    """⑥ 不传 record_ids 走原路径，include_annotated 作用于排除集；filter_json 无 selected_record_ids。"""
+    ids = _seed_lit(db, n=4)
+    _occupy_approved_ever(db, ids[0])
+
+    default = client.post(
+        "/api/annotation/admin/pools",
+        json={"table_name": "lit"},
+        headers=auth_header(admin),
+    )
+    assert default.status_code == 200
+    assert default.json()["total"] == 3  # ids[0] 曾 approved 被排除
+
+    # 其余 3 条已被上一池占用：默认排除集下无候选 -> 400
+    denied = client.post(
+        "/api/annotation/admin/pools",
+        json={"table_name": "lit"},
+        headers=auth_header(admin),
+    )
+    assert denied.status_code == 400
+
+    # include_annotated=true 释放 approved 记录 -> 仅 ids[0] 可入池
+    included = client.post(
+        "/api/annotation/admin/pools",
+        json={"table_name": "lit", "include_annotated": True},
+        headers=auth_header(admin),
+    )
+    assert included.status_code == 200
+    assert included.json()["total"] == 1
+
+    from app.models import AnnotationLog, AnnotationPool, AnnotationPoolItem
+
+    pool = db.get(AnnotationPool, included.json()["pool_id"])
+    assert "selected_record_ids" not in pool.filter_json
+    item_ids = [
+        it.record_id
+        for it in db.query(AnnotationPoolItem)
+        .filter(AnnotationPoolItem.pool_id == pool.id)
+        .all()
+    ]
+    assert item_ids == [ids[0]]
+
+    log = db.query(AnnotationLog).filter(AnnotationLog.new_fields is not None).all()[-1]
+    assert "mode" not in log.new_fields

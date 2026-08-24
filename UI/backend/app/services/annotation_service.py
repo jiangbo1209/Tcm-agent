@@ -81,12 +81,15 @@ def _validate_table(table_name: str) -> type:
     return model
 
 
-def _exclusion_predicates(model: type, table_name: str) -> list[Any]:
+def _exclusion_predicates(
+    model: type, table_name: str, include_annotated: bool = False
+) -> list[Any]:
     """三类排除，全部编译为相关子查询 NOT EXISTS（SQL 层过滤）。
 
     (a) 已存在于任何 active/paused 池的 annotation_pool_items；
     (b) 已挂在任何 open/in_progress 任务的 annotation_task_items 上；
-    (c) 曾有 status='approved' 的 annotation_task_items（永久占用）。
+    (c) 曾有 status='approved' 的 annotation_task_items（永久占用）——
+        include_annotated=True 时跳过 (c)，曾 approved 的记录可重新入池。
     """
     in_blocking_pool = (
         select(AnnotationPoolItem.id)
@@ -106,16 +109,15 @@ def _exclusion_predicates(model: type, table_name: str) -> list[Any]:
             AnnotationTask.status.in_(_ACTIVE_TASK_STATUSES),
         )
     )
-    approved_before = select(AnnotationTaskItem.id).where(
-        AnnotationTaskItem.table_name == table_name,
-        AnnotationTaskItem.record_id == model.id,
-        AnnotationTaskItem.status == "approved",
-    )
-    return [
-        ~exists(in_blocking_pool),
-        ~exists(in_running_task),
-        ~exists(approved_before),
-    ]
+    predicates = [~exists(in_blocking_pool), ~exists(in_running_task)]
+    if not include_annotated:
+        approved_before = select(AnnotationTaskItem.id).where(
+            AnnotationTaskItem.table_name == table_name,
+            AnnotationTaskItem.record_id == model.id,
+            AnnotationTaskItem.status == "approved",
+        )
+        predicates.append(~exists(approved_before))
+    return predicates
 
 
 def _filtered_stmt(model: type, filters: dict[str, Any]):
@@ -140,14 +142,117 @@ def _count(db: Session, stmt) -> int:
     return int(db.execute(select(func.count()).select_from(stmt.subquery())).scalar() or 0)
 
 
-def preview_pool(db: Session, table_name: str, filters: dict[str, Any] | None) -> dict[str, int]:
-    """只读预览：返回 {total_matched, eligible}。绝不产生任何 DB 写入。"""
+def _occupancy_id_sets(
+    db: Session, table_name: str, record_ids: list[int]
+) -> tuple[set[int], set[int], set[int]]:
+    """批量求三类占用 id 集合：(池占用, 任务占用, 曾 approved)。"""
+    if not record_ids:
+        return set(), set(), set()
+    pooled = set(
+        db.execute(
+            select(AnnotationPoolItem.record_id)
+            .join(AnnotationPool, AnnotationPool.id == AnnotationPoolItem.pool_id)
+            .where(
+                AnnotationPoolItem.table_name == table_name,
+                AnnotationPoolItem.record_id.in_(record_ids),
+                AnnotationPool.status.in_(_BLOCKING_POOL_STATUSES),
+            )
+        ).scalars()
+    )
+    tasked = set(
+        db.execute(
+            select(AnnotationTaskItem.record_id)
+            .join(AnnotationTask, AnnotationTask.id == AnnotationTaskItem.task_id)
+            .where(
+                AnnotationTaskItem.table_name == table_name,
+                AnnotationTaskItem.record_id.in_(record_ids),
+                AnnotationTask.status.in_(_ACTIVE_TASK_STATUSES),
+            )
+        ).scalars()
+    )
+    approved = set(
+        db.execute(
+            select(AnnotationTaskItem.record_id).where(
+                AnnotationTaskItem.table_name == table_name,
+                AnnotationTaskItem.record_id.in_(record_ids),
+                AnnotationTaskItem.status == "approved",
+            )
+        ).scalars()
+    )
+    return pooled, tasked, approved
+
+
+def _preview_row(
+    record: Any,
+    pooled: set[int],
+    tasked: set[int],
+    approved: set[int],
+    include_annotated: bool,
+) -> dict[str, Any]:
+    record_id = record.id
+    if record_id in pooled:
+        eligible, blocked = False, "pooled"
+    elif record_id in tasked:
+        eligible, blocked = False, "task"
+    elif (not include_annotated) and record_id in approved:
+        eligible, blocked = False, "approved"
+    else:
+        eligible, blocked = True, None
+    title = getattr(record, "title", None)
+    if not title:
+        title = f"病案#{record_id}"
+    return {
+        "record_id": record_id,
+        "title": title,
+        "crawl_status": getattr(record, "crawl_status", None),
+        "pub_year": getattr(record, "pub_year", None),
+        "eligible": eligible,
+        "blocked": blocked,
+    }
+
+
+def preview_pool(
+    db: Session,
+    table_name: str,
+    filters: dict[str, Any] | None,
+    include_annotated: bool = False,
+    page: int = 1,
+    page_size: int = 20,
+) -> dict[str, Any]:
+    """只读预览：返回 {total_matched, eligible, page, page_size, items[...]}。
+
+    绝不产生任何 DB 写入。items 按 id desc 分页，逐行内存标记 eligible
+    与 blocked 原因（pooled/task/approved 多命中取首个优先级）。
+    """
     model = _validate_table(table_name)
     filters = filters or {}
     base = _filtered_stmt(model, filters)
     total_matched = _count(db, base)
-    eligible = _count(db, base.where(*_exclusion_predicates(model, table_name)))
-    return {"total_matched": total_matched, "eligible": eligible}
+    eligible = _count(
+        db, base.where(*_exclusion_predicates(model, table_name, include_annotated))
+    )
+
+    rows = (
+        db.execute(
+            base.order_by(model.id.desc())
+            .offset((page - 1) * page_size)
+            .limit(page_size)
+        )
+        .scalars()
+        .all()
+    )
+    page_ids = [row.id for row in rows]
+    pooled, tasked, approved = _occupancy_id_sets(db, table_name, page_ids)
+    items = [
+        _preview_row(row, pooled, tasked, approved, include_annotated) for row in rows
+    ]
+    return {
+        "total_matched": total_matched,
+        "eligible": eligible,
+        "page": page,
+        "page_size": page_size,
+        "items": items,
+    }
 
 
 def create_pool(
@@ -156,20 +261,57 @@ def create_pool(
     filters: dict[str, Any] | None,
     deadline_days: int | None,
     created_by_user: User | None,
+    record_ids: list[int] | None = None,
+    include_annotated: bool = False,
 ) -> dict[str, Any]:
     """按当前筛选快照建池：pool(active) + 每条 eligible 记录一条 pool_item(available)。
 
     返回含 pool_id/total；matched 但被三类排除的记录数 >0 时附带 shortfall 信息字段。
     空候选集抛 ValueError（路由层转 400），不残留任何行。
+
+    record_ids 提供非空清单时走显式路径：逐 id 校验存在性与占用守卫，
+    曾 approved 仅当 include_annotated=True 放行，filter_json 存档
+    {"selected_record_ids": [...], **filters}。
     """
     model = _validate_table(table_name)
     filters = dict(filters or {})
+    if record_ids:
+        return _create_pool_from_explicit_ids(
+            db,
+            model,
+            table_name,
+            filters,
+            deadline_days,
+            created_by_user,
+            record_ids,
+            include_annotated,
+        )
+    return _create_pool_from_filters(
+        db,
+        model,
+        table_name,
+        filters,
+        deadline_days,
+        created_by_user,
+        include_annotated,
+    )
+
+
+def _create_pool_from_filters(
+    db: Session,
+    model: type,
+    table_name: str,
+    filters: dict[str, Any],
+    deadline_days: int | None,
+    created_by_user: User | None,
+    include_annotated: bool,
+) -> dict[str, Any]:
     base = _filtered_stmt(model, filters)
     matched = _count(db, base)
 
     eligible_stmt = (
         base.with_only_columns(model.id)
-        .where(*_exclusion_predicates(model, table_name))
+        .where(*_exclusion_predicates(model, table_name, include_annotated))
         .order_by(model.id.desc())
     )
     eligible_ids: list[int] = [row for row in db.execute(eligible_stmt).scalars()]
@@ -220,6 +362,76 @@ def create_pool(
     shortfall = max(0, matched - len(eligible_ids))
     if shortfall > 0:
         result["shortfall"] = shortfall
+    return result
+
+
+def _create_pool_from_explicit_ids(
+    db: Session,
+    model: type,
+    table_name: str,
+    filters: dict[str, Any],
+    deadline_days: int | None,
+    created_by_user: User | None,
+    record_ids: list[int],
+    include_annotated: bool,
+) -> dict[str, Any]:
+    ids = list(dict.fromkeys(record_ids))
+    existing_ids = set(db.execute(select(model.id).where(model.id.in_(ids))).scalars())
+    missing = [record_id for record_id in ids if record_id not in existing_ids]
+    if missing:
+        raise ValueError(f"以下记录不存在：{missing}")
+
+    pooled, tasked, approved = _occupancy_id_sets(db, table_name, ids)
+    occupied = sorted(pooled | tasked)
+    if occupied:
+        raise ValueError(f"以下记录已被占用：{occupied}")
+    if not include_annotated and approved:
+        raise ValueError(f"以下记录已完成标注，请勾选包含已完成标注后重试：{sorted(approved)}")
+
+    pool = AnnotationPool(
+        table_name=table_name,
+        filter_json={"selected_record_ids": ids, **filters},
+        status="active",
+        priority=0,
+        deadline_days=deadline_days,
+        created_by=created_by_user.id if created_by_user is not None else None,
+    )
+    db.add(pool)
+    db.flush()
+    db.execute(
+        insert(AnnotationPoolItem),
+        [
+            {
+                "pool_id": pool.id,
+                "table_name": table_name,
+                "record_id": record_id,
+                "status": "available",
+            }
+            for record_id in ids
+        ],
+    )
+    _write_log(
+        db,
+        table_name=table_name,
+        record_id=0,
+        actor=created_by_user,
+        action="create_pool",
+        new_fields={"pool_id": pool.id, "count": len(ids), "mode": "selected"},
+    )
+    db.commit()
+
+    result: dict[str, Any] = {
+        "pool_id": pool.id,
+        "table_name": pool.table_name,
+        "status": pool.status,
+        "priority": pool.priority,
+        "deadline_days": pool.deadline_days,
+        "created_at": pool.created_at.isoformat() if pool.created_at else None,
+        "total": len(ids),
+    }
+    included_approved = len(approved)
+    if include_annotated and included_approved > 0:
+        result["included_approved"] = included_approved
     return result
 
 

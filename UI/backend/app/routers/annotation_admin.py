@@ -31,10 +31,12 @@ class PoolFiltersRequest(BaseModel):
     crawl_status: str | None = None
     year_min: int | None = None
     year_max: int | None = None
+    include_annotated: bool = False
 
 
 class PoolCreateRequest(PoolFiltersRequest):
     deadline_days: int | None = None
+    record_ids: list[int] | None = None
 
 
 class PoolPatchRequest(BaseModel):
@@ -45,13 +47,20 @@ class PoolPatchRequest(BaseModel):
 @router.post("/pools/preview")
 def preview_pool(
     body: PoolFiltersRequest,
+    page: int = Query(1, ge=1),
+    page_size: int = Query(20, ge=1, le=100),
     db: Session = Depends(get_db),
     _admin: User = Depends(require_admin),
 ):
-    """只读预览命中与可选数量；零 DB 写入。"""
+    """只读预览命中与可选数量，附当前页候选明细；零 DB 写入。"""
     try:
         return annotation_service.preview_pool(
-            db, body.table_name, body.model_dump(exclude={"table_name"})
+            db,
+            body.table_name,
+            body.model_dump(exclude={"table_name", "include_annotated"}),
+            include_annotated=body.include_annotated,
+            page=page,
+            page_size=page_size,
         )
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
@@ -63,14 +72,18 @@ def create_pool(
     db: Session = Depends(get_db),
     admin: User = Depends(require_admin),
 ):
-    """按筛选快照建池；空候选或未知表 -> 400，shortfall>0 时随响应提示。"""
+    """按筛选快照建池，或按 record_ids 显式清单建池；空候选或未知表 -> 400。"""
     try:
         return annotation_service.create_pool(
             db,
             body.table_name,
-            body.model_dump(exclude={"table_name", "deadline_days"}),
+            body.model_dump(
+                exclude={"table_name", "deadline_days", "record_ids", "include_annotated"}
+            ),
             body.deadline_days,
             admin,
+            record_ids=body.record_ids,
+            include_annotated=body.include_annotated,
         )
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
