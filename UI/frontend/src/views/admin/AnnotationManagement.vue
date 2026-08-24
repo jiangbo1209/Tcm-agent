@@ -213,6 +213,7 @@
                     </button>
                   </span>
                 </div>
+                <div class="diff-legend"><span class="diff-legend-mark">■</span> 高亮 = 标注员修改的字段</div>
                 <div class="diff-grid">
                   <div class="diff-col diff-col-current">
                     <div class="diff-col-title">当前值</div>
@@ -225,7 +226,14 @@
                     <div class="diff-col-title">提交值</div>
                     <div v-for="field in diffFields(entry)" :key="'p-' + field" class="diff-row">
                       <span class="diff-key">{{ field }}</span>
-                      <span class="diff-val">{{ formatValue(entry.proposed_fields?.[field]) }}</span>
+                      <span
+                        class="diff-val"
+                        :class="{
+                          'diff-changed':
+                            formatValue(entry.proposed_fields?.[field]) !==
+                            formatValue(entry.current_values?.[field]),
+                        }"
+                      >{{ formatValue(entry.proposed_fields?.[field]) }}</span>
                     </div>
                   </div>
                 </div>
@@ -1268,6 +1276,9 @@ watch(activeTab, (tab) => {
 .diff-key { flex-shrink: 0; width: 120px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: #999; }
 .diff-val { min-width: 0; word-break: break-all; color: #333; }
 .diff-col-proposed .diff-val { color: #00695c; font-weight: 500; }
+.diff-legend { padding: 0 12px 6px; font-size: 12px; color: #b06a00; }
+.diff-legend-mark { color: #b06a00; }
+.diff-changed { background: rgba(199, 124, 0, 0.12); border-left: 3px solid #b06a00; }
 
 .review-item-empty { display: flex; align-items: center; justify-content: space-between; gap: 10px; padding: 6px 12px; background: #f5f5f5; font-size: 12px; }
 .no-diff-label { color: #999; }
