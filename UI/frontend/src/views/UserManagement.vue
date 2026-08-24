@@ -25,16 +25,8 @@
           <tr>
             <th>ID</th>
             <th>用户名</th>
-            <th>邮箱</th>
-            <th>角色</th>
             <th>状态</th>
             <th>创建时间</th>
-            <template v-if="activeTab === 'annotators'">
-              <th data-testid="completed-col">已完成</th>
-              <th>驳回率</th>
-              <th data-testid="rework-col">待返工</th>
-              <th>在办</th>
-            </template>
             <th>操作</th>
           </tr>
         </thead>
@@ -42,52 +34,22 @@
           <tr v-for="user in filteredUsers" :key="user.id">
             <td>{{ user.id }}</td>
             <td class="cell-username">{{ user.username }}</td>
-            <td>{{ user.email }}</td>
-            <td>
-              <span class="role-badge" :class="'role-' + user.role">{{ roleLabel(user.role) }}</span>
-            </td>
             <td>
               <span :class="user.is_active ? 'status-active' : 'status-inactive'">
                 {{ user.is_active ? '正常' : '禁用' }}
               </span>
             </td>
             <td class="cell-time">{{ formatDate(user.created_at) }}</td>
-            <template v-if="activeTab === 'annotators'">
-              <td class="cell-workload" data-testid="workload-completed">{{ workloadOf(user.id).completed ?? "-" }}</td>
-              <td class="cell-workload">
-                <span :class="'rate-' + rateLevel(workloadOf(user.id).rejected_rate)">
-                  {{ formatRate(workloadOf(user.id).rejected_rate) }}
-                </span>
-              </td>
-              <td class="cell-workload" data-testid="workload-rework">{{ workloadOf(user.id).pending_rework ?? "-" }}</td>
-              <td class="cell-workload">
-                {{ workloadOf(user.id).in_progress == null ? "-" : workloadOf(user.id).in_progress ? "是" : "否" }}
-              </td>
-            </template>
             <td class="cell-actions">
-              <template v-if="activeTab === 'annotators'">
-                <button class="btn-sm btn-toggle" @click="toggleActive(user)">
-                  {{ user.is_active ? '停用' : '启用' }}
-                </button>
-                <button class="btn-sm btn-reset" @click="openResetPwd(user)">重置密码</button>
-                <button class="btn-sm btn-delete" @click="confirmDelete(user)">删除</button>
-              </template>
-              <template v-else>
-                <select
-                  class="role-select"
-                  :value="user.role"
-                  @change="changeRole(user.id, $event.target.value)"
-                >
-                  <option value="normal">普通用户</option>
-                  <option value="professional">专业用户</option>
-                </select>
-                <button class="btn-sm btn-reset" @click="openResetPwd(user)">重置密码</button>
-                <button class="btn-sm btn-delete" @click="confirmDelete(user)">删除</button>
-              </template>
+              <button class="btn-sm btn-toggle" @click="toggleActive(user)">
+                {{ user.is_active ? '停用' : '启用' }}
+              </button>
+              <button class="btn-sm btn-reset" @click="openResetPwd(user)">重置密码</button>
+              <button class="btn-sm btn-delete" @click="confirmDelete(user)">删除</button>
             </td>
           </tr>
           <tr v-if="filteredUsers.length === 0">
-            <td :colspan="activeTab === 'annotators' ? 11 : 7" class="empty-row">暂无成员</td>
+            <td colspan="5" class="empty-row">暂无成员</td>
           </tr>
         </tbody>
       </table>
@@ -151,17 +113,15 @@
 </template>
 
 <script setup>
-import { ref, computed, watch, onMounted } from "vue";
+import { ref, computed, onMounted } from "vue";
 import { useRoute, useRouter } from "vue-router";
 import {
   fetchUsers,
   createUser,
-  updateUserRole,
   resetUserPassword,
   deleteUser,
   setUserActive,
 } from "../api/users";
-import { dashboardStats } from "../api/annotation";
 
 const TABS = [
   { key: "normal", label: "普通", role: "normal" },
@@ -207,10 +167,6 @@ function switchTab(key) {
   router.replace({ query: { ...route.query, role: key } });
 }
 
-function roleLabel(role) {
-  return { admin: "管理员", professional: "专业用户", normal: "普通用户", annotator: "标注员" }[role] || role;
-}
-
 function formatDate(iso) {
   if (!iso) return "—";
   return iso.replace("T", " ").slice(0, 16);
@@ -225,44 +181,6 @@ async function loadUsers() {
     console.error("Failed to load users:", e);
   } finally {
     loading.value = false;
-  }
-}
-
-/* ───────── 标注员工作量（看板聚合，按 user_id 匹配） ───────── */
-const workloadMap = ref({});
-
-function workloadOf(userId) {
-  return (
-    workloadMap.value[userId] || {
-      completed: null,
-      rejected_rate: null,
-      pending_rework: null,
-      in_progress: null,
-    }
-  );
-}
-
-function formatRate(rate) {
-  if (rate === null || rate === undefined) return "-";
-  return `${Math.round(rate * 100)}%`;
-}
-
-function rateLevel(rate) {
-  if (rate === null || rate === undefined) return "none";
-  if (rate > 0.3) return "high";
-  if (rate > 0.1) return "mid";
-  return "low";
-}
-
-// 标注总闸关闭/非管理员时接口失败：清空映射，表格降级显示 "-"
-async function loadWorkload() {
-  try {
-    const res = await dashboardStats();
-    const map = {};
-    for (const u of res.data?.users || []) map[u.user_id] = u;
-    workloadMap.value = map;
-  } catch (e) {
-    workloadMap.value = {};
   }
 }
 
@@ -290,16 +208,6 @@ async function handleCreate() {
     formError.value = e.response?.data?.detail || "创建失败";
   } finally {
     creating.value = false;
-  }
-}
-
-async function changeRole(userId, newRole) {
-  try {
-    await updateUserRole(userId, newRole);
-    await loadUsers();
-  } catch (e) {
-    alert(e.response?.data?.detail || "修改角色失败");
-    await loadUsers();
   }
 }
 
@@ -348,12 +256,6 @@ async function confirmDelete(user) {
 
 onMounted(() => {
   loadUsers();
-  loadWorkload();
-});
-
-// 切到标注员页签时刷新工作量，保证数字新鲜
-watch(activeTab, (tab) => {
-  if (tab === "annotators") loadWorkload();
 });
 </script>
 
@@ -382,22 +284,8 @@ watch(activeTab, (tab) => {
 .cell-actions { white-space: nowrap; display: flex; align-items: center; gap: 6px; flex-wrap: nowrap; }
 .empty-row { text-align: center; color: #999; padding: 40px 12px !important; }
 
-.role-badge { display: inline-block; padding: 2px 8px; border-radius: 4px; font-size: 12px; }
-.role-admin { background: #ede7f6; color: #5e35b1; }
-.role-professional { background: #e0f2f1; color: #00796b; }
-.role-normal { background: #f5f5f5; color: #666; }
-.role-annotator { background: #fff3e0; color: #e65100; }
-
 .status-active { color: #2e7d32; }
 .status-inactive { color: #c62828; }
-
-.cell-workload { white-space: nowrap; }
-.rate-high { color: #c62828; font-weight: 600; }
-.rate-mid { color: #f57f17; font-weight: 600; }
-.rate-low { color: #2e7d32; }
-.rate-none { color: #999; }
-
-.role-select { padding: 3px 6px; border: 1px solid #d0d0d0; border-radius: 4px; font-size: 12px; background: #fff; }
 
 .btn-sm { padding: 3px 10px; border: 1px solid #d0d0d0; border-radius: 4px; font-size: 12px; cursor: pointer; background: #fff; }
 .btn-toggle { color: #e65100; border-color: #ffcc80; }
