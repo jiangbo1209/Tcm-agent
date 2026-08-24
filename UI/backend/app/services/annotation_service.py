@@ -495,6 +495,37 @@ def update_pool(
     return _serialize_pool(pool, int(counts[0]), int(counts[1]))
 
 
+def delete_pool(db: Session, admin_user: User, pool_id: int) -> dict[str, Any]:
+    """删除已关闭的池：先显式清空其 pool_items 再删池，最后落一条池级审计。
+
+    未知池抛 PoolNotFoundError（路由 404）；非 closed 状态抛 ValueError
+    （路由 409）。显式删除 items 不依赖 ondelete=CASCADE——SQLite 测试库
+    不开 FK pragma，级联不可靠；池行本身由 db.delete 移除。
+    """
+    pool = db.get(AnnotationPool, pool_id)
+    if pool is None:
+        raise PoolNotFoundError("池不存在")
+    if pool.status != "closed":
+        raise ValueError("仅已关闭的任务池可删除")
+
+    deleted_items = (
+        db.query(AnnotationPoolItem)
+        .filter(AnnotationPoolItem.pool_id == pool_id)
+        .delete(synchronize_session=False)
+    )
+    db.delete(pool)
+    _write_log(
+        db,
+        table_name=pool.table_name,
+        record_id=0,
+        actor=admin_user,
+        action="delete_pool",
+        new_fields={"pool_id": pool_id, "deleted_items": deleted_items},
+    )
+    db.commit()
+    return {"deleted": True, "pool_id": pool_id, "deleted_items": deleted_items}
+
+
 def resolve_pool(db: Session, pool_id: int | None = None) -> AnnotationPool:
     """解析抽取目标池。
 

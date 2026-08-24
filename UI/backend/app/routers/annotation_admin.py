@@ -114,6 +114,21 @@ def patch_pool(
         raise HTTPException(status_code=400, detail=str(exc)) from exc
 
 
+@router.delete("/pools/{pool_id}")
+def delete_pool(
+    pool_id: int,
+    db: Session = Depends(get_db),
+    admin: User = Depends(require_admin),
+):
+    """删除已关闭的池：仅 closed 可删；不存在 -> 404，其余状态 -> 409。"""
+    try:
+        return annotation_service.delete_pool(db, admin, pool_id)
+    except annotation_service.PoolNotFoundError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+    except ValueError as exc:
+        raise HTTPException(status_code=409, detail=str(exc)) from exc
+
+
 class AssignRequest(BaseModel):
     pool_id: int
     user_ids: list[int]

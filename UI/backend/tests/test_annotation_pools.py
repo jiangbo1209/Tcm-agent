@@ -365,6 +365,7 @@ def test_create_unknown_table_rejected(client, db, admin):
         ("post", "/api/annotation/admin/pools", {"table_name": "lit"}),
         ("get", "/api/annotation/admin/pools", None),
         ("patch", "/api/annotation/admin/pools/1", {"priority": 1}),
+        ("delete", "/api/annotation/admin/pools/1", None),
     ],
 )
 def test_non_admin_gets_403_on_every_endpoint(client, db, method, path, body):
@@ -681,3 +682,119 @@ def test_create_without_record_ids_keeps_filter_path_and_flag_applies(client, db
 
     log = db.query(AnnotationLog).filter(AnnotationLog.new_fields is not None).all()[-1]
     assert "mode" not in log.new_fields
+
+
+# --- (i) R4 关闭池删除：DELETE /pools/{pool_id} -----------------------------
+
+
+def _create_and_close_pool(client, admin, q="针灸"):
+    """建池（筛选路径）并 PATCH 关闭，返回池 id。"""
+    created = client.post(
+        "/api/annotation/admin/pools",
+        json={"table_name": "lit", "q": q},
+        headers=auth_header(admin),
+    ).json()
+    resp = client.patch(
+        f"/api/annotation/admin/pools/{created['pool_id']}",
+        json={"status": "closed"},
+        headers=auth_header(admin),
+    )
+    assert resp.status_code == 200
+    return created["pool_id"]
+
+
+def test_delete_closed_pool_clears_items_and_pool(client, db, admin):
+    """① closed 池删除 -> 200 {deleted:true, deleted_items:N}；pool 行与 pool_items 全部消失。"""
+    _seed_lit(db, n=3)
+    pool_id = _create_and_close_pool(client, admin)
+
+    from app.models import AnnotationPool, AnnotationPoolItem
+
+    assert (
+        db.query(AnnotationPoolItem).filter(AnnotationPoolItem.pool_id == pool_id).count()
+        == 3
+    )
+
+    resp = client.delete(
+        f"/api/annotation/admin/pools/{pool_id}", headers=auth_header(admin)
+    )
+    assert resp.status_code == 200
+    assert resp.json() == {"deleted": True, "pool_id": pool_id, "deleted_items": 3}
+
+    assert db.get(AnnotationPool, pool_id) is None
+    assert (
+        db.query(AnnotationPoolItem).filter(AnnotationPoolItem.pool_id == pool_id).count()
+        == 0
+    )
+
+
+def test_deleted_pool_records_return_to_candidate_space(client, db, admin):
+    """② 删除后原 available 记录在 preview 中 eligible=true（回到候选空间）。"""
+    _seed_lit(db, n=2)
+    pool_id = _create_and_close_pool(client, admin)
+
+    deleted = client.delete(
+        f"/api/annotation/admin/pools/{pool_id}", headers=auth_header(admin)
+    )
+    assert deleted.status_code == 200
+
+    preview = client.post(
+        "/api/annotation/admin/pools/preview",
+        json=PREVIEW_BODY,
+        headers=auth_header(admin),
+    ).json()
+    assert preview["total_matched"] == 2
+    assert preview["eligible"] == 2
+    assert all(it["eligible"] is True for it in preview["items"])
+
+
+def test_delete_active_pool_rejected(client, db, admin):
+    """③ active 池删除 -> 409 且 detail 含「仅已关闭」；池与条目原样保留。"""
+    _seed_lit(db, n=1)
+    created = client.post(
+        "/api/annotation/admin/pools",
+        json={"table_name": "lit"},
+        headers=auth_header(admin),
+    ).json()
+
+    resp = client.delete(
+        f"/api/annotation/admin/pools/{created['pool_id']}", headers=auth_header(admin)
+    )
+    assert resp.status_code == 409
+    assert "仅已关闭" in resp.json()["detail"]
+
+    from app.models import AnnotationPool, AnnotationPoolItem
+
+    assert db.get(AnnotationPool, created["pool_id"]) is not None
+    assert (
+        db.query(AnnotationPoolItem)
+        .filter(AnnotationPoolItem.pool_id == created["pool_id"])
+        .count()
+        == 1
+    )
+
+
+def test_delete_unknown_pool_404(client, db, admin):
+    """④ 不存在 id -> 404。"""
+    resp = client.delete("/api/annotation/admin/pools/99999", headers=auth_header(admin))
+    assert resp.status_code == 404
+
+
+def test_delete_writes_audit_log(client, db, admin):
+    """⑤ 审计行 action='delete_pool' 存在且 new_fields 含 pool_id/deleted_items。"""
+    _seed_lit(db, n=3)
+    pool_id = _create_and_close_pool(client, admin)
+
+    resp = client.delete(
+        f"/api/annotation/admin/pools/{pool_id}", headers=auth_header(admin)
+    )
+    assert resp.status_code == 200
+
+    from app.models import AnnotationLog
+
+    log = db.query(AnnotationLog).filter(AnnotationLog.action == "delete_pool").one()
+    assert log.record_id == 0  # 池级事件约定
+    assert log.actor_id == admin.id
+    assert log.table_name == "lit"
+    assert log.new_fields == {"pool_id": pool_id, "deleted_items": 3}
+    assert log.old_fields is None
