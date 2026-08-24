@@ -63,7 +63,9 @@ class AuthSettings(BaseSettings):
 
 class AnnotationSettings(BaseSettings):
     model_config = SettingsConfigDict(
-        env_prefix="ANNOTATION_", extra="ignore", case_sensitive=True
+        env_prefix="ANNOTATION_", extra="ignore", case_sensitive=True,
+        env_file=(".env", "../.env", "../../.env"),
+        env_file_encoding="utf-8",
     )
 
     ENABLED: bool = False
