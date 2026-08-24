@@ -18,7 +18,7 @@ import sqlalchemy as sa
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
 
-from app.config import get_annotation_config
+from app.config import get_annotation_config, get_settings
 from tests.utils import auth_header, make_user
 
 CORE_TS = datetime(2026, 1, 15, 8, 0, 0)
@@ -64,12 +64,11 @@ def _naive_utcnow() -> datetime:
 
 @pytest.fixture(autouse=True)
 def _annotation_enabled(monkeypatch):
-    """清空 lru_cache 后改写缓存实例放行真实总闸。"""
-    monkeypatch.delenv("ANNOTATION_ENABLED", raising=False)
-    get_annotation_config.cache_clear()
-    get_annotation_config().ENABLED = True
+    """环境变量直读根 Settings，清空其缓存放行真实总闸。"""
+    monkeypatch.setenv("ANNOTATION_ENABLED", "true")
+    get_settings.cache_clear()
     yield
-    get_annotation_config.cache_clear()
+    get_settings.cache_clear()
 
 
 @pytest.fixture()
@@ -585,10 +584,10 @@ def test_admin_direct_edit_writes_save_direct_log_gate_independent(
     from app.models import AnnotationLog, LitMetadata
     from app.routers.admin import router as admin_router
 
-    # 总闸关闭（无 enabled-patch）：save_direct 审计不得依赖 ANNOTATION_ENABLED
+    # 总闸关闭（无 enabled 环境变量）：save_direct 审计不得依赖 ANNOTATION_ENABLED
     monkeypatch.delenv("ANNOTATION_ENABLED", raising=False)
-    get_annotation_config.cache_clear()
-    assert get_annotation_config().ENABLED is False
+    get_settings.cache_clear()
+    assert get_annotation_config().enabled is False
 
     record_id = _seed_core_lit(db, 1, prefix="t9i")[0]
 
@@ -621,4 +620,4 @@ def test_admin_direct_edit_writes_save_direct_log_gate_independent(
     assert log.old_fields == {"title": "针灸治疗不孕症研究1"}
     assert log.new_fields == {"title": "管理员直改标题"}
 
-    get_annotation_config.cache_clear()
+    get_settings.cache_clear()

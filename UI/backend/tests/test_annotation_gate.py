@@ -16,15 +16,15 @@ import pytest
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
 
-from app.config import get_annotation_config
+from app.config import get_settings
 
 
 @pytest.fixture(autouse=True)
 def _isolate_annotation_cache():
-    """镜像 test_config_security.py：前后均清空 lru_cache，杜绝跨用例泄漏。"""
-    get_annotation_config.cache_clear()
+    """镜像 test_config_security.py：前后均清空根 Settings 的 lru_cache，杜绝跨用例泄漏。"""
+    get_settings.cache_clear()
     yield
-    get_annotation_config.cache_clear()
+    get_settings.cache_clear()
 
 
 @pytest.fixture()
@@ -59,15 +59,16 @@ def test_health_returns_503_when_disabled_by_default(monkeypatch, db):
     assert "数据标注功能未开启" in resp.text
 
 
-# --- 分支 (b)：cache_clear 后改写当前缓存实例 -> 放行并探活成功 ---
+# --- 分支 (b)：环境变量直读根 Settings（os.environ 优先于 .env）-> 放行并探活成功 ---
 
 
-def test_health_returns_200_when_enabled_via_cached_instance(monkeypatch, db):
+def test_health_returns_200_when_enabled_via_env(monkeypatch, db):
     monkeypatch.delenv("ANNOTATION_ENABLED", raising=False)
-    get_annotation_config.cache_clear()
-    # 刻意不走环境变量：直接改写“当前缓存实例”，证明门禁在请求期
-    # 经真实 Depends 链读取的正是这份缓存配置（stale-state 对抗验证）。
-    get_annotation_config().ENABLED = True
+    get_settings.cache_clear()
+    # 经真实 Depends 链读取配置：门禁在请求期拿到的正是根 Settings
+    # annotation 聚合视图（stale-state 对抗验证：先清缓存再走完整链路）。
+    monkeypatch.setenv("ANNOTATION_ENABLED", "true")
+    get_settings.cache_clear()
 
     resp = _build_client(db).get("/api/annotation/health")
     assert resp.status_code == 200

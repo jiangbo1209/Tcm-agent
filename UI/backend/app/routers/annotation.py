@@ -23,7 +23,7 @@ from app.services import annotation_service
 
 def annotation_gate() -> None:
     """功能总闸：未开启时拒绝一切数据标注端点。"""
-    if not get_annotation_config().ENABLED:
+    if not get_annotation_config().enabled:
         raise HTTPException(
             status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
             detail="数据标注功能未开启",

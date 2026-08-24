@@ -18,7 +18,7 @@ import pytest
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
 
-from app.config import get_annotation_config
+from app.config import get_settings
 from tests.utils import auth_header, make_user
 
 OLD_TS = datetime(2026, 1, 1, 8, 0, 0)
@@ -34,12 +34,11 @@ def _naive_utcnow() -> datetime:
 
 @pytest.fixture(autouse=True)
 def _annotation_enabled(monkeypatch):
-    """镜像 test_annotation_pools：清空 lru_cache 后改写缓存实例放行真实总闸。"""
-    monkeypatch.delenv("ANNOTATION_ENABLED", raising=False)
-    get_annotation_config.cache_clear()
-    get_annotation_config().ENABLED = True
+    """镜像 test_annotation_pools：环境变量直读根 Settings，清空其缓存放行真实总闸。"""
+    monkeypatch.setenv("ANNOTATION_ENABLED", "true")
+    get_settings.cache_clear()
     yield
-    get_annotation_config.cache_clear()
+    get_settings.cache_clear()
 
 
 @pytest.fixture()
@@ -213,41 +212,37 @@ def test_second_claim_conflicts(client, db):
     assert "已有进行中的任务" in second.json()["detail"]
 
 
-def test_max_pending_rework_gate(client, db):
-    cfg = get_annotation_config()
-    assert cfg.ENABLED is True
-    original = cfg.MAX_PENDING_REWORK
-    cfg.MAX_PENDING_REWORK = 1
-    try:
-        annotator = _annotator(db, "reworker")
-        pool = _seed_pool(db, n=10)
+def test_max_pending_rework_gate(monkeypatch, client, db):
+    monkeypatch.setenv("ANNOTATION_MAX_PENDING_REWORK", "1")
+    get_settings.cache_clear()
 
-        from app.models import AnnotationTask, AnnotationTaskItem
+    annotator = _annotator(db, "reworker")
+    pool = _seed_pool(db, n=10)
 
-        old_task = AnnotationTask(
-            pool_id=pool.id,
-            claimed_by=annotator.id,
-            status="completed",
-        )
-        db.add(old_task)
-        db.flush()
-        db.add(
-            AnnotationTaskItem(
-                task_id=old_task.id,
-                table_name="lit",
-                record_id=10001,
-                status="rejected",
-            )
-        )
-        db.commit()
+    from app.models import AnnotationTask, AnnotationTaskItem
 
-        resp = client.post(
-            "/api/annotation/tasks/claim", json={}, headers=auth_header(annotator)
+    old_task = AnnotationTask(
+        pool_id=pool.id,
+        claimed_by=annotator.id,
+        status="completed",
+    )
+    db.add(old_task)
+    db.flush()
+    db.add(
+        AnnotationTaskItem(
+            task_id=old_task.id,
+            table_name="lit",
+            record_id=10001,
+            status="rejected",
         )
-        assert resp.status_code == 409
-        assert "待返工条目过多" in resp.json()["detail"]
-    finally:
-        cfg.MAX_PENDING_REWORK = original
+    )
+    db.commit()
+
+    resp = client.post(
+        "/api/annotation/tasks/claim", json={}, headers=auth_header(annotator)
+    )
+    assert resp.status_code == 409
+    assert "待返工条目过多" in resp.json()["detail"]
 
 
 # --- (d) 代派：两个标注员各得独立任务，条目互不重叠 ------------------------

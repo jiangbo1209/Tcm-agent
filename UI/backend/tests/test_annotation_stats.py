@@ -18,7 +18,7 @@ import sqlalchemy as sa
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
 
-from app.config import get_annotation_config
+from app.config import get_settings
 from tests.utils import auth_header, make_user
 
 CORE_TS = datetime(2026, 1, 15, 8, 0, 0)
@@ -37,12 +37,11 @@ def _naive_utcnow() -> datetime:
 
 @pytest.fixture(autouse=True)
 def _annotation_enabled(monkeypatch):
-    """镜像 test_annotation_items：清空 lru_cache 后改写缓存实例放行真实总闸。"""
-    monkeypatch.delenv("ANNOTATION_ENABLED", raising=False)
-    get_annotation_config.cache_clear()
-    get_annotation_config().ENABLED = True
+    """镜像 test_annotation_items：环境变量直读根 Settings，清空其缓存放行真实总闸。"""
+    monkeypatch.setenv("ANNOTATION_ENABLED", "true")
+    get_settings.cache_clear()
     yield
-    get_annotation_config.cache_clear()
+    get_settings.cache_clear()
 
 
 @pytest.fixture()

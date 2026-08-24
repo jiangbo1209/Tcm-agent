@@ -330,7 +330,7 @@ def _assert_user_can_receive_task(db: Session, user: User) -> None:
     if has_active_task is not None:
         raise ValueError("已有进行中的任务")
 
-    max_pending_rework = get_annotation_config().MAX_PENDING_REWORK
+    max_pending_rework = get_annotation_config().max_pending_rework
     if max_pending_rework > 0:
         rejected_count = (
             db.execute(
@@ -454,7 +454,7 @@ def draw_and_create_task(
         raise ValueError("暂无可领取的任务池")
     drawn_ids = _draw_atomically(db, pool.id, draw_size)
 
-    deadline_days = pool.deadline_days or get_annotation_config().TASK_DEADLINE_DAYS
+    deadline_days = pool.deadline_days or get_annotation_config().task_deadline_days
     now_utc = datetime.now(timezone.utc).replace(tzinfo=None)
     task = AnnotationTask(
         pool_id=pool.id,
@@ -831,7 +831,7 @@ def run_lazy_sweep(db: Session, now: datetime | None = None) -> dict[str, int]:
             },
         )
 
-    rework_days = timedelta(days=get_annotation_config().REWORK_DAYS)
+    rework_days = timedelta(days=get_annotation_config().rework_days)
     released_rework = 0
     # 粗筛后 Python 侧精确比较：col + timedelta 的 SQL 算术在 SQLite 上不可靠
     rejected_candidates = (
@@ -887,7 +887,7 @@ def get_my_rework(db: Session, user: User) -> dict[str, Any]:
         .order_by(AnnotationTaskItem.id.desc())
         .all()
     )
-    rework_days = timedelta(days=get_annotation_config().REWORK_DAYS)
+    rework_days = timedelta(days=get_annotation_config().rework_days)
     now_utc = _utcnow()
     items: list[dict[str, Any]] = []
     for item in rows:
@@ -1234,7 +1234,7 @@ def reject_submission(db: Session, reviewer: User, submission_id: int, comment: 
     task = db.get(AnnotationTask, item.task_id)
     if task is not None and task.status == "completed":
         task.status = "in_progress"
-        task.deadline_at = now_utc + timedelta(days=get_annotation_config().REWORK_DAYS)
+        task.deadline_at = now_utc + timedelta(days=get_annotation_config().rework_days)
     _write_log(
         db,
         table_name=item.table_name,

@@ -48,30 +48,26 @@ class SearchSettings(BaseSettings):
     backend_mode: SearchBackendMode = SearchBackendMode.AUTO
     suggest_default_size: int = 8
 
-
 DEFAULT_JWT_SECRET_KEY = "tcm-agent-secret-key-change-in-production"
 
 
 class AuthSettings(BaseSettings):
     model_config = SettingsConfigDict(env_prefix="JWT_", extra="ignore")
 
-    secret_key: str = DEFAULT_JWT_SECRET_KEY
+    secret_key: str = Field(default=DEFAULT_JWT_SECRET_KEY, alias="JWT_SECRET_KEY")
     expire_minutes: int = 1440
     app_env: str = Field(default="development", alias="APP_ENV")
     file_token_secret: str = Field(default="", alias="FILE_TOKEN_SECRET")
 
 
 class AnnotationSettings(BaseSettings):
-    model_config = SettingsConfigDict(
-        env_prefix="ANNOTATION_", extra="ignore", case_sensitive=True,
-        env_file=(".env", "../.env", "../../.env"),
-        env_file_encoding="utf-8",
-    )
 
-    ENABLED: bool = False
-    TASK_DEADLINE_DAYS: int = 7
-    REWORK_DAYS: int = 5
-    MAX_PENDING_REWORK: int = 0
+    model_config = SettingsConfigDict(env_prefix="ANNOTATION_", extra="ignore")
+
+    enabled: bool = False
+    task_deadline_days: int = 7
+    rework_days: int = 5
+    max_pending_rework: int = 0
 
 
 class Settings(BaseSettings):
@@ -86,6 +82,7 @@ class Settings(BaseSettings):
     upload: UploadConfig = UploadConfig()
     search: SearchSettings = SearchSettings()
     auth: AuthSettings = AuthSettings()
+    annotation: AnnotationSettings = Field(default_factory=AnnotationSettings)
 
     cors_allow_origins: str = "http://127.0.0.1:5500,http://localhost:5500,http://127.0.0.1:8080,http://localhost:8080"
 
@@ -95,9 +92,8 @@ def get_settings() -> Settings:
     return Settings()
 
 
-@lru_cache
 def get_annotation_config() -> AnnotationSettings:
-    return AnnotationSettings()
+    return get_settings().annotation
 
 
 def get_database_config() -> PostgresSettings:
