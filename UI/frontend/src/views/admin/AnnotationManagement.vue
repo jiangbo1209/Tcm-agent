@@ -62,16 +62,99 @@
               <label>截止天数</label>
               <input v-model.number="wizard.deadline_days" type="number" min="1" placeholder="留空使用全局默认" />
             </div>
+            <div class="form-field wiz-toggle-field">
+              <label class="wiz-toggle-label">
+                <input v-model="includeAnnotated" type="checkbox" class="wiz-checkbox" />
+                <span>包含已完成标注（可重新标注）</span>
+              </label>
+            </div>
           </div>
           <div class="wizard-actions">
             <button class="btn-create" :disabled="previewing" @click="handlePreview">
               {{ previewing ? "预览中..." : "预览" }}
             </button>
             <button class="btn-create btn-confirm" :disabled="!canCreate || creating" @click="handleCreatePool">
-              {{ creating ? "建池中..." : "确认建池" }}
+              {{ creating ? "建池中..." : `确认建池（${selectedRecordIds.size} 条）` }}
             </button>
           </div>
           <p v-if="previewText" class="preview-result" data-testid="pool-preview">{{ previewText }}</p>
+
+          <!-- 候选明细表 -->
+          <div v-if="previewResult" class="wiz-preview">
+            <div class="wiz-preview-toolbar">
+              <button class="btn-sm btn-assign" :disabled="allEligibleOnPage.length === 0" @click="toggleSelectAll">
+                {{ isAllSelected() ? "取消本页全选" : "全选本页" }}
+              </button>
+              <span class="wiz-selected-count">已选 <strong>{{ selectedRecordIds.size }}</strong> 条</span>
+            </div>
+            <div class="wiz-table-wrap">
+              <table class="pool-table wiz-preview-table">
+                <thead>
+                  <tr>
+                    <th class="wiz-col-check">
+                      <input
+                        type="checkbox"
+                        class="wiz-checkbox"
+                        :checked="isAllSelected()"
+                        :disabled="allEligibleOnPage.length === 0"
+                        @change="toggleSelectAll"
+                      />
+                    </th>
+                    <th class="wiz-col-id">#ID</th>
+                    <th>标题</th>
+                    <th class="wiz-col-status">数据状态</th>
+                    <th class="wiz-col-year">年份</th>
+                    <th class="wiz-col-pool">入池状态</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  <tr
+                    v-for="item in previewResult.items"
+                    :key="item.record_id"
+                    class="wiz-row"
+                    :class="{ 'wiz-row-disabled': !item.eligible }"
+                  >
+                    <td class="wiz-col-check">
+                      <input
+                        type="checkbox"
+                        class="wiz-checkbox"
+                        :checked="selectedRecordIds.has(item.record_id)"
+                        :disabled="!item.eligible"
+                        @change="toggleRecord(item.record_id, item.eligible)"
+                      />
+                    </td>
+                    <td class="wiz-col-id">{{ item.record_id }}</td>
+                    <td class="wiz-col-title" :title="item.title">{{ item.title }}</td>
+                    <td class="wiz-col-status">
+                      <span class="badge" :class="crawlStatusBadge(item.crawl_status)">{{ crawlStatusLabel(item.crawl_status) }}</span>
+                    </td>
+                    <td class="wiz-col-year">{{ item.pub_year || "—" }}</td>
+                    <td class="wiz-col-pool">
+                      <span v-if="item.eligible" class="badge badge-eligible">可入池</span>
+                      <span v-else class="badge badge-blocked">{{ blockedLabel(item.blocked) }}</span>
+                    </td>
+                  </tr>
+                  <tr v-if="!previewResult.items || previewResult.items.length === 0">
+                    <td colspan="6" class="empty-row">无匹配记录</td>
+                  </tr>
+                </tbody>
+              </table>
+            </div>
+            <div class="wiz-pager">
+              <button
+                class="btn-sm"
+                :disabled="previewPage <= 1 || previewing"
+                @click="goPreviewPage(previewPage - 1)"
+              >上一页</button>
+              <span class="pager-info">第 {{ previewPage }} / {{ previewPageCount }} 页</span>
+              <button
+                class="btn-sm"
+                :disabled="previewPage >= previewPageCount || previewing"
+                @click="goPreviewPage(previewPage + 1)"
+              >下一页</button>
+            </div>
+          </div>
+
           <p v-if="wizardError" class="form-error">{{ wizardError }}</p>
         </div>
       </div>
@@ -597,6 +680,8 @@ function showToast(message, type = "success") {
 }
 
 /* ───────── 建池向导 ───────── */
+const PREVIEW_PAGE_SIZE = 20;
+
 const wizardOpen = ref(true);
 const wizard = ref({
   table_name: "lit",
@@ -606,9 +691,12 @@ const wizard = ref({
   year_max: null,
   deadline_days: null,
 });
+const includeAnnotated = ref(false);
 const previewing = ref(false);
 const creating = ref(false);
-const previewResult = ref(null); // { total_matched, eligible }
+const previewResult = ref(null); // { total_matched, eligible, page, page_size, items }
+const selectedRecordIds = ref(new Set());
+const previewPage = ref(1);
 const wizardError = ref("");
 
 // 任一筛选条件变化后旧预览失效，需重新预览才能建池
@@ -619,23 +707,31 @@ watch(
     wizard.value.crawl_status,
     wizard.value.year_min,
     wizard.value.year_max,
+    includeAnnotated.value,
   ],
   () => {
     previewResult.value = null;
+    selectedRecordIds.value = new Set();
+    previewPage.value = 1;
   }
 );
 
 const previewText = computed(() => {
   if (!previewResult.value) return "";
   const { total_matched, eligible } = previewResult.value;
-  let text = `命中 ${total_matched} 条，可加入 ${eligible} 条`;
+  let text = `命中 ${total_matched} 条，可入池 ${eligible} 条`;
   if (eligible < total_matched) {
     text += `（另有 ${total_matched - eligible} 条已被占用或已完成标注）`;
   }
   return text;
 });
 
-const canCreate = computed(() => !!previewResult.value && previewResult.value.eligible > 0);
+const previewPageCount = computed(() => {
+  if (!previewResult.value) return 1;
+  return Math.max(1, Math.ceil(previewResult.value.total_matched / (previewResult.value.page_size || PREVIEW_PAGE_SIZE)));
+});
+
+const canCreate = computed(() => selectedRecordIds.value.size > 0);
 
 function numOrNull(v) {
   if (v === "" || v === null || v === undefined) return null;
@@ -657,8 +753,15 @@ function filterPayload() {
 async function handlePreview() {
   wizardError.value = "";
   previewing.value = true;
+  selectedRecordIds.value = new Set();
   try {
-    const res = await previewPool(filterPayload());
+    const payload = {
+      ...filterPayload(),
+      include_annotated: includeAnnotated.value,
+      page: previewPage.value,
+      page_size: PREVIEW_PAGE_SIZE,
+    };
+    const res = await previewPool(payload);
     previewResult.value = res.data;
   } catch (e) {
     previewResult.value = null;
@@ -673,18 +776,88 @@ async function handleCreatePool() {
   wizardError.value = "";
   creating.value = true;
   try {
-    const res = await createPool({ ...filterPayload(), deadline_days: numOrNull(wizard.value.deadline_days) });
+    const res = await createPool({
+      ...filterPayload(),
+      include_annotated: includeAnnotated.value,
+      deadline_days: numOrNull(wizard.value.deadline_days),
+      record_ids: [...selectedRecordIds.value],
+    });
     const d = res.data || {};
     let msg = `建池成功：入池 ${d.total} 条`;
     if (d.shortfall > 0) msg += `，另有 ${d.shortfall} 条已被占用或已完成标注未能入池`;
+    if (d.included_approved > 0) msg += `（含已完成标注 ${d.included_approved} 条）`;
     showToast(msg);
     previewResult.value = null;
+    selectedRecordIds.value = new Set();
     await loadPools();
   } catch (e) {
     wizardError.value = e.response?.data?.detail || "建池失败";
   } finally {
     creating.value = false;
   }
+}
+
+/* ── 预览勾选辅助 ── */
+function toggleRecord(recordId, eligible) {
+  if (!eligible) return;
+  const next = new Set(selectedRecordIds.value);
+  if (next.has(recordId)) {
+    next.delete(recordId);
+  } else {
+    next.add(recordId);
+  }
+  selectedRecordIds.value = next;
+}
+
+function toggleSelectAll() {
+  const items = previewResult.value?.items || [];
+  const next = new Set(selectedRecordIds.value);
+  const eligibleIds = items.filter((i) => i.eligible).map((i) => i.record_id);
+  const allSelected = eligibleIds.length > 0 && eligibleIds.every((id) => next.has(id));
+  if (allSelected) {
+    eligibleIds.forEach((id) => next.delete(id));
+  } else {
+    eligibleIds.forEach((id) => next.add(id));
+  }
+  selectedRecordIds.value = next;
+}
+
+function isAllSelected() {
+  const items = previewResult.value?.items || [];
+  const eligibleIds = items.filter((i) => i.eligible).map((i) => i.record_id);
+  return eligibleIds.length > 0 && eligibleIds.every((id) => selectedRecordIds.value.has(id));
+}
+
+const allEligibleOnPage = computed(() => {
+  const items = previewResult.value?.items || [];
+  return items.filter((i) => i.eligible);
+});
+
+function goPreviewPage(page) {
+  if (page < 1 || page > previewPageCount.value) return;
+  selectedRecordIds.value = new Set();
+  previewPage.value = page;
+  handlePreview();
+}
+
+function blockedLabel(blocked) {
+  if (!blocked) return "";
+  const map = { pooled: "已被占用", task: "任务进行中", approved: "已完成标注" };
+  return map[blocked] || blocked;
+}
+
+function crawlStatusBadge(cls) {
+  if (cls === "success") return "badge-crawl-success";
+  if (cls === "partial") return "badge-crawl-partial";
+  if (cls === "failed") return "badge-crawl-failed";
+  return "badge-crawl-default";
+}
+
+function crawlStatusLabel(s) {
+  if (s === "success") return "成功";
+  if (s === "partial") return "部分";
+  if (s === "failed") return "失败";
+  return s || "—";
 }
 
 /* ───────── 池列表 ───────── */
@@ -1327,4 +1500,38 @@ watch(activeTab, (tab) => {
 .toast-error { background: #c62828; color: #fff; }
 .toast-fade-enter-active, .toast-fade-leave-active { transition: opacity 0.25s ease, transform 0.25s ease; }
 .toast-fade-enter-from, .toast-fade-leave-to { opacity: 0; transform: translateY(-8px); }
+
+/* ── 建池向导·明细表 (wiz-*) ── */
+.wiz-toggle-field { display: flex; align-items: flex-end; }
+.wiz-toggle-label { display: flex; align-items: center; gap: 6px; cursor: pointer; font-size: 13px; color: #333; padding-bottom: 8px; }
+.wiz-checkbox { accent-color: #00796b; width: 15px; height: 15px; cursor: pointer; }
+
+.wiz-preview { margin-top: 14px; border: 1px solid #e0e0e0; border-radius: 8px; overflow: hidden; }
+.wiz-preview-toolbar { display: flex; align-items: center; gap: 12px; padding: 8px 12px; background: #f5f5f5; border-bottom: 1px solid #e0e0e0; }
+.wiz-selected-count { margin-left: auto; font-size: 12px; color: #666; }
+.wiz-selected-count strong { color: #00796b; }
+
+.wiz-table-wrap { overflow-x: auto; max-height: 420px; overflow-y: auto; }
+.wiz-preview-table { font-size: 12px; }
+.wiz-preview-table th { position: sticky; top: 0; z-index: 1; background: #f5f5f5; }
+.wiz-col-check { width: 36px; text-align: center; }
+.wiz-col-id { width: 60px; white-space: nowrap; }
+.wiz-col-title { max-width: 320px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.wiz-col-status { width: 80px; white-space: nowrap; }
+.wiz-col-year { width: 60px; white-space: nowrap; }
+.wiz-col-pool { width: 100px; white-space: nowrap; }
+
+.wiz-row-disabled { background: #fafafa; color: #aaa; }
+.wiz-row-disabled td { color: #aaa; }
+.wiz-row-disabled .badge { opacity: 0.6; }
+
+.badge-eligible { background: #e8f5e9; color: #2e7d32; }
+.badge-blocked { background: #f5f5f5; color: #999; }
+.badge-crawl-success { background: #e8f5e9; color: #2e7d32; }
+.badge-crawl-partial { background: #fff8e1; color: #f57f17; }
+.badge-crawl-failed { background: #ffebee; color: #c62828; }
+.badge-crawl-default { background: #f5f5f5; color: #666; }
+
+.wiz-pager { display: flex; align-items: center; justify-content: center; gap: 12px; padding: 8px 12px; border-top: 1px solid #e0e0e0; background: #fafafa; }
+.wiz-pager .btn-sm:disabled { opacity: 0.5; cursor: default; }
 </style>

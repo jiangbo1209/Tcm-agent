@@ -76,8 +76,13 @@ export function listPools() {
 /**
  * 建池预览（管理端，零写入）：POST /api/annotation/admin/pools/preview
  * @param {{ table_name: string, q?: string|null, crawl_status?: string|null,
- *           year_min?: number|null, year_max?: number|null }} payload
- * @returns {Promise<{ total_matched: number, eligible: number }>}
+ *           year_min?: number|null, year_max?: number|null,
+ *           include_annotated?: boolean, page?: number, page_size?: number }} payload
+ * @returns {Promise<{ total_matched: number, eligible: number,
+ *           page: number, page_size: number,
+ *           items: Array<{ record_id: number, title: string, crawl_status: string,
+ *                           pub_year: string|null, eligible: boolean,
+ *                           blocked: null|string }> }>}
  */
 export function previewPool(payload) {
   return request.post("/annotation/admin/pools/preview", payload);
