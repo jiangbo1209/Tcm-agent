@@ -78,23 +78,13 @@
           </svg>
           <span v-if="!isCollapsed">标注工作台</span>
         </router-link>
-
-        <span class="nav-item nav-disabled" title="另行开发">
-          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-            <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"></path>
-            <polyline points="14 2 14 8 20 8"></polyline>
-            <line x1="16" y1="13" x2="8" y2="13"></line>
-            <line x1="16" y1="17" x2="8" y2="17"></line>
-          </svg>
-          <span v-if="!isCollapsed">标注规范</span>
-        </span>
       </template>
 
       <router-link
         v-if="authStore.isAdmin"
         to="/admin"
         class="nav-item"
-        :class="{ active: $route.path.startsWith('/admin') }"
+        :class="{ active: $route.path === '/admin' }"
         :title="isCollapsed ? '数据管理' : undefined"
       >
         <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
@@ -132,16 +122,6 @@
         </svg>
         <span v-if="!isCollapsed">数据标注</span>
       </router-link>
-
-      <span v-if="authStore.isAdmin" class="nav-item nav-disabled" title="另行开发">
-        <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-          <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"></path>
-          <polyline points="14 2 14 8 20 8"></polyline>
-          <line x1="16" y1="13" x2="8" y2="13"></line>
-          <line x1="16" y1="17" x2="8" y2="17"></line>
-        </svg>
-        <span v-if="!isCollapsed">标注规范</span>
-      </span>
 
     </nav>
 
