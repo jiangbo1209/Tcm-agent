@@ -584,8 +584,8 @@ def test_admin_direct_edit_writes_save_direct_log_gate_independent(
     from app.models import AnnotationLog, LitMetadata
     from app.routers.admin import router as admin_router
 
-    # 总闸关闭（无 enabled 环境变量）：save_direct 审计不得依赖 ANNOTATION_ENABLED
-    monkeypatch.delenv("ANNOTATION_ENABLED", raising=False)
+    # 总闸显式关闭：save_direct 审计不得依赖 ANNOTATION_ENABLED
+    monkeypatch.setenv("ANNOTATION_ENABLED", "false")
     get_settings.cache_clear()
     assert get_annotation_config().enabled is False
 

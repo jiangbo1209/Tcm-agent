@@ -53,7 +53,7 @@ def _build_client(db) -> TestClient:
 
 
 def test_health_returns_503_when_disabled_by_default(monkeypatch, db):
-    monkeypatch.delenv("ANNOTATION_ENABLED", raising=False)
+    monkeypatch.setenv("ANNOTATION_ENABLED", "false")
     resp = _build_client(db).get("/api/annotation/health")
     assert resp.status_code == 503
     assert "数据标注功能未开启" in resp.text
@@ -63,11 +63,9 @@ def test_health_returns_503_when_disabled_by_default(monkeypatch, db):
 
 
 def test_health_returns_200_when_enabled_via_env(monkeypatch, db):
-    monkeypatch.delenv("ANNOTATION_ENABLED", raising=False)
-    get_settings.cache_clear()
+    monkeypatch.setenv("ANNOTATION_ENABLED", "true")
     # 经真实 Depends 链读取配置：门禁在请求期拿到的正是根 Settings
     # annotation 聚合视图（stale-state 对抗验证：先清缓存再走完整链路）。
-    monkeypatch.setenv("ANNOTATION_ENABLED", "true")
     get_settings.cache_clear()
 
     resp = _build_client(db).get("/api/annotation/health")
