@@ -4,7 +4,7 @@ Creates both business tables (users, conversations, messages, core_file,
 lit_metadata, med_case, ...) and graph tables (nodes, edges).
 
 Usage:
-    python scripts/init_db.py
+    python UI/backend/scripts/init_db.py
 
 This is idempotent — safe to run multiple times.
 """
@@ -14,7 +14,7 @@ from __future__ import annotations
 import sys
 import os
 
-sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "UI", "backend"))
+sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), "..")))
 
 from app.core.database import engine
 from app.models import (

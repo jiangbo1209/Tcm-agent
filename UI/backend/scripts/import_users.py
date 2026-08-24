@@ -1,21 +1,22 @@
 """批量创建/更新用户账号。
 
 用法:
-    python scripts/import_users.py <文件.csv>
+    python UI/backend/scripts/import_users.py <文件.csv>
 
 CSV 格式 (无表头):
     username,email,password,role
     # role 可选: admin, professional, normal, annotator
     # 以 # 开头的行会被忽略
 
-注意: 请先执行 python scripts/init_db.py 初始化数据库表。
+注意: 请先执行 python UI/backend/scripts/init_db.py 初始化数据库表。
 """
 
+# 把 backend 目录加入 sys.path，以便导入 app 包（与 init_db.py 一致）
 import csv
 import os
 import sys
 
-sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), "..", "UI", "backend")))
+sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), "..")))
 
 from app.core.database import SessionLocal
 from app.models.user import User
@@ -51,7 +52,7 @@ def upsert_user(db, username: str, email: str, password: str, role: str):
 
 def main():
     if len(sys.argv) < 2:
-        print("用法: python scripts/import_users.py <文件.csv>", file=sys.stderr)
+        print("用法: python UI/backend/scripts/import_users.py <文件.csv>", file=sys.stderr)
         sys.exit(1)
 
     csv_path = sys.argv[1]
