@@ -412,7 +412,7 @@ def test_create_writes_audit_log_with_username_snapshot(client, db, admin):
 
 
 def test_preview_default_excludes_approved_include_annotated_exposes(client, db, admin):
-    """① 默认不含 approved 行语义；include_annotated=true 时出现且 eligible=true。"""
+    """R4T3 ①②：默认 approved 行直接排除不进 items；include_annotated=true 时出现且 eligible=true。"""
     ids = _seed_lit(db, n=4)
     _occupy_approved_ever(db, ids[0])
 
@@ -423,9 +423,10 @@ def test_preview_default_excludes_approved_include_annotated_exposes(client, db,
     ).json()
     assert default["total_matched"] == 4
     assert default["eligible"] == 3
-    item0 = next(it for it in default["items"] if it["record_id"] == ids[0])
-    assert item0["eligible"] is False
-    assert item0["blocked"] == "approved"
+    assert len(default["items"]) == 3
+    assert all(it["record_id"] != ids[0] for it in default["items"])
+    assert all("blocked" not in it for it in default["items"])
+    assert all(it["eligible"] is True for it in default["items"])
 
     included = client.post(
         "/api/annotation/admin/pools/preview",
@@ -434,14 +435,16 @@ def test_preview_default_excludes_approved_include_annotated_exposes(client, db,
     ).json()
     assert included["total_matched"] == 4
     assert included["eligible"] == 4
+    assert len(included["items"]) == 4
     item0 = next(it for it in included["items"] if it["record_id"] == ids[0])
     assert item0["eligible"] is True
-    assert item0["blocked"] is None
+    assert "blocked" not in item0
     assert all(it["eligible"] for it in included["items"])
+    assert all("blocked" not in it for it in included["items"])
 
 
 def test_preview_items_mark_blocked_reasons_with_priority(client, db, admin):
-    """② blocked 三类标记各有断言；多命中取 pooled>task>approved 首个；eligible 行 blocked=None。"""
+    """R4T3：blocked 行直接排除不返回；eligible 行恒 True 且无 blocked 键。"""
     ids = _seed_lit(db)  # 6 条
     _occupy_in_other_active_pool(db, ids[0])  # 同时补 approved 制造双重命中
     _occupy_approved_ever(db, ids[0])
@@ -455,16 +458,15 @@ def test_preview_items_mark_blocked_reasons_with_priority(client, db, admin):
     ).json()
     assert body["total_matched"] == 6
     assert body["eligible"] == 3
-
+    assert len(body["items"]) == 3
+    assert all("blocked" not in it for it in body["items"])
+    assert all(it["eligible"] is True for it in body["items"])
+    # 被占用 3 条均不在 items 中
+    assert all(it["record_id"] not in (ids[0], ids[1], ids[2]) for it in body["items"])
     by_id = {it["record_id"]: it for it in body["items"]}
-    assert by_id[ids[0]]["eligible"] is False
-    assert by_id[ids[0]]["blocked"] == "pooled"  # pooled 优先于 approved
-    assert by_id[ids[1]]["blocked"] == "task"
-    assert by_id[ids[2]]["blocked"] == "approved"
-
     ok = by_id[ids[3]]
     assert ok["eligible"] is True
-    assert ok["blocked"] is None
+    assert "blocked" not in ok
     assert ok["title"] == "针灸治疗不孕症研究4"
     assert ok["crawl_status"] == "success"
     assert ok["pub_year"] == "2024"
@@ -533,6 +535,107 @@ def test_preview_case_rows_fallback_title(client, db, admin):
         assert by_id[cid]["pub_year"] is None
         assert by_id[cid]["crawl_status"] is None
         assert by_id[cid]["eligible"] is True
+
+
+# --- (h) R4T3 新增：直接排除已被占用记录 ---------------------------------------
+
+
+def test_preview_r4t3_excludes_pooled_and_task_only_clean_rows(client, db, admin):
+    ids = _seed_lit(db, n=4)
+    _occupy_in_other_active_pool(db, ids[0])
+    _occupy_in_running_task(db, ids[1])
+    body = client.post(
+        "/api/annotation/admin/pools/preview",
+        json=PREVIEW_BODY,
+        headers=auth_header(admin),
+    ).json()
+    assert body["total_matched"] == 4
+    assert body["eligible"] == 2
+    assert len(body["items"]) == 2
+    assert all("blocked" not in it for it in body["items"])
+    assert all(it["eligible"] is True for it in body["items"])
+    assert {it["record_id"] for it in body["items"]} == {ids[2], ids[3]}
+
+
+def test_preview_r4t3_include_annotated_true_contains_approved(client, db, admin):
+    ids = _seed_lit(db, n=4)
+    _occupy_in_other_active_pool(db, ids[0])
+    _occupy_approved_ever(db, ids[1])
+    default = client.post(
+        "/api/annotation/admin/pools/preview",
+        json=PREVIEW_BODY,
+        headers=auth_header(admin),
+    ).json()
+    assert default["eligible"] == 2
+    assert len(default["items"]) == 2
+    assert all(it["record_id"] != ids[1] for it in default["items"])
+    included = client.post(
+        "/api/annotation/admin/pools/preview",
+        json={**PREVIEW_BODY, "include_annotated": True},
+        headers=auth_header(admin),
+    ).json()
+    assert included["eligible"] == 3
+    assert len(included["items"]) == 3
+    approved_item = next(it for it in included["items"] if it["record_id"] == ids[1])
+    assert approved_item["eligible"] is True
+    assert "blocked" not in approved_item
+
+
+def test_preview_r4t3_total_matched_and_eligible_stable(client, db, admin):
+    ids = _seed_lit(db, n=5)
+    _occupy_in_other_active_pool(db, ids[0])
+    _occupy_in_running_task(db, ids[1])
+    _occupy_approved_ever(db, ids[2])
+    body = client.post(
+        "/api/annotation/admin/pools/preview",
+        json=PREVIEW_BODY,
+        headers=auth_header(admin),
+    ).json()
+    assert body["total_matched"] == 5
+    assert body["eligible"] == 2
+    assert body["page"] == 1
+    assert body["page_size"] == 20
+    assert len(body["items"]) == 2
+    included = client.post(
+        "/api/annotation/admin/pools/preview",
+        json={**PREVIEW_BODY, "include_annotated": True},
+        headers=auth_header(admin),
+    ).json()
+    assert included["total_matched"] == 5
+    assert included["eligible"] == 3
+    assert len(included["items"]) == 3
+
+
+def test_preview_r4t3_pagination_on_filtered_set(client, db, admin):
+    ids = _seed_lit(db, n=6)
+    _occupy_in_other_active_pool(db, ids[5])
+    _occupy_in_running_task(db, ids[4])
+    # eligible ids desc = [3,2,1,0] (ids[3] is lit id 4 etc) actually ids sorted asc 1..6
+    # after excluding 6,5 -> remaining ids desc [3,2,1,0] -> ids[3]=4, ids[2]=3, ids[1]=2, ids[0]=1
+    page1 = client.post(
+        "/api/annotation/admin/pools/preview",
+        json=PREVIEW_BODY,
+        params={"page": 1, "page_size": 2},
+        headers=auth_header(admin),
+    ).json()
+    assert page1["total_matched"] == 6
+    assert page1["eligible"] == 4
+    assert [it["record_id"] for it in page1["items"]] == [ids[3], ids[2]]
+    assert all("blocked" not in it for it in page1["items"])
+    page2 = client.post(
+        "/api/annotation/admin/pools/preview",
+        json=PREVIEW_BODY,
+        params={"page": 2, "page_size": 2},
+        headers=auth_header(admin),
+    ).json()
+    assert [it["record_id"] for it in page2["items"]] == [ids[1], ids[0]]
+    page3 = client.post(
+        "/api/annotation/admin/pools/preview",
+        json=PREVIEW_BODY,
+        params={"page": 3, "page_size": 2},
+        headers=auth_header(admin),
+    ).json()
+    assert page3["items"] == []
 
 
 # --- (h) R3 显式 record_ids 建池 -------------------------------------------------

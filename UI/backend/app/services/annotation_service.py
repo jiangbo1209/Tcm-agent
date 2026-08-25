@@ -241,8 +241,9 @@ def preview_pool(
 ) -> dict[str, Any]:
     """只读预览：返回 {total_matched, eligible, page, page_size, items[...]}。
 
-    绝不产生任何 DB 写入。items 按 id desc 分页，逐行内存标记 eligible
-    与 blocked 原因（pooled/task/approved 多命中取首个优先级）。
+    R4T3（D3）：items 在 SQL 层直接排除被占用行（pooled/task/approved），
+    分页 offset/limit 基于排除后的集合；单行 ``blocked`` 字段已移除，
+    ``eligible`` 在结果集中恒为 True。
     """
     model = _validate_table(table_name)
     filters = filters or {}
@@ -252,20 +253,30 @@ def preview_pool(
         db, base.where(*_exclusion_predicates(model, table_name, include_annotated))
     )
 
+    filtered = base.where(*_exclusion_predicates(model, table_name, include_annotated))
     rows = (
         db.execute(
-            base.order_by(model.id.desc())
+            filtered.order_by(model.id.desc())
             .offset((page - 1) * page_size)
             .limit(page_size)
         )
         .scalars()
         .all()
     )
-    page_ids = [row.id for row in rows]
-    pooled, tasked, approved = _occupancy_id_sets(db, table_name, page_ids)
-    items = [
-        _preview_row(row, pooled, tasked, approved, include_annotated) for row in rows
-    ]
+    items: list[dict[str, Any]] = []
+    for record in rows:
+        title = getattr(record, "title", None)
+        if not title:
+            title = f"病案#{record.id}"
+        items.append(
+            {
+                "record_id": record.id,
+                "title": title,
+                "crawl_status": getattr(record, "crawl_status", None),
+                "pub_year": getattr(record, "pub_year", None),
+                "eligible": True,
+            }
+        )
     return {
         "total_matched": total_matched,
         "eligible": eligible,
