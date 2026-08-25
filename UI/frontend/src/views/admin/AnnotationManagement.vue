@@ -646,7 +646,7 @@
 </template>
 
 <script setup>
-import { ref, computed, watch, onMounted } from "vue";
+import { ref, computed, watch, onMounted, onBeforeUnmount } from "vue";
 import {
   listPools,
   previewPool,
@@ -1056,8 +1056,15 @@ async function loadReviewQueue() {
   try {
     const res = await reviewQueueFlat({ page: reviewPage.value, page_size: REVIEW_PAGE_SIZE });
     const d = res.data || {};
-    reviewItems.value = Array.isArray(d.items) ? d.items : [];
-    reviewTotal.value = d.total ?? 0;
+    const total = d.total ?? 0;
+    const items = Array.isArray(d.items) ? d.items : [];
+    if (items.length === 0 && total > 0 && reviewPage.value > 1) {
+      reviewPage.value = 1;
+      reviewLoading.value = false;
+      return loadReviewQueue();
+    }
+    reviewItems.value = items;
+    reviewTotal.value = total;
     selectedReviewIds.value = new Set();
     expandedReviewId.value = null;
   } catch (e) {
@@ -1429,14 +1436,44 @@ async function handleRollback(log) {
   }
 }
 
-onMounted(loadPools);
+let reviewPollTimer = null;
+function startReviewPolling() {
+  stopReviewPolling();
+  if (activeTab.value === "review") {
+    reviewPollTimer = setInterval(() => {
+      if (activeTab.value === "review" && !reviewLoading.value && !batchActing.value && !actingId.value) {
+        loadReviewQueue();
+      }
+    }, 15000);
+  }
+}
+function stopReviewPolling() {
+  if (reviewPollTimer) {
+    clearInterval(reviewPollTimer);
+    reviewPollTimer = null;
+  }
+}
 
-// 进入复核/看板/导出/回滚页签时按需拉取数据
+onMounted(() => {
+  loadPools();
+  startReviewPolling();
+});
+
 watch(activeTab, (tab) => {
-  if (tab === "review") loadReviewQueue();
-  else if (tab === "board") loadBoard();
-  else if (tab === "export") loadExportOptions();
-  else if (tab === "rollback") resetAndLoadLogs();
+  if (tab === "review") {
+    reviewPage.value = 1;
+    loadReviewQueue();
+    startReviewPolling();
+  } else {
+    stopReviewPolling();
+    if (tab === "board") loadBoard();
+    else if (tab === "export") loadExportOptions();
+    else if (tab === "rollback") resetAndLoadLogs();
+  }
+});
+
+onBeforeUnmount(() => {
+  stopReviewPolling();
 });
 </script>
 

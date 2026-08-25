@@ -524,7 +524,6 @@ function normalizeRework(raw) {
 async function pollRework() {
   try {
     const res = await getMyRework();
-    // T7 契约未定，兼容 { count | items } 与数组两种返回形状
     const data = res.data;
     if (Array.isArray(data)) {
       reworkItems.value = data.map(normalizeRework);
@@ -535,8 +534,12 @@ async function pollRework() {
         reworkItems.value = data.items.map(normalizeRework);
       }
     }
+    if (reworkCount.value > 0 && taskCompleted.value) {
+      taskCompleted.value = false;
+      submitResult.value = null;
+      await loadCurrentTask();
+    }
   } catch {
-    // T7 落地前端点缺失（404）/网络失败：徽标隐藏，不打扰用户
     reworkCount.value = 0;
     reworkItems.value = [];
   }
@@ -587,14 +590,23 @@ function reworkCountdownText(entry) {
   return dd > 0 ? `${dd}天 ${hh}:${mm}` : `${hh}:${mm}`;
 }
 
-function openReworkInEditor(entry) {
-  // 返工重做走同一条 draftItem 流程：仅当条目属于当前进行中任务时可打开
-  const target = items.value.find((it) => it.id === entry.itemId);
+async function openReworkInEditor(entry) {
+  if (taskCompleted.value) {
+    taskCompleted.value = false;
+    submitResult.value = null;
+    await loadCurrentTask();
+  }
+  let target = items.value.find((it) => it.id === entry.itemId);
+  if (!target) {
+    await loadCurrentTask();
+    target = items.value.find((it) => it.id === entry.itemId);
+  }
   if (!target) {
     showToast("该返工条目不在当前任务中，请先完成当前批次或重新领取", "warn");
     return;
   }
   reworkDrawerOpen.value = false;
+  activeFilter.value = "all";
   selectItem(target, true);
 }
 
