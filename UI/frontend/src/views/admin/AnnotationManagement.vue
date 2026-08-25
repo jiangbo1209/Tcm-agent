@@ -207,6 +207,9 @@
                 <button v-if="pool.status !== 'closed'" class="btn-sm btn-delete" @click="closePool(pool)">
                   关闭
                 </button>
+                <button v-if="pool.status === 'closed'" class="btn-sm btn-delete" @click="handleDeletePool(pool)">
+                  删除
+                </button>
                 <button class="btn-sm btn-priority" @click="changePriority(pool, 1)">优先级+1</button>
                 <button class="btn-sm btn-priority" @click="changePriority(pool, -1)">优先级-1</button>
               </td>
@@ -628,6 +631,7 @@ import {
   previewPool,
   createPool,
   updatePool,
+  deletePool,
   assignTasks,
   reviewQueue,
   approveSubmission,
@@ -908,6 +912,18 @@ async function closePool(pool) {
     await loadPools();
   } catch (e) {
     alert(e.response?.data?.detail || "关闭失败");
+    await loadPools();
+  }
+}
+
+async function handleDeletePool(pool) {
+  if (!confirm(`删除任务池 #${pool.id}？未领取的条目将回到候选空间。`)) return;
+  try {
+    await deletePool(pool.id);
+    showToast(`任务池 #${pool.id} 已删除`);
+    await loadPools();
+  } catch (e) {
+    alert(e.response?.data?.detail || "删除失败");
     await loadPools();
   }
 }

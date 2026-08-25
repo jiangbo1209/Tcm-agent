@@ -107,6 +107,16 @@ export function updatePool(poolId, payload) {
 }
 
 /**
+ * 删除已关闭的任务池：DELETE /api/annotation/admin/pools/{poolId}
+ * 仅 closed 状态的池可删除；非 closed 返回 409（detail="仅已关闭的任务池可删除"），
+ * 不存在返回 404。删除后池内未领取的条目将回到候选空间。
+ * @param {number|string} poolId
+ */
+export function deletePool(poolId) {
+  return request.delete(`/annotation/admin/pools/${poolId}`);
+}
+
+/**
  * 管理员代派：POST /api/annotation/admin/tasks/assign
  * body { pool_id, user_ids }；响应 { results: [{ user_id, ok, task_id?, count?, error? }] }
  */
