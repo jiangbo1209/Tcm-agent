@@ -687,7 +687,7 @@ const TABS = [
   { key: "review", label: "复核队列", testid: "review-tab" },
   { key: "board", label: "看板", testid: "board-tab" },
   { key: "export", label: "导出", testid: "export-tab" },
-  { key: "rollback", label: "回滚", testid: "rollback-tab" },
+  { key: "rollback", label: "操作记录", testid: "rollback-tab" },
 ];
 const activeTab = ref("pools");
 
@@ -1341,7 +1341,15 @@ function handleExportCsv() {
 /* ───────── 回滚日志 ───────── */
 const LOG_ACTIONS = [
   "approve",
+  "reject",
+  "expire",
+  "rollback",
   "save_direct",
+  "claim",
+  "assign",
+  "draft",
+  "no_change",
+  "submit",
 ];
 const ACTION_META = {
   approve: { label: "通过", cls: "badge-action-approve" },
