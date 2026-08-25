@@ -141,14 +141,14 @@ def test_my_history_basic_and_isolation_and_order_and_title(client, db):
     lit_id2 = _seed_lit(db, 102, "针灸治疗B")
     case_id = _seed_case(db, 201)
 
-    # create 3 submissions for annotator: approved, rejected, draft across lit/case
+    # create 3 submissions for annotator: approved, rejected, expired across lit/case (draft excluded from history per R7)
     _seed_history_via_direct_insert(
         db,
         annotator,
         [
             ("lit", lit_id1, "approved"),
             ("case", case_id, "rejected"),
-            ("lit", lit_id2, "draft"),
+            ("lit", lit_id2, "expired"),
         ],
     )
     # other annotator one submission - should not appear
@@ -164,13 +164,11 @@ def test_my_history_basic_and_isolation_and_order_and_title(client, db):
     # id desc
     ids = [it["submission_id"] for it in data["items"]]
     assert ids == sorted(ids, reverse=True)
-    # status set
     statuses = {it["status"] for it in data["items"]}
-    assert statuses == {"approved", "rejected", "draft"}
-    # title: lit真标题, case兜底 病案#{record_id}
+    assert statuses == {"approved", "rejected", "expired"}
     by_status = {it["status"]: it for it in data["items"]}
     assert by_status["approved"]["title"] == "针灸治疗A"
-    assert by_status["draft"]["title"] == "针灸治疗B"
+    assert by_status["expired"]["title"] == "针灸治疗B"
     assert by_status["rejected"]["title"] == f"病案#{case_id}"
     # fields per spec
     for it in data["items"]:
@@ -220,7 +218,6 @@ def test_my_history_pagination(client, db):
 
 
 def test_my_history_gate_503(monkeypatch, db):
-    # when disabled gate returns 503
     monkeypatch.setenv("ANNOTATION_ENABLED", "false")
     get_settings.cache_clear()
     from app.core.database import get_db
@@ -234,3 +231,42 @@ def test_my_history_gate_503(monkeypatch, db):
     r = c.get(HISTORY_URL, headers=auth_header(annot))
     assert r.status_code == 503
     get_settings.cache_clear()
+
+
+def test_my_history_excludes_draft(client, db):
+    annotator = make_user(db, "hist-draft-ex", role="annotator")
+    lit_id = _seed_lit(db, 301, "draft排除标题")
+    lit_id2 = _seed_lit(db, 302, "有效标题")
+    _seed_history_via_direct_insert(db, annotator, [("lit", lit_id, "draft")])
+    _seed_history_via_direct_insert(db, annotator, [("lit", lit_id2, "approved")])
+    resp = client.get(HISTORY_URL, headers=auth_header(annotator))
+    assert resp.status_code == 200
+    data = resp.json()
+    assert data["total"] == 1
+    assert len(data["items"]) == 1
+    assert data["items"][0]["status"] == "approved"
+    assert all(it["status"] != "draft" for it in data["items"])
+
+
+def test_my_history_orphan_not_counted(client, db):
+    from app.models import AnnotationSubmission
+
+    annotator = make_user(db, "hist-orphan", role="annotator")
+    lit_id = _seed_lit(db, 401, "孤儿标题")
+    _seed_history_via_direct_insert(db, annotator, [("lit", lit_id, "approved")])
+    orphan_sub = AnnotationSubmission(
+        item_id=999999,
+        annotator_id=annotator.id,
+        username=annotator.username,
+        proposed_fields={"title": "orphan"},
+        base_updated_at=CORE_TS,
+        status="approved",
+    )
+    db.add(orphan_sub)
+    db.commit()
+    resp = client.get(HISTORY_URL, headers=auth_header(annotator))
+    assert resp.status_code == 200
+    data = resp.json()
+    assert data["total"] == 1
+    assert len(data["items"]) == 1
+    assert data["total"] == len(data["items"])

@@ -1246,7 +1246,12 @@ def my_annotation_history(
     纯只读，不触事务；page/page_size 合法性由路由层校验。
     """
 
-    base = db.query(AnnotationSubmission).filter(AnnotationSubmission.annotator_id == user.id)
+    base = db.query(AnnotationSubmission).join(
+        AnnotationTaskItem, AnnotationTaskItem.id == AnnotationSubmission.item_id
+    ).filter(
+        AnnotationSubmission.annotator_id == user.id,
+        AnnotationSubmission.status != "draft",
+    )
     total = base.count()
     submissions: list[AnnotationSubmission] = (
         base.order_by(AnnotationSubmission.id.desc())
