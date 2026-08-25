@@ -138,7 +138,7 @@
               上一条
             </button>
             <span class="nav-info">
-              第 {{ currentIndex + 1 }}/{{ filteredItems.length }} 条
+              第 {{ currentIndex >= 0 ? currentIndex + 1 : "—" }}/{{ filteredItems.length }} 条
               <span
                 v-if="editingItem"
                 class="status-badge"
@@ -401,12 +401,7 @@ function isDraftedModifiedItem(it) {
 const visibleChips = computed(() => {
   const hasProposals = items.value.some((it) => it.proposedFields != null);
   const hasDrafted = items.value.some((it) => it.status === "drafted");
-  return FILTER_CHIPS.filter((chip) => {
-    // 「无需修改」子项仅当条目形状携带提案信息时才展示
-    if (chip.key === "drafted_no_change") return hasProposals;
-    // drafted 父级始终展示（有子项结构即可）；子项在 drafted 父级展示时一并展示
-    return true;
-  }).map((chip) => {
+  return FILTER_CHIPS.map((chip) => {
     if (chip.children && hasDrafted) {
       return {
         ...chip,
