@@ -1765,7 +1765,7 @@ def rollback_log(db: Session, reviewer: User, log_id: int) -> dict[str, Any]:
 # 覆盖率统计覆盖的核心表（与 _TABLE_MAP 的键保持一致）
 _COVERAGE_TABLES = ("lit", "case", "guideline")
 # CSV 表头（顺序即列序，逐字符对外契约）
-_WORKLOAD_CSV_HEADER = ("date", "username", "table_name", "record_id", "item_status", "review_outcome")
+_WORKLOAD_CSV_HEADER = ("date", "username", "table_name", "record_id", "title", "item_status", "review_outcome")
 
 
 def dashboard_stats(db: Session) -> dict[str, Any]:
@@ -1912,17 +1912,40 @@ def export_workload_csv(
         for submission in submissions:
             latest_submission[submission.item_id] = submission
 
+    title_by_key: dict[tuple[str, int], str] = {}
+    if rows:
+        grouped_ids: dict[str, set[int]] = {}
+        for item, *_ in rows:
+            grouped_ids.setdefault(item.table_name, set()).add(int(item.record_id))
+        for table_name, ids in grouped_ids.items():
+            model = _TABLE_MAP.get(table_name)
+            if model is None:
+                for rid in ids:
+                    title_by_key[(table_name, rid)] = f"病案#{rid}"
+                continue
+            records = db.query(model).filter(model.id.in_(list(ids))).all()
+            id_to_title: dict[int, str] = {}
+            for rec in records:
+                t = getattr(rec, "title", None)
+                if not t:
+                    t = f"病案#{rec.id}"
+                id_to_title[int(rec.id)] = str(t)
+            for rid in ids:
+                title_by_key[(table_name, rid)] = id_to_title.get(rid, f"病案#{rid}")
+
     buffer = io.StringIO()
     writer = csv.writer(buffer)
     writer.writerow(_WORKLOAD_CSV_HEADER)
     for item, _task, username in rows:
         submission = latest_submission.get(item.id)
+        title = title_by_key.get((item.table_name, int(item.record_id)), f"病案#{item.record_id}")
         writer.writerow(
             [
                 item.created_at.date().isoformat() if item.created_at is not None else "",
                 username or "-",
                 item.table_name,
                 item.record_id,
+                title,
                 item.status,
                 submission.status if submission is not None else "-",
             ]

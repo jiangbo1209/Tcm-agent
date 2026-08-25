@@ -23,7 +23,7 @@ from tests.utils import auth_header, make_user
 
 CORE_TS = datetime(2026, 1, 15, 8, 0, 0)
 
-CSV_HEADER = "date,username,table_name,record_id,item_status,review_outcome"
+CSV_HEADER = "date,username,table_name,record_id,title,item_status,review_outcome"
 STATS_URL = "/api/annotation/admin/stats"
 EXPORT_URL = "/api/annotation/admin/export.csv"
 
@@ -414,11 +414,15 @@ def test_export_csv_rows_content_and_ordering(client, db, admin):
         latest_sub_status[it.id] = subs[-1].status
 
     for row, it in zip(rows, expected_items):
-        date_str, username, table_name, record_id, item_status, review_outcome = row
+        date_str, username, table_name, record_id, title, item_status, review_outcome = row
         assert date_str == it.created_at.date().isoformat()
         assert username == ann.username
         assert table_name == "lit"
         assert int(record_id) == it.record_id
+        from app.models import LitMetadata
+
+        expected_title = db.query(LitMetadata).filter(LitMetadata.id == it.record_id).one().title
+        assert title == expected_title
         assert item_status == it.status
         assert review_outcome == latest_sub_status[it.id]
     assert [int(r[3]) for r in rows] == [it.record_id for it in expected_items], (
