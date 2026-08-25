@@ -1,8 +1,0 @@
-R4T8 我的标注历史 - evidence
-- service my_annotation_history: annotator_id==user.id, join task_item, join core title fallback 病案#id
-- router GET /api/annotation/my/history page ge1 page_size 1..100 default20 require_annotator gate
-- tests/test_annotation_history.py 3 passed (RED->GREEN)
-- full regression: 223 passed, 1 failed (test_pg_concurrent_claims_exactly_one_winner allowed), 2 skipped
-- frontend: api myAnnotationHistory GET /my/history, workbench header 我的标注 button + drawer history-drawer + pagination
-- build exit 0
-- grep my/history in api & router && 模板含 我的标注 OK
