@@ -19,8 +19,21 @@
 
     <!-- ═══════════ 任务池 ═══════════ -->
     <template v-if="activeTab === 'pools'">
+      <!-- 任务池子页签 -->
+      <div class="pool-subtabs">
+        <button
+          v-for="st in POOL_SUB_TABS"
+          :key="st.key"
+          class="pool-subtab"
+          :class="{ 'pool-subtab-active': poolSubTab === st.key }"
+          @click="poolSubTab = st.key"
+        >
+          {{ st.label }}
+        </button>
+      </div>
+
       <!-- 建池向导 -->
-      <div class="wizard-card">
+      <div v-if="poolSubTab === 'create'" class="wizard-card">
         <div class="wizard-header" @click="wizardOpen = !wizardOpen">
           <h2>建池向导</h2>
           <button class="btn-sm btn-wizard-toggle" type="button">
@@ -61,11 +74,11 @@
             <div class="form-field">
               <label>截止天数</label>
               <input v-model.number="wizard.deadline_days" type="number" min="1" placeholder="留空使用全局默认" />
-            </div>
+            </div>  
             <div class="form-field wiz-toggle-field">
               <label class="wiz-toggle-label">
                 <input v-model="includeAnnotated" type="checkbox" class="wiz-checkbox" />
-                <span>包含已完成标注（可重新标注）</span>
+                <span>包含已完成标注</span>
               </label>
             </div>
           </div>
@@ -73,8 +86,11 @@
             <button class="btn-create" :disabled="previewing" @click="handlePreview">
               {{ previewing ? "预览中..." : "预览" }}
             </button>
+            <button class="btn-create btn-select-all" :class="{ 'btn-select-all-active': selectAllMode }" @click="toggleSelectAllMode">
+              {{ selectAllMode ? "已选全部命中 · 取消全选" : "勾选所有命中" }}
+            </button>
             <button class="btn-create btn-confirm" :disabled="!canCreate || creating" @click="handleCreatePool">
-              {{ creating ? "建池中..." : `确认建池（${selectedRecordIds.size} 条）` }}
+              {{ creating ? "建池中..." : (selectAllMode ? "确认建池（全部命中）" : `确认建池（${selectedRecordIds.size} 条）`) }}
             </button>
           </div>
           <p v-if="previewText" class="preview-result" data-testid="pool-preview">{{ previewText }}</p>
@@ -160,6 +176,7 @@
       </div>
 
       <!-- 池列表 -->
+      <template v-if="poolSubTab === 'pools'">
       <div v-if="poolsLoading" class="loading">加载中...</div>
       <div v-else class="table-wrap">
         <table class="pool-table" data-testid="pool-table">
@@ -220,6 +237,8 @@
           </tbody>
         </table>
       </div>
+      </template>
+
     </template>
 
     <!-- ═══════════ 复核队列 ═══════════ -->
@@ -653,6 +672,13 @@ const TABS = [
 ];
 const activeTab = ref("pools");
 
+/* ───────── 任务池子页签 ───────── */
+const POOL_SUB_TABS = [
+  { key: "create", label: "新建任务" },
+  { key: "pools", label: "进行中任务" },
+];
+const poolSubTab = ref("create");
+
 /* ───────── 字典 ───────── */
 const TABLE_LABELS = { lit: "文献元数据", case: "病案元数据", guideline: "指南元数据" };
 const STATUS_META = {
@@ -700,6 +726,7 @@ const previewing = ref(false);
 const creating = ref(false);
 const previewResult = ref(null); // { total_matched, eligible, page, page_size, items }
 const selectedRecordIds = ref(new Set());
+const selectAllMode = ref(false);
 const previewPage = ref(1);
 const wizardError = ref("");
 
@@ -716,6 +743,7 @@ watch(
   () => {
     previewResult.value = null;
     selectedRecordIds.value = new Set();
+    selectAllMode.value = false;
     previewPage.value = 1;
   }
 );
@@ -735,7 +763,7 @@ const previewPageCount = computed(() => {
   return Math.max(1, Math.ceil(previewResult.value.total_matched / (previewResult.value.page_size || PREVIEW_PAGE_SIZE)));
 });
 
-const canCreate = computed(() => selectedRecordIds.value.size > 0);
+const canCreate = computed(() => selectedRecordIds.value.size > 0 || selectAllMode.value);
 
 function numOrNull(v) {
   if (v === "" || v === null || v === undefined) return null;
@@ -781,12 +809,16 @@ async function handleCreatePool() {
   wizardError.value = "";
   creating.value = true;
   try {
-    const res = await createPool({
+    const base = {
       ...filterPayload(),
       include_annotated: includeAnnotated.value,
       deadline_days: numOrNull(wizard.value.deadline_days),
-      record_ids: [...selectedRecordIds.value],
-    });
+    };
+    // selectAllMode: 不传 record_ids，后端走筛选全量路径
+    const payload = selectAllMode.value
+      ? base
+      : { ...base, record_ids: [...selectedRecordIds.value] };
+    const res = await createPool(payload);
     const d = res.data || {};
     let msg = `建池成功：入池 ${d.total} 条`;
     if (d.shortfall > 0) msg += `，另有 ${d.shortfall} 条已被占用或已完成标注未能入池`;
@@ -794,6 +826,7 @@ async function handleCreatePool() {
     showToast(msg);
     previewResult.value = null;
     selectedRecordIds.value = new Set();
+    selectAllMode.value = false;
     await loadPools();
   } catch (e) {
     wizardError.value = e.response?.data?.detail || "建池失败";
@@ -803,6 +836,17 @@ async function handleCreatePool() {
 }
 
 /* ── 预览勾选辅助 ── */
+function toggleSelectAllMode() {
+  if (selectAllMode.value) {
+    // 取消全选
+    selectAllMode.value = false;
+  } else {
+    // 勾选所有命中：清空逐条选中，启用全量模式
+    selectedRecordIds.value = new Set();
+    selectAllMode.value = true;
+  }
+}
+
 function toggleRecord(recordId, eligible) {
   if (!eligible) return;
   const next = new Set(selectedRecordIds.value);
@@ -841,6 +885,7 @@ const allEligibleOnPage = computed(() => {
 function goPreviewPage(page) {
   if (page < 1 || page > previewPageCount.value) return;
   selectedRecordIds.value = new Set();
+  selectAllMode.value = false;
   previewPage.value = page;
   handlePreview();
 }
@@ -1330,6 +1375,13 @@ watch(activeTab, (tab) => {
 
 .loading { text-align: center; padding: 48px 0; color: #999; font-size: 14px; }
 
+/* ── 任务池子页签 ── */
+.pool-subtabs { display: flex; gap: 8px; margin-bottom: 14px; }
+.pool-subtab { padding: 6px 18px; border: 1px solid #d0d0d0; border-radius: 16px; background: #fff; font-size: 13px; color: #666; cursor: pointer; }
+.pool-subtab:hover { border-color: #00796b; color: #00796b; }
+.pool-subtab-active { background: #00796b; border-color: #00796b; color: #fff; font-weight: 500; }
+.pool-subtab-active:hover { color: #fff; }
+
 /* ── 建池向导 ── */
 .wizard-card { border: 1px solid #e0e0e0; border-radius: 10px; margin-bottom: 20px; background: #fff; overflow: hidden; }
 .wizard-header { display: flex; align-items: center; justify-content: space-between; padding: 12px 16px; cursor: pointer; user-select: none; }
@@ -1356,6 +1408,10 @@ watch(activeTab, (tab) => {
 .btn-confirm { background: #ff8f00; }
 .btn-confirm:hover { background: #f57c00; }
 .btn-confirm:disabled { opacity: 0.5; cursor: default; }
+.btn-select-all { background: #5e35b1; }
+.btn-select-all:hover { background: #4527a0; }
+.btn-select-all-active { background: #c62828; }
+.btn-select-all-active:hover { background: #b71c1c; }
 
 .preview-result { margin: 12px 0 0; padding: 8px 12px; border-radius: 6px; background: #e0f2f1; color: #00695c; font-size: 13px; }
 .form-error { color: #c62828; font-size: 12px; margin: 10px 0 0; }
