@@ -295,7 +295,7 @@ def test_happy_rollback_restores_core_and_appends_new_log(client, db, admin):
 # --- (b) roundtrip：对 rollback 日志再回滚 -> 变更后的值又回来了 ---------------
 
 
-def test_roundtrip_rollback_twice_restores_changed_value(client, db, admin):
+def test_roundtrip_rollback_twice_blocked_by_whitelist(client, db, admin):
     from app.models import LitMetadata
 
     _annotator, _task_id, items, subs = _submit_batch(
@@ -311,8 +311,8 @@ def test_roundtrip_rollback_twice_restores_changed_value(client, db, admin):
 
     rollback_log_id = first.json()["log_id"]
     second = client.post(f"{LOGS_URL}/{rollback_log_id}/rollback", headers=auth_header(admin))
-    assert second.status_code == 200
-    assert db.get(LitMetadata, record_id).journal == "新期刊", "对回滚日志再回滚应还原变更值"
+    assert second.status_code == 400
+    assert "不支持回滚" in second.json()["detail"]
 
 
 # --- (c) 过滤条件 AND 组合 / 分页 / 参数校验 -----------------------------------
@@ -472,9 +472,9 @@ def test_rollback_rejects_logs_without_old_fields(client, db, admin):
 
     resp = client.post(f"{LOGS_URL}/{claim_log.id}/rollback", headers=auth_header(admin))
     assert resp.status_code == 400
-    assert "该日志不含可回滚的字段变更" in resp.json()["detail"]
+    assert "不支持回滚" in resp.json()["detail"]
 
-    # old_fields={} 同样不可回滚：空 diff 批准日志
+    # old_fields={} 同样不可回滚：空 diff 批准日志（approve 在白名单内，故走 old_fields 校验）
     _ann2, _t2, _i2, subs2 = _submit_batch(db, client, n=1, fields=[{}], prefix="t9e2")
     assert _approve(client, admin, subs2[0].id).json()["status"] == "approved"
     empty_log = (
@@ -488,6 +488,31 @@ def test_rollback_rejects_logs_without_old_fields(client, db, admin):
     assert "该日志不含可回滚的字段变更" in resp2.json()["detail"]
 
     assert db.query(AnnotationLog).filter(AnnotationLog.action == "rollback").count() == 0
+
+
+def test_rollback_whitelist_guards_claim_and_rollback_actions(client, db, admin):
+    from app.models import AnnotationLog
+
+    _ann, _tid, _items, subs = _submit_batch(db, client, n=1, fields=[{"title": "白名单稿"}], prefix="t9w")
+    assert _approve(client, admin, subs[0].id).json()["status"] == "approved"
+
+    claim_log = db.query(AnnotationLog).filter(AnnotationLog.action == "claim").first()
+    assert claim_log is not None
+    resp_claim = client.post(f"{LOGS_URL}/{claim_log.id}/rollback", headers=auth_header(admin))
+    assert resp_claim.status_code == 400
+    assert "不支持回滚" in resp_claim.json()["detail"]
+
+    approve_log = (
+        db.query(AnnotationLog)
+        .filter(AnnotationLog.action == "approve", AnnotationLog.submission_id == subs[0].id)
+        .one()
+    )
+    resp_approve = client.post(f"{LOGS_URL}/{approve_log.id}/rollback", headers=auth_header(admin))
+    assert resp_approve.status_code == 200
+    rollback_id = resp_approve.json()["log_id"]
+    resp_rollback = client.post(f"{LOGS_URL}/{rollback_id}/rollback", headers=auth_header(admin))
+    assert resp_rollback.status_code == 400
+    assert "不支持回滚" in resp_rollback.json()["detail"]
 
 
 # --- (f) 乐观锁冲突：读到快照之后、写入之前核心行被人改动 -> 409 ----------------
@@ -544,13 +569,12 @@ def test_rollback_unknown_log_and_missing_core_404(client, db, admin):
         record_id=record_ids[0],
         actor_id=None,
         username="system",
-        action="draft",
+        action="approve",
         old_fields={"title": "孤儿旧值"},
         new_fields={"title": "孤儿新值"},
     )
     db.add(orphan_log)
     db.commit()
-    # 核心行随后被删（核心表删除不受 append-only 约束；annotation_logs 不动）
     db.query(LitMetadata).filter(LitMetadata.id == record_ids[0]).delete()
     db.commit()
 

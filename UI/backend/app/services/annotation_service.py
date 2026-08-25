@@ -91,6 +91,13 @@ def _exclusion_predicates(
     (c) 曾有 status='approved' 的 annotation_task_items（永久占用）——
         include_annotated=True 时跳过 (c)，曾 approved 的记录可重新入池。
     """
+    has_expired = (
+        select(AnnotationTaskItem.id).where(
+            AnnotationTaskItem.table_name == table_name,
+            AnnotationTaskItem.record_id == model.id,
+            AnnotationTaskItem.status == "expired",
+        )
+    )
     in_blocking_pool = (
         select(AnnotationPoolItem.id)
         .join(AnnotationPool, AnnotationPool.id == AnnotationPoolItem.pool_id)
@@ -98,6 +105,7 @@ def _exclusion_predicates(
             AnnotationPoolItem.table_name == table_name,
             AnnotationPoolItem.record_id == model.id,
             AnnotationPool.status.in_(_BLOCKING_POOL_STATUSES),
+            ~exists(has_expired),
         )
     )
     in_running_task = (
@@ -107,6 +115,7 @@ def _exclusion_predicates(
             AnnotationTaskItem.table_name == table_name,
             AnnotationTaskItem.record_id == model.id,
             AnnotationTask.status.in_(_ACTIVE_TASK_STATUSES),
+            AnnotationTaskItem.status != "expired",
         )
     )
     predicates = [~exists(in_blocking_pool), ~exists(in_running_task)]
@@ -148,6 +157,15 @@ def _occupancy_id_sets(
     """批量求三类占用 id 集合：(池占用, 任务占用, 曾 approved)。"""
     if not record_ids:
         return set(), set(), set()
+    expired_ids = set(
+        db.execute(
+            select(AnnotationTaskItem.record_id).where(
+                AnnotationTaskItem.table_name == table_name,
+                AnnotationTaskItem.record_id.in_(record_ids),
+                AnnotationTaskItem.status == "expired",
+            )
+        ).scalars()
+    )
     pooled = set(
         db.execute(
             select(AnnotationPoolItem.record_id)
@@ -159,6 +177,7 @@ def _occupancy_id_sets(
             )
         ).scalars()
     )
+    pooled = pooled - expired_ids
     tasked = set(
         db.execute(
             select(AnnotationTaskItem.record_id)
@@ -167,6 +186,7 @@ def _occupancy_id_sets(
                 AnnotationTaskItem.table_name == table_name,
                 AnnotationTaskItem.record_id.in_(record_ids),
                 AnnotationTask.status.in_(_ACTIVE_TASK_STATUSES),
+                AnnotationTaskItem.status != "expired",
             )
         ).scalars()
     )
@@ -1470,12 +1490,21 @@ def approve_submission(db: Session, reviewer: User, submission_id: int) -> dict[
             updated_at=submission.base_updated_at.isoformat(),
         )
     except StaleRecordError:
-        # 基准冲突：提交单转 expired 归档，条目进返工箱等标注员重做。
         submission.status = "expired"
         submission.reviewed_at = now_utc
         submission.reviewer_id = reviewer.id
-        item.status = "rejected"
-        item.rejected_at = now_utc
+        item.status = "expired"
+        pool_item = (
+            db.query(AnnotationPoolItem)
+            .filter(
+                AnnotationPoolItem.table_name == item.table_name,
+                AnnotationPoolItem.record_id == item.record_id,
+                AnnotationPoolItem.status == "assigned",
+            )
+            .first()
+        )
+        if pool_item is not None:
+            pool_item.status = "available"
         _write_log(
             db,
             table_name=item.table_name,
@@ -1637,10 +1666,13 @@ def rollback_log(db: Session, reviewer: User, log_id: int) -> dict[str, Any]:
     - 乐观锁与审批同源（approve_submission）：以读取时的核心行 updated_at 为
       基准传入 update_record，期间被人改过即 StaleRecordError ->
       ValueError（路由映射 409），核心表保持不动、不留任何审计行。
+    - 白名单：仅 action in {approve, save_direct} 可回滚（决议A），其余 400。
     """
     source = db.get(AnnotationLog, log_id)
     if source is None:
         raise AnnotationNotFoundError("日志不存在")
+    if source.action not in {"approve", "save_direct"}:
+        raise AnnotationFieldValidationError("该动作不支持回滚")
 
     restore_fields = dict(source.old_fields) if source.old_fields else {}
     if not restore_fields:

@@ -414,7 +414,8 @@ def test_approve_reuses_update_record_side_effects(client, db, admin):
 
 
 def test_stale_base_expires_one_item_others_independent(client, db, admin):
-    from app.models import LitMetadata
+    from app.models import AnnotationPoolItem, LitMetadata
+    from app.services import annotation_service
 
     _annotator, _task_id, items, subs = _submit_batch(
         db, client, n=2, fields=[{"title": "冲突稿"}, {"title": "正常稿"}], prefix="t8b"
@@ -434,7 +435,25 @@ def test_stale_base_expires_one_item_others_independent(client, db, admin):
     db.refresh(stale_sub)
     assert stale_sub.status == "expired"
     db.refresh(stale_item)
-    assert stale_item.status == "rejected"
+    assert stale_item.status == "expired"
+    assert stale_item.rejected_at is None
+
+    # 源池条目复位 available
+    pool_item = (
+        db.query(AnnotationPoolItem)
+        .filter(
+            AnnotationPoolItem.table_name == stale_item.table_name,
+            AnnotationPoolItem.record_id == stale_item.record_id,
+            AnnotationPoolItem.status == "available",
+        )
+        .one_or_none()
+    )
+    assert pool_item is not None
+    # 该记录在 preview_pool 中回候选：eligible=true （R3T5 决议C 回候选实证）
+    preview = annotation_service.preview_pool(db, "lit", {}, include_annotated=False, page=1, page_size=100)
+    matched = [it for it in preview["items"] if it["record_id"] == stale_item.record_id]
+    assert len(matched) == 1
+    assert matched[0]["eligible"] is True
 
     expire_log = _log_for(db, "expire", stale_sub.id)
     assert expire_log.new_fields == {"reason": "base_conflict"}
@@ -588,9 +607,27 @@ def test_batch_approve_mixed_approved_expired_error(client, db, admin):
 
     db.refresh(subs[1])
     assert subs[1].status == "expired"
-    # 冲突条目按现契约置为 rejected 进返工箱（item 层释放留给 T5）
     db.refresh(items[1])
-    assert items[1].status == "rejected"
+    assert items[1].status == "expired"
+    assert items[1].rejected_at is None
+    from app.models import AnnotationPoolItem as _API
+
+    _pool_item = (
+        db.query(_API)
+        .filter(
+            _API.table_name == items[1].table_name,
+            _API.record_id == items[1].record_id,
+            _API.status == "available",
+        )
+        .one_or_none()
+    )
+    assert _pool_item is not None
+    from app.services import annotation_service as _svc
+
+    _preview = _svc.preview_pool(db, "lit", {}, include_annotated=False, page=1, page_size=100)
+    _matched = [it for it in _preview["items"] if it["record_id"] == items[1].record_id]
+    assert len(_matched) == 1
+    assert _matched[0]["eligible"] is True
 
     # 错误条不中断他条：正常三仍可单独批
     resp2 = client.post(
