@@ -75,19 +75,17 @@
               <label>截止天数</label>
               <input v-model.number="wizard.deadline_days" type="number" min="1" placeholder="留空使用全局默认" />
             </div>  
-            <div class="form-field wiz-toggle-field">
-              <label class="wiz-toggle-label">
-                <input v-model="includeAnnotated" type="checkbox" class="wiz-checkbox" />
-                <span>包含已完成标注</span>
-              </label>
+            <div class="form-field">
+              <label>包含已完成标注</label>
+              <select v-model="includeAnnotated">
+                <option :value="false">否（仅未标注）</option>
+                <option :value="true">是（含已完成标注）</option>
+              </select>
             </div>
           </div>
           <div class="wizard-actions">
             <button class="btn-create" :disabled="previewing" @click="handlePreview">
               {{ previewing ? "预览中..." : "预览" }}
-            </button>
-            <button class="btn-create btn-select-all" :class="{ 'btn-select-all-active': selectAllMode }" @click="toggleSelectAllMode">
-              {{ selectAllMode ? "已选全部命中 · 取消全选" : "勾选所有命中" }}
             </button>
             <button class="btn-create btn-confirm" :disabled="!canCreate || creating" @click="handleCreatePool">
               {{ creating ? "建池中..." : (selectAllMode ? "确认建池（全部命中）" : `确认建池（${selectedRecordIds.size} 条）`) }}
@@ -100,6 +98,9 @@
             <div class="wiz-preview-toolbar">
               <button class="btn-sm btn-assign" :disabled="allEligibleOnPage.length === 0" @click="toggleSelectAll">
                 {{ isAllSelected() ? "取消本页全选" : "全选本页" }}
+              </button>
+              <button class="btn-sm btn-select-all" :class="{ 'btn-select-all-active': selectAllMode }" @click="toggleSelectAllMode">
+                {{ selectAllMode ? "已选全部命中 · 取消全选" : "勾选所有命中" }}
               </button>
               <span class="wiz-selected-count">已选 <strong>{{ selectedRecordIds.size }}</strong> 条</span>
             </div>
@@ -126,17 +127,16 @@
                 <tbody>
                   <tr
                     v-for="item in previewResult.items"
+                    v-if="item.eligible"
                     :key="item.record_id"
                     class="wiz-row"
-                    :class="{ 'wiz-row-disabled': !item.eligible }"
                   >
                     <td class="wiz-col-check">
                       <input
                         type="checkbox"
                         class="wiz-checkbox"
                         :checked="selectedRecordIds.has(item.record_id)"
-                        :disabled="!item.eligible"
-                        @change="toggleRecord(item.record_id, item.eligible)"
+                        @change="toggleRecord(item.record_id, true)"
                       />
                     </td>
                     <td class="wiz-col-id">{{ item.record_id }}</td>
@@ -146,8 +146,7 @@
                     </td>
                     <td class="wiz-col-year">{{ item.pub_year || "—" }}</td>
                     <td class="wiz-col-pool">
-                      <span v-if="item.eligible" class="badge badge-eligible">可入池</span>
-                      <span v-else class="badge badge-blocked">{{ blockedLabel(item.blocked) }}</span>
+                      <span class="badge badge-eligible">可入池</span>
                     </td>
                   </tr>
                   <tr v-if="!previewResult.items || previewResult.items.length === 0">
@@ -894,12 +893,6 @@ function goPreviewPage(page) {
   handlePreview();
 }
 
-function blockedLabel(blocked) {
-  if (!blocked) return "";
-  const map = { pooled: "已被占用", task: "任务进行中", approved: "已完成标注" };
-  return map[blocked] || blocked;
-}
-
 function crawlStatusBadge(cls) {
   if (cls === "success") return "badge-crawl-success";
   if (cls === "partial") return "badge-crawl-partial";
@@ -1523,8 +1516,8 @@ onBeforeUnmount(() => {
 .btn-confirm { background: #ff8f00; }
 .btn-confirm:hover { background: #f57c00; }
 .btn-confirm:disabled { opacity: 0.5; cursor: default; }
-.btn-select-all { background: #5e35b1; }
-.btn-select-all:hover { background: #4527a0; }
+.btn-select-all { background: #5e35b1; color: #fff; }
+.btn-select-all:hover { background: #4527a0; color: #fff; }
 .btn-select-all-active { background: #c62828; }
 .btn-select-all-active:hover { background: #b71c1c; }
 
@@ -1708,12 +1701,8 @@ onBeforeUnmount(() => {
 .wiz-col-year { width: 60px; white-space: nowrap; }
 .wiz-col-pool { width: 100px; white-space: nowrap; }
 
-.wiz-row-disabled { background: #fafafa; color: #aaa; }
-.wiz-row-disabled td { color: #aaa; }
-.wiz-row-disabled .badge { opacity: 0.6; }
 
 .badge-eligible { background: #e8f5e9; color: #2e7d32; }
-.badge-blocked { background: #f5f5f5; color: #999; }
 .badge-crawl-success { background: #e8f5e9; color: #2e7d32; }
 .badge-crawl-partial { background: #fff8e1; color: #f57f17; }
 .badge-crawl-failed { background: #ffebee; color: #c62828; }
