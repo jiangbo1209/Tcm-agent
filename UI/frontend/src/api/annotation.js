@@ -84,8 +84,8 @@ export function listPools() {
  *                           pub_year: string|null, eligible: boolean,
  *                           blocked: null|string }> }>}
  */
-export function previewPool(payload) {
-  return request.post("/annotation/admin/pools/preview", payload);
+export function previewPool(payload, params = {}) {
+  return request.post("/annotation/admin/pools/preview", payload, { params });
 }
 
 /**

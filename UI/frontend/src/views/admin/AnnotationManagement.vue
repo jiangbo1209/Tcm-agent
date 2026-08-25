@@ -762,10 +762,11 @@ async function handlePreview() {
     const payload = {
       ...filterPayload(),
       include_annotated: includeAnnotated.value,
+    };
+    const res = await previewPool(payload, {
       page: previewPage.value,
       page_size: PREVIEW_PAGE_SIZE,
-    };
-    const res = await previewPool(payload);
+    });
     previewResult.value = res.data;
   } catch (e) {
     previewResult.value = null;

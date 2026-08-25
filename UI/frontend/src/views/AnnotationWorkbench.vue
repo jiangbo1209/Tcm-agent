@@ -334,6 +334,14 @@ async function loadItems() {
         ? data.items
         : [];
     items.value = list.map(normalizeItem);
+    if (
+      view.value === "task" &&
+      !taskCompleted.value &&
+      !editingItem.value &&
+      filteredItems.value.length > 0
+    ) {
+      selectItem(filteredItems.value[0], true);
+    }
   } catch {
     // 条目端点尚未落地（404）/网络失败：按空列表降级，不伪造数据、不中断页面
     detailEditableFields.value = null;
@@ -699,8 +707,20 @@ function closeEditorAfterSave() {
   clearPdf();
 }
 
-/* chips 切换时 idx 归零并自动选中筛选后第一个条目 */
-watch(activeFilter, () => {
+/* chips 切换时 idx 归零并自动选中筛选后第一个条目；有未暂存修改时先确认，取消则回滚筛选 */
+let _chipReverting = false;
+watch(activeFilter, (newVal, oldVal) => {
+  if (_chipReverting) {
+    _chipReverting = false;
+    return;
+  }
+  if (editingItem.value && hasUnsavedChanges()) {
+    if (!confirm("当前条目有未暂存的修改，切换筛选将丢失，确定？")) {
+      _chipReverting = true;
+      activeFilter.value = oldVal;
+      return;
+    }
+  }
   currentIndex.value = 0;
   if (filteredItems.value.length > 0) {
     selectItem(filteredItems.value[0], true);
@@ -887,7 +907,7 @@ onBeforeUnmount(() => {
 </script>
 
 <style scoped>
-.annotation-workbench { display: flex; flex-direction: column; width: 100%; padding: 24px 32px; height: 100vh; overflow: hidden; box-sizing: border-box; }
+.annotation-workbench { display: flex; flex-direction: column; width: 100%; padding: 24px 32px; height: 100vh; overflow-y: auto; box-sizing: border-box; }
 
 .wb-header { display: flex; align-items: center; gap: 12px; margin-bottom: 20px; }
 .wb-header h1 { font-size: 22px; font-weight: 600; color: #1a1a2e; margin: 0; }
