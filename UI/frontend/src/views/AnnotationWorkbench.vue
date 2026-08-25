@@ -45,10 +45,6 @@
         <span class="done-hint">
           本批 {{ submitResult?.count ?? task.count }} 条已进入复核流程，可领取下一批继续。
         </span>
-        <p v-if="staleIds.length" class="stale-warning" data-testid="stale-warning">
-          ⚠ 以下条目的基准数据在暂存后被他人更新，请复核时留意：
-          #{{ staleIds.join("、#") }}
-        </p>
         <button class="btn-primary" data-testid="claim-next" @click="claimNextBatch">
           领取下一批
         </button>
@@ -73,17 +69,30 @@
             <span class="meta-value countdown" :class="{ expired }">{{ countdownText }}</span>
           </div>
           <div class="chip-row" role="tablist">
-            <button
-              v-for="chip in visibleChips"
-              :key="chip.key"
-              type="button"
-              class="chip"
-              :class="{ active: activeFilter === chip.key }"
-              @click="activeFilter = chip.key"
-            >
-              {{ chip.label }}
-              <span class="chip-count">{{ chipCount(chip.key) }}</span>
-            </button>
+            <template v-for="chip in visibleChips" :key="chip.key">
+              <button
+                type="button"
+                class="chip"
+                :class="{ active: activeFilter === chip.key }"
+                @click="activeFilter = chip.key"
+              >
+                {{ chip.label }}
+                <span class="chip-count">{{ chipCount(chip.key) }}</span>
+              </button>
+              <template v-if="chip.children && chip.children.length">
+                <button
+                  v-for="child in chip.children"
+                  :key="child.key"
+                  type="button"
+                  class="chip chip-child"
+                  :class="{ active: activeFilter === child.key }"
+                  @click="activeFilter = child.key"
+                >
+                  {{ child.label }}
+                  <span class="chip-count">{{ chipCount(child.key) }}</span>
+                </button>
+              </template>
+            </template>
           </div>
           <button
             v-if="stagedCount >= 1"
@@ -141,7 +150,7 @@
             <button
               type="button"
               class="btn-nav"
-              :disabled="currentIndex >= filteredItems.length - 1"
+              :disabled="currentIndex < 0 || currentIndex >= filteredItems.length - 1"
               @click="goNext"
             >
               下一条
@@ -352,13 +361,19 @@ async function loadItems() {
   }
 }
 
-/* ---------- 筛选 chips ---------- */
+/* ---------- 筛选 chips（R1c 层级化） ---------- */
 
 const FILTER_CHIPS = [
   { key: "all", label: "全部" },
   { key: "pending", label: "待处理" },
-  { key: "drafted", label: "已暂存" },
-  { key: "no_change", label: "无需修改" },
+  {
+    key: "drafted",
+    label: "已暂存",
+    children: [
+      { key: "drafted_modified", label: "已修改" },
+      { key: "drafted_no_change", label: "无需修改" },
+    ],
+  },
   { key: "rejected", label: "被驳回" },
   { key: "approved", label: "已通过" },
 ];
@@ -373,25 +388,51 @@ function isNoChangeItem(it) {
   );
 }
 
-const visibleChips = computed(() =>
-  FILTER_CHIPS.filter(
-    (chip) =>
-      chip.key !== "no_change" ||
-      // 仅当条目形状携带提案信息、可区分「无需修改」时才展示该 chip
-      items.value.some((it) => it.proposedFields != null),
-  ),
-);
+function isDraftedModifiedItem(it) {
+  // 「已修改」= drafted 且提案非空
+  return (
+    it.status === "drafted" &&
+    it.proposedFields != null &&
+    typeof it.proposedFields === "object" &&
+    Object.keys(it.proposedFields).length > 0
+  );
+}
+
+const visibleChips = computed(() => {
+  const hasProposals = items.value.some((it) => it.proposedFields != null);
+  const hasDrafted = items.value.some((it) => it.status === "drafted");
+  return FILTER_CHIPS.filter((chip) => {
+    // 「无需修改」子项仅当条目形状携带提案信息时才展示
+    if (chip.key === "drafted_no_change") return hasProposals;
+    // drafted 父级始终展示（有子项结构即可）；子项在 drafted 父级展示时一并展示
+    return true;
+  }).map((chip) => {
+    if (chip.children && hasDrafted) {
+      return {
+        ...chip,
+        children: chip.children.filter(
+          (c) => c.key !== "drafted_no_change" || hasProposals,
+        ),
+      };
+    }
+    return { ...chip, children: null };
+  });
+});
 
 function chipCount(key) {
   if (key === "all") return items.value.length;
-  if (key === "no_change") return items.value.filter(isNoChangeItem).length;
+  if (key === "drafted") return items.value.filter((it) => it.status === "drafted").length;
+  if (key === "drafted_modified") return items.value.filter(isDraftedModifiedItem).length;
+  if (key === "drafted_no_change") return items.value.filter(isNoChangeItem).length;
   return items.value.filter((it) => it.status === key).length;
 }
 
 const filteredItems = computed(() =>
   items.value.filter((it) => {
     if (activeFilter.value === "all") return true;
-    if (activeFilter.value === "no_change") return isNoChangeItem(it);
+    if (activeFilter.value === "drafted") return it.status === "drafted";
+    if (activeFilter.value === "drafted_modified") return isDraftedModifiedItem(it);
+    if (activeFilter.value === "drafted_no_change") return isNoChangeItem(it);
     return it.status === activeFilter.value;
   }),
 );
@@ -564,7 +605,6 @@ function openReworkInEditor(entry) {
 
 /* ---------- 编辑（分栏内联） ---------- */
 
-const currentIndex = ref(0);
 const editingItem = ref(null);
 const editForm = ref({});
 const editFormOriginal = ref({});
@@ -574,6 +614,13 @@ const draftError = ref("");
 const pdfUrl = ref("");
 const pdfLoading = ref(false);
 const pdfError = ref("");
+
+/* ---------- 动态索引（R1b：禁止缓存数字索引跨状态变化使用） ---------- */
+
+const currentIndex = computed(() => {
+  if (!editingItem.value) return -1;
+  return filteredItems.value.findIndex((i) => i.id === editingItem.value.id);
+});
 
 // 系统字段不作为通用回退的可编辑键
 const SYSTEM_KEYS = new Set([
@@ -682,19 +729,19 @@ function selectItem(item, force = false) {
   } else {
     clearPdf();
   }
-  const idx = filteredItems.value.findIndex((i) => i.id === item.id);
-  if (idx >= 0) currentIndex.value = idx;
 }
 
 function goNext() {
-  if (currentIndex.value < filteredItems.value.length - 1) {
-    selectItem(filteredItems.value[currentIndex.value + 1]);
+  const idx = currentIndex.value;
+  if (idx >= 0 && idx < filteredItems.value.length - 1) {
+    selectItem(filteredItems.value[idx + 1]);
   }
 }
 
 function goPrev() {
-  if (currentIndex.value > 0) {
-    selectItem(filteredItems.value[currentIndex.value - 1]);
+  const idx = currentIndex.value;
+  if (idx > 0) {
+    selectItem(filteredItems.value[idx - 1]);
   }
 }
 
@@ -707,7 +754,33 @@ function closeEditorAfterSave() {
   clearPdf();
 }
 
-/* chips 切换时 idx 归零并自动选中筛选后第一个条目；有未暂存修改时先确认，取消则回滚筛选 */
+/**
+ * 保存后自动推进到下一条（R1b 核心修复）。
+ * 逻辑：在 markItemDrafted 之前记录旧 filteredItems 中的位置，
+ * 之后从 items 全量数组中找到该条目的全局索引，
+ * 再在当前 filteredItems 中找全局索引之后的第一条存活条目。
+ */
+function advanceToNextAfterSave(savedItemId) {
+  const savedFullIdx = items.value.findIndex((i) => i.id === savedItemId);
+  if (savedFullIdx < 0) {
+    // 该条目已不在 items 中（极端情况），直接清空
+    closeEditorAfterSave();
+    return;
+  }
+  // 在 filteredItems 中找全局索引 > savedFullIdx 的第一条
+  const nextItem = filteredItems.value.find((fi) => {
+    const fiFullIdx = items.value.findIndex((i) => i.id === fi.id);
+    return fiFullIdx > savedFullIdx;
+  });
+  if (nextItem) {
+    selectItem(nextItem, true);
+  } else {
+    closeEditorAfterSave();
+    showToast("本筛选下已全部处理", "ok");
+  }
+}
+
+/* chips 切换时自动选中筛选后第一个条目；有未暂存修改时先确认，取消则回滚筛选 */
 let _chipReverting = false;
 watch(activeFilter, (newVal, oldVal) => {
   if (_chipReverting) {
@@ -721,7 +794,6 @@ watch(activeFilter, (newVal, oldVal) => {
       return;
     }
   }
-  currentIndex.value = 0;
   if (filteredItems.value.length > 0) {
     selectItem(filteredItems.value[0], true);
   } else {
@@ -772,7 +844,8 @@ async function saveDraft(fieldsList) {
     } else {
       showToast(res.data?.action === "no_change" ? "已标记无需修改" : "已暂存本条", "ok");
     }
-    closeEditorAfterSave();
+    // R1b: 保存成功后自动推进到下一条（或清空+toast）
+    advanceToNextAfterSave(itemId);
   } catch (e) {
     draftError.value = e.response?.data?.detail || "暂存失败，请稍后重试";
   } finally {
@@ -944,13 +1017,13 @@ onBeforeUnmount(() => {
 .task-done { display: flex; flex-direction: column; gap: 10px; align-items: flex-start; }
 .done-title { font-size: 15px; font-weight: 600; color: #2e7d32; }
 .done-hint { font-size: 13px; color: #666; }
-.stale-warning { margin: 0; padding: 8px 12px; background: #fff3e0; border: 1px solid #ffe0b2; border-radius: 6px; font-size: 12px; color: #e65100; line-height: 1.6; }
 
 .item-list { background: #fff; border: 1px solid #e8e8e8; border-radius: 12px; padding: 16px 20px; box-shadow: 0 2px 8px rgba(0, 0, 0, 0.04); min-height: 120px; }
 .chip-row { display: flex; gap: 8px; flex-wrap: wrap; }
 .chip { padding: 4px 12px; border: 1px solid #d0d0d0; border-radius: 14px; background: #fff; color: #666; font-size: 12px; cursor: pointer; transition: all 0.15s; font-family: inherit; }
 .chip:hover { border-color: #00796b; color: #00796b; }
 .chip.active { background: #00796b; border-color: #00796b; color: #fff; }
+.chip-child { margin-left: 12px; font-size: 11px; padding: 3px 10px; }
 .chip-count { opacity: 0.7; margin-left: 2px; font-variant-numeric: tabular-nums; }
 .btn-submit-batch { padding: 7px 18px; border: none; border-radius: 6px; background: #e65100; color: #fff; font-size: 13px; cursor: pointer; white-space: nowrap; font-family: inherit; }
 .btn-submit-batch:hover { background: #d84a00; }
