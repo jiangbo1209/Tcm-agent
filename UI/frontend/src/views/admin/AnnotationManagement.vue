@@ -398,40 +398,6 @@
           </div>
         </div>
 
-        <h2 class="board-section-title">任务池余量</h2>
-        <div v-if="stats.pools.length === 0" class="placeholder-card">暂无任务池</div>
-        <div v-else class="table-wrap">
-          <table class="pool-table">
-            <thead>
-              <tr>
-                <th>表类型</th>
-                <th>状态</th>
-                <th>余量</th>
-                <th>优先级</th>
-              </tr>
-            </thead>
-            <tbody>
-              <tr v-for="pool in stats.pools" :key="pool.id">
-                <td>{{ tableLabel(pool.table_name) }}</td>
-                <td>
-                  <span class="badge" :class="statusMeta(pool.status).cls">
-                    {{ statusMeta(pool.status).label }}
-                  </span>
-                </td>
-                <td>
-                  <div class="progress-cell">
-                    <div class="progress-track">
-                      <div class="progress-fill" :style="{ width: poolProgressPct(pool) + '%' }"></div>
-                    </div>
-                    <span class="progress-text">{{ pool.remaining_items }}/{{ pool.total_items }}</span>
-                  </div>
-                </td>
-                <td class="cell-priority">{{ pool.priority }}</td>
-              </tr>
-            </tbody>
-          </table>
-        </div>
-
         <h2 class="board-section-title">标注员工作量</h2>
         <div class="table-wrap">
           <table class="pool-table" data-testid="board-users">
@@ -557,7 +523,7 @@
                 <td class="cell-summary">{{ changeSummary(log) }}</td>
                 <td class="cell-actions">
                   <button
-                    v-if="hasOldFields(log)"
+                    v-if="hasOldFields(log) && (log.action === 'approve' || log.action === 'save_direct')"
                     class="btn-sm btn-toggle"
                     :disabled="rollingBackId === log.id"
                     @click="handleRollback(log)"
@@ -576,7 +542,7 @@
           <button class="btn-sm" :disabled="logPage <= 1 || logsLoading" @click="goLogPage(logPage - 1)">
             上一页
           </button>
-          <span class="pager-info">第 {{ logPage }} 页 · 共 {{ logTotal }} 条</span>
+          <span class="pager-info">第 {{logPage}}/{{logPageCount}} 页 · 共 {{logTotal}} 条</span>
           <button
             class="btn-sm"
             :disabled="logPage >= logPageCount || logsLoading"
@@ -1354,15 +1320,7 @@ function handleExportCsv() {
 /* ───────── 回滚日志 ───────── */
 const LOG_ACTIONS = [
   "approve",
-  "reject",
-  "expire",
-  "rollback",
   "save_direct",
-  "claim",
-  "assign",
-  "draft",
-  "no_change",
-  "submit",
 ];
 const ACTION_META = {
   approve: { label: "通过", cls: "badge-action-approve" },
