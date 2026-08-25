@@ -243,109 +243,144 @@
 
     <!-- ═══════════ 复核队列 ═══════════ -->
     <template v-else-if="activeTab === 'review'">
-      <!-- 待复核 / 已过期 子页签 -->
-      <div class="review-subtabs">
+      <!-- 工具行 -->
+      <div class="review-toolbar">
+        <label class="review-select-all">
+          <input
+            type="checkbox"
+            class="wiz-checkbox"
+            :checked="isReviewAllSelected"
+            :disabled="!reviewSelectableItems.length"
+            @change="toggleReviewSelectAll"
+          />
+          <span>全选本页</span>
+        </label>
         <button
-          v-for="st in REVIEW_STATUS_TABS"
-          :key="st.key"
-          class="review-subtab"
-          :class="{ 'review-subtab-active': reviewStatus === st.key }"
-          @click="switchReviewStatus(st.key)"
+          class="btn-sm btn-review-approve"
+          :disabled="!selectedReviewIds.size || batchActing"
+          @click="handleBatchApprove"
         >
-          {{ st.label }}
+          批量通过
         </button>
-      </div>
-
-      <div v-if="reviewStatus === 'expired'" class="expired-banner" data-testid="expired-banner">
-        以下条目的基准数据已被他人修改，需标注员基于最新数据重做
+        <button
+          class="btn-sm btn-review-reject"
+          :disabled="!selectedReviewIds.size || batchActing"
+          @click="openBatchReject"
+        >
+          批量驳回
+        </button>
+        <span class="review-count">
+          已选 <strong>{{ selectedReviewIds.size }}</strong> / 本页 {{ reviewSelectableItems.length }} · 共 {{ reviewTotal }} 条待复核
+        </span>
+        <div class="review-pager">
+          <button
+            class="btn-sm"
+            :disabled="reviewPage <= 1 || reviewLoading"
+            @click="goReviewPage(reviewPage - 1)"
+          >上一页</button>
+          <span class="pager-info">第 {{ reviewPage }} / {{ reviewPageCount }} 页</span>
+          <button
+            class="btn-sm"
+            :disabled="reviewPage >= reviewPageCount || reviewLoading"
+            @click="goReviewPage(reviewPage + 1)"
+          >下一页</button>
+        </div>
       </div>
 
       <div v-if="reviewLoading" class="loading">加载中...</div>
-      <div v-else-if="reviewBatches.length === 0" class="placeholder-card">
-        暂无{{ reviewStatus === "expired" ? "已过期" : "待复核" }}提交
+      <div v-else-if="reviewItems.length === 0" class="placeholder-card">
+        暂无待复核提交
       </div>
-      <div v-else class="review-batch-list" data-testid="review-batch-list">
-        <div v-for="batch in reviewBatches" :key="batch.task_id" class="review-batch-card">
-          <div class="review-batch-head" @click="toggleBatch(batch.task_id)">
-            <span class="batch-toggle">{{ expandedBatchId === batch.task_id ? "▼" : "▶" }}</span>
-            <span class="batch-user">提交人：{{ batch.annotator_username || "—" }}</span>
-            <span class="batch-table">表类型：{{ tableLabel(batch.table_name) }}</span>
-            <span class="batch-count">条数：{{ batch.count }}</span>
-            <span class="batch-time">最早提交时间：{{ formatDate(batch.submitted_at) }}</span>
-          </div>
-
-          <div v-if="expandedBatchId === batch.task_id" class="review-detail" data-testid="review-detail">
-            <div v-for="entry in batch.items" :key="entry.submission_id" class="review-item">
-              <!-- 空差异：无需修改，一键确认 -->
-              <template v-if="!hasDiff(entry)">
-                <div class="review-item-empty">
-                  <span class="no-diff-label">
-                    #{{ entry.record_id }} 无需修改
-                    <span v-if="entry.core_missing" class="core-missing-badge">核心记录缺失</span>
-                  </span>
+      <div v-else class="review-flat-list" data-testid="review-flat-list">
+        <table class="pool-table review-table" data-testid="review-table">
+          <thead>
+            <tr>
+              <th class="rev-col-check"></th>
+              <th class="rev-col-id">#记录ID</th>
+              <th>标注员</th>
+              <th>表类型</th>
+              <th>提交值摘要</th>
+              <th>状态</th>
+              <th>操作</th>
+            </tr>
+          </thead>
+          <tbody>
+            <template v-for="item in reviewItems" :key="item.submission_id">
+              <tr
+                class="review-row"
+                :class="{
+                  'review-row-core-missing': item.core_missing,
+                  'review-row-selected': selectedReviewIds.has(item.submission_id),
+                }"
+              >
+                <td class="rev-col-check">
+                  <input
+                    type="checkbox"
+                    class="wiz-checkbox"
+                    :checked="selectedReviewIds.has(item.submission_id)"
+                    @change="toggleReviewItem(item.submission_id)"
+                  />
+                </td>
+                <td class="rev-col-id">#{{ item.record_id }}</td>
+                <td>{{ item.annotator_username || "—" }}</td>
+                <td>{{ tableLabel(item.table_name) }}</td>
+                <td class="rev-summary">
+                  <span v-if="item.core_missing" class="core-missing-badge">核心缺失</span>
+                  <span v-if="!hasDiff(item)" class="badge badge-no-diff">无需修改</span>
+                  <span v-else class="badge badge-has-diff">{{ Object.keys(item.proposed_fields || {}).length }} 字段</span>
+                </td>
+                <td>
+                  <span class="badge badge-pending">待复核</span>
+                </td>
+                <td class="cell-actions">
                   <button
-                    v-if="reviewStatus === 'pending'"
                     class="btn-sm btn-review-approve"
-                    :disabled="actingId === entry.submission_id"
-                    @click="handleApprove(entry)"
-                  >
-                    确认
-                  </button>
-                </div>
-              </template>
-
-              <!-- 双栏对照：当前值 vs 提交值 -->
-              <template v-else>
-                <div class="review-item-head">
-                  <span>
-                    记录 #{{ entry.record_id }}
-                    <span v-if="entry.core_missing" class="core-missing-badge">核心记录缺失</span>
-                  </span>
-                  <span v-if="reviewStatus === 'pending'" class="review-item-actions">
-                    <button
-                      class="btn-sm btn-review-approve"
-                      :disabled="actingId === entry.submission_id"
-                      @click="handleApprove(entry)"
-                    >
-                      通过
-                    </button>
-                    <button
-                      class="btn-sm btn-review-reject"
-                      :disabled="actingId === entry.submission_id"
-                      @click="openReject(entry)"
-                    >
-                      驳回
-                    </button>
-                  </span>
-                </div>
-                <div class="diff-legend"><span class="diff-legend-mark">■</span> 高亮 = 标注员修改的字段</div>
-                <div class="diff-grid">
-                  <div class="diff-col diff-col-current">
-                    <div class="diff-col-title">当前值</div>
-                    <div v-for="field in diffFields(entry)" :key="'c-' + field" class="diff-row">
-                      <span class="diff-key">{{ field }}</span>
-                      <span class="diff-val">{{ formatValue(entry.current_values?.[field]) }}</span>
+                    :disabled="actingId === item.submission_id || item.core_missing"
+                    @click="handleSingleApprove(item)"
+                  >通过</button>
+                  <button
+                    class="btn-sm btn-review-reject"
+                    :disabled="actingId === item.submission_id"
+                    @click="openReject(item)"
+                  >驳回</button>
+                  <button
+                    class="btn-sm btn-review-expand"
+                    @click="toggleReviewExpand(item.submission_id)"
+                  >{{ expandedReviewId === item.submission_id ? "收起" : "展开" }}</button>
+                </td>
+              </tr>
+              <!-- 展开双栏对照 -->
+              <tr v-if="expandedReviewId === item.submission_id" class="review-expand-row">
+                <td colspan="7" class="review-expand-cell">
+                  <div class="diff-legend"><span class="diff-legend-mark">■</span> 高亮 = 标注员修改的字段</div>
+                  <div class="diff-grid">
+                    <div class="diff-col diff-col-current">
+                      <div class="diff-col-title">当前值</div>
+                      <div v-for="field in diffFields(item)" :key="'c-' + field" class="diff-row">
+                        <span class="diff-key">{{ field }}</span>
+                        <span class="diff-val">{{ formatValue(item.current_values?.[field]) }}</span>
+                      </div>
+                    </div>
+                    <div class="diff-col diff-col-proposed">
+                      <div class="diff-col-title">提交值</div>
+                      <div v-for="field in diffFields(item)" :key="'p-' + field" class="diff-row">
+                        <span class="diff-key">{{ field }}</span>
+                        <span
+                          class="diff-val"
+                          :class="{
+                            'diff-changed':
+                              formatValue(item.proposed_fields?.[field]) !==
+                              formatValue(item.current_values?.[field]),
+                          }"
+                        >{{ formatValue(item.proposed_fields?.[field]) }}</span>
+                      </div>
                     </div>
                   </div>
-                  <div class="diff-col diff-col-proposed">
-                    <div class="diff-col-title">提交值</div>
-                    <div v-for="field in diffFields(entry)" :key="'p-' + field" class="diff-row">
-                      <span class="diff-key">{{ field }}</span>
-                      <span
-                        class="diff-val"
-                        :class="{
-                          'diff-changed':
-                            formatValue(entry.proposed_fields?.[field]) !==
-                            formatValue(entry.current_values?.[field]),
-                        }"
-                      >{{ formatValue(entry.proposed_fields?.[field]) }}</span>
-                    </div>
-                  </div>
-                </div>
-              </template>
-            </div>
-          </div>
-        </div>
+                </td>
+              </tr>
+            </template>
+          </tbody>
+        </table>
       </div>
     </template>
 
@@ -604,15 +639,16 @@
       </div>
     </div>
 
-    <!-- ═══════════ 驳回对话框 ═══════════ -->
-    <div v-if="rejectTarget" class="modal-overlay" @click.self="closeReject">
+    <!-- ═══════════ 驳回对话框（单条 / 批量共用） ═══════════ -->
+    <div v-if="rejectTarget || batchRejecting" class="modal-overlay" @click.self="closeReject">
       <div class="modal-box" data-testid="reject-dialog">
         <div class="modal-header">
-          <h2>驳回提交 #{{ rejectTarget.submission_id }}（记录 #{{ rejectTarget.record_id }}）</h2>
+          <h2 v-if="batchRejecting">批量驳回（{{ selectedReviewIds.size }} 条）</h2>
+          <h2 v-else>驳回提交 #{{ rejectTarget?.submission_id }}（记录 #{{ rejectTarget?.record_id }}）</h2>
           <button class="modal-close" @click="closeReject">&times;</button>
         </div>
         <div class="modal-body">
-          <p class="annotator-hint">驳回后该条目将带复核意见进入标注员返工箱。</p>
+          <p class="annotator-hint">驳回后选中的条目将带复核意见进入标注员返工箱。</p>
           <div class="form-field">
             <label>复核意见（必填）</label>
             <textarea
@@ -652,9 +688,11 @@ import {
   updatePool,
   deletePool,
   assignTasks,
-  reviewQueue,
+  reviewQueueFlat,
   approveSubmission,
   rejectSubmission,
+  batchApprove,
+  batchReject,
   dashboardStats,
   exportCsv,
   queryLogs,
@@ -1027,48 +1065,78 @@ async function confirmAssign() {
   }
 }
 
-/* ───────── 复核队列 ───────── */
-const REVIEW_STATUS_TABS = [
-  { key: "pending", label: "待复核" },
-  { key: "expired", label: "已过期" },
-];
-const reviewStatus = ref("pending");
-const reviewBatches = ref([]);
+/* ───────── 复核队列（扁平分页） ───────── */
+const REVIEW_PAGE_SIZE = 20;
+const reviewItems = ref([]);
+const reviewTotal = ref(0);
+const reviewPage = ref(1);
 const reviewLoading = ref(false);
-const expandedBatchId = ref(null); // 当前展开批次的 task_id
-const actingId = ref(null); // 正在通过/驳回的 submission_id
+const selectedReviewIds = ref(new Set());
+const expandedReviewId = ref(null);
+const actingId = ref(null);
+const batchActing = ref(false);
+
+const reviewPageCount = computed(() => Math.max(1, Math.ceil(reviewTotal.value / REVIEW_PAGE_SIZE)));
+
+const reviewSelectableItems = computed(() => reviewItems.value.filter((i) => !i.core_missing));
+
+const isReviewAllSelected = computed(() => {
+  const sel = reviewSelectableItems.value;
+  return sel.length > 0 && sel.every((i) => selectedReviewIds.value.has(i.submission_id));
+});
 
 async function loadReviewQueue() {
   reviewLoading.value = true;
   try {
-    const res = await reviewQueue(reviewStatus.value);
-    reviewBatches.value = Array.isArray(res.data) ? res.data : [];
-    expandedBatchId.value = null;
+    const res = await reviewQueueFlat({ page: reviewPage.value, page_size: REVIEW_PAGE_SIZE });
+    const d = res.data || {};
+    reviewItems.value = Array.isArray(d.items) ? d.items : [];
+    reviewTotal.value = d.total ?? 0;
+    selectedReviewIds.value = new Set();
+    expandedReviewId.value = null;
   } catch (e) {
-    reviewBatches.value = [];
+    reviewItems.value = [];
+    reviewTotal.value = 0;
     showToast(e.response?.data?.detail || "加载复核队列失败", "error");
   } finally {
     reviewLoading.value = false;
   }
 }
 
-function switchReviewStatus(status) {
-  if (reviewStatus.value === status) return;
-  reviewStatus.value = status;
+function goReviewPage(p) {
+  if (p < 1 || p > reviewPageCount.value) return;
+  reviewPage.value = p;
   loadReviewQueue();
 }
 
-function toggleBatch(taskId) {
-  expandedBatchId.value = expandedBatchId.value === taskId ? null : taskId;
+function toggleReviewItem(sid) {
+  const next = new Set(selectedReviewIds.value);
+  if (next.has(sid)) next.delete(sid);
+  else next.add(sid);
+  selectedReviewIds.value = next;
 }
 
-// 空差异（proposed_fields 为空对象）→ 无需修改行
+function toggleReviewSelectAll() {
+  const sel = reviewSelectableItems.value;
+  const allSel = isReviewAllSelected.value;
+  const next = new Set(selectedReviewIds.value);
+  for (const i of sel) {
+    if (allSel) next.delete(i.submission_id);
+    else next.add(i.submission_id);
+  }
+  selectedReviewIds.value = next;
+}
+
+function toggleReviewExpand(sid) {
+  expandedReviewId.value = expandedReviewId.value === sid ? null : sid;
+}
+
+// hasDiff / diffFields / formatValue —— 精确保留原有实现
 function hasDiff(entry) {
   const p = entry.proposed_fields;
   return !!p && typeof p === "object" && Object.keys(p).length > 0;
 }
 
-// 双栏对照字段：提交值字段优先，其余当前值字段补在后面
 function diffFields(entry) {
   const proposed = Object.keys(entry.proposed_fields || {});
   const current = Object.keys(entry.current_values || {});
@@ -1083,16 +1151,16 @@ function formatValue(v) {
   return String(v);
 }
 
-async function handleApprove(entry) {
+async function handleSingleApprove(entry) {
   actingId.value = entry.submission_id;
   try {
     const res = await approveSubmission(entry.submission_id);
     if (res.data?.status === "expired") {
-      showToast(`提交 #${entry.submission_id} 基准冲突，已归档为过期并进入返工箱`, "error");
+      showToast(`提交 #${entry.submission_id} 基准冲突，已归档为过期`, "error");
     } else {
       showToast(`提交 #${entry.submission_id} 已通过`);
     }
-    await loadReviewQueue(); // 重取队列，该条目从列表消失
+    removeReviewItem(entry.submission_id);
   } catch (e) {
     showToast(e.response?.data?.detail || "通过失败", "error");
   } finally {
@@ -1100,33 +1168,85 @@ async function handleApprove(entry) {
   }
 }
 
-/* ───────── 驳回对话框 ───────── */
-const rejectTarget = ref(null); // 被驳回的条目
+function removeReviewItem(sid) {
+  const idx = reviewItems.value.findIndex((i) => i.submission_id === sid);
+  if (idx !== -1) {
+    reviewItems.value.splice(idx, 1);
+    reviewTotal.value = Math.max(0, reviewTotal.value - 1);
+    selectedReviewIds.value.delete(sid);
+    if (expandedReviewId.value === sid) expandedReviewId.value = null;
+  }
+}
+
+/* ─── 批量通过 ─── */
+async function handleBatchApprove() {
+  const ids = [...selectedReviewIds.value];
+  if (!ids.length) return;
+  if (!confirm(`确认批量通过 ${ids.length} 条提交？`)) return;
+  batchActing.value = true;
+  try {
+    const res = await batchApprove(ids);
+    const d = res.data || {};
+    const s = d.summary || d;
+    showToast(
+      `通过 ${s.approved ?? 0} · 过期 ${s.expired ?? 0} · 异常 ${s.error ?? 0}`
+    );
+    await loadReviewQueue();
+  } catch (e) {
+    showToast(e.response?.data?.detail || "批量通过失败", "error");
+  } finally {
+    batchActing.value = false;
+  }
+}
+
+/* ─── 驳回对话框 ─── */
+const rejectTarget = ref(null);
+const batchRejecting = ref(false);
 const rejectComment = ref("");
 const rejecting = ref(false);
 const rejectError = ref("");
 
 function openReject(entry) {
+  batchRejecting.value = false;
   rejectTarget.value = entry;
+  rejectComment.value = "";
+  rejectError.value = "";
+}
+
+function openBatchReject() {
+  if (!selectedReviewIds.value.size) return;
+  rejectTarget.value = null;
+  batchRejecting.value = true;
   rejectComment.value = "";
   rejectError.value = "";
 }
 
 function closeReject() {
   rejectTarget.value = null;
+  batchRejecting.value = false;
   rejectError.value = "";
 }
 
 async function confirmReject() {
   const comment = rejectComment.value.trim();
-  if (!comment || !rejectTarget.value) return;
+  if (!comment) return;
   rejectError.value = "";
   rejecting.value = true;
   try {
-    await rejectSubmission(rejectTarget.value.submission_id, comment);
-    showToast(`提交 #${rejectTarget.value.submission_id} 已驳回，条目进入返工箱`);
-    closeReject();
-    await loadReviewQueue();
+    if (batchRejecting.value) {
+      const decisions = [...selectedReviewIds.value].map((sid) => ({ submission_id: sid, comment }));
+      const res = await batchReject(decisions);
+      const d = res.data || {};
+      const s = d.summary || d;
+      showToast(`驳回 ${s.rejected ?? 0} · 异常 ${s.error ?? 0}`);
+      closeReject();
+      await loadReviewQueue();
+    } else if (rejectTarget.value) {
+      await rejectSubmission(rejectTarget.value.submission_id, comment);
+      showToast(`提交 #${rejectTarget.value.submission_id} 已驳回，条目进入返工箱`);
+      removeReviewItem(rejectTarget.value.submission_id);
+      closeReject();
+    }
   } catch (e) {
     rejectError.value = e.response?.data?.detail || "驳回失败";
   } finally {
@@ -1480,37 +1600,41 @@ watch(activeTab, (tab) => {
 .btn-save:hover { background: #00695c; }
 .btn-save:disabled { opacity: 0.6; cursor: default; }
 
-/* ── 复核队列 ── */
-.review-subtabs { display: flex; gap: 8px; margin-bottom: 14px; }
-.review-subtab { padding: 6px 18px; border: 1px solid #d0d0d0; border-radius: 16px; background: #fff; font-size: 13px; color: #666; cursor: pointer; }
-.review-subtab:hover { border-color: #00796b; color: #00796b; }
-.review-subtab-active { background: #00796b; border-color: #00796b; color: #fff; font-weight: 500; }
-.review-subtab-active:hover { color: #fff; }
+/* ── 复核队列（平铺分页） ── */
+.review-toolbar { display: flex; align-items: center; gap: 10px; margin-bottom: 14px; flex-wrap: wrap; }
+.review-select-all { display: flex; align-items: center; gap: 6px; font-size: 13px; color: #333; cursor: pointer; user-select: none; }
+.review-count { margin-left: auto; font-size: 12px; color: #666; }
+.review-count strong { color: #00796b; }
+.review-pager { display: flex; align-items: center; gap: 10px; }
+.review-pager .btn-sm:disabled { opacity: 0.5; cursor: default; }
 
-.expired-banner { margin-bottom: 14px; padding: 10px 14px; border: 1px solid #ef9a9a; border-radius: 8px; background: #ffebee; color: #c62828; font-size: 13px; }
+.review-table { font-size: 13px; }
+.rev-col-check { width: 36px; text-align: center; }
+.rev-col-id { width: 80px; white-space: nowrap; }
+.rev-summary { font-size: 12px; }
 
-.review-batch-card { border: 1px solid #e0e0e0; border-radius: 10px; background: #fff; margin-bottom: 12px; overflow: hidden; }
-.review-batch-head { display: flex; align-items: center; flex-wrap: wrap; gap: 8px 20px; padding: 12px 16px; font-size: 13px; cursor: pointer; user-select: none; }
-.review-batch-head:hover { background: #f0f7f6; }
-.batch-toggle { width: 12px; color: #00796b; font-size: 11px; }
-.batch-user { font-weight: 600; color: #1a1a2e; }
-.batch-table, .batch-count { color: #666; }
-.batch-time { color: #888; font-size: 12px; }
-
-.review-detail { border-top: 1px solid #eee; padding: 12px 16px; }
-.review-item { border: 1px solid #eee; border-radius: 8px; margin-bottom: 10px; overflow: hidden; }
-.review-item:last-child { margin-bottom: 0; }
+.review-row-selected td { background: #f0f7f6 !important; }
+.review-row-core-missing td { background: #fff8f8 !important; }
+.review-row-core-missing .btn-review-approve { opacity: 0.4; cursor: not-allowed; }
 
 .core-missing-badge { display: inline-block; margin-left: 6px; padding: 1px 6px; border-radius: 4px; background: #ffebee; color: #c62828; font-size: 11px; }
-
-.review-item-head { display: flex; align-items: center; justify-content: space-between; gap: 10px; padding: 7px 12px; background: #fafafa; border-bottom: 1px solid #eee; font-size: 12px; color: #666; }
-.review-item-actions { display: flex; gap: 6px; }
 .btn-review-approve { color: #00796b; border-color: #b2dfdb; }
 .btn-review-approve:hover:not(:disabled) { background: #e0f2f1; }
 .btn-review-reject { color: #c62828; border-color: #ef9a9a; }
 .btn-review-reject:hover:not(:disabled) { background: #ffebee; }
 .btn-review-approve:disabled, .btn-review-reject:disabled { opacity: 0.5; cursor: default; }
 
+.badge-no-diff { background: #f5f5f5; color: #999; }
+.badge-has-diff { background: #e0f2f1; color: #00695c; }
+.badge-pending { background: #fff8e1; color: #f57f17; }
+.btn-review-expand { color: #00796b; border-color: #b2dfdb; }
+.btn-review-expand:hover { background: #e0f2f1; }
+
+.review-expand-row td { padding: 0 !important; border-bottom: 1px solid #e0e0e0; }
+.review-expand-cell { padding: 12px 16px !important; background: #fafafa; }
+
+.diff-legend { padding: 0 0 6px; font-size: 12px; color: #b06a00; }
+.diff-legend-mark { color: #b06a00; }
 .diff-grid { display: grid; grid-template-columns: 1fr 1fr; }
 .diff-col { min-width: 0; padding: 8px 12px 10px; }
 .diff-col-current { border-right: 1px dashed #e0e0e0; }
@@ -1522,12 +1646,7 @@ watch(activeTab, (tab) => {
 .diff-key { flex-shrink: 0; width: 120px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: #999; }
 .diff-val { min-width: 0; word-break: break-all; color: #333; }
 .diff-col-proposed .diff-val { color: #00695c; font-weight: 500; }
-.diff-legend { padding: 0 12px 6px; font-size: 12px; color: #b06a00; }
-.diff-legend-mark { color: #b06a00; }
 .diff-changed { background: rgba(199, 124, 0, 0.12); border-left: 3px solid #b06a00; }
-
-.review-item-empty { display: flex; align-items: center; justify-content: space-between; gap: 10px; padding: 6px 12px; background: #f5f5f5; font-size: 12px; }
-.no-diff-label { color: #999; }
 
 .form-field textarea { width: 100%; padding: 8px 10px; border: 1px solid #d0d0d0; border-radius: 6px; font-size: 13px; outline: none; box-sizing: border-box; resize: vertical; font-family: inherit; line-height: 1.6; }
 .form-field textarea:focus { border-color: #00796b; }

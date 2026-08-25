@@ -128,14 +128,14 @@ export function assignTasks(poolId, userIds) {
 }
 
 /**
- * 复核队列（按任务分组）：GET /api/annotation/admin/review/queue?status=
- * @param {"pending"|"expired"} status 待复核（默认）或基准冲突归档
- * 数组元素：{ task_id, annotator_username, table_name, count, submitted_at,
- *            items: [{ submission_id, item_id, record_id, current_values,
- *                      proposed_fields, base_updated_at, core_missing? }] }
+ * 复核队列（扁平分页）：GET /api/annotation/admin/review/queue?page=&page_size=
+ * @param {{ page?: number, page_size?: number }} params
+ * 响应 { total, page, page_size, items:[{ submission_id, item_id, record_id,
+ *   annotator_username, table_name, current_values, proposed_fields,
+ *   base_updated_at, core_missing? }] }
  */
-export function reviewQueue(status = "pending") {
-  return request.get("/annotation/admin/review/queue", { params: { status } });
+export function reviewQueueFlat(params = {}) {
+  return request.get("/annotation/admin/review/queue", { params });
 }
 
 /**
@@ -155,6 +155,26 @@ export function rejectSubmission(submissionId, comment) {
   return request.post(`/annotation/admin/review/${submissionId}/reject`, {
     comment,
   });
+}
+
+/**
+ * 批量通过：POST /api/annotation/admin/review/batch-approve
+ * @param {number[]} submissionIds
+ * 响应 { results:[{submission_id,status∈approved|expired|error}], summary:{approved,expired,error} }
+ */
+export function batchApprove(submissionIds) {
+  return request.post("/annotation/admin/review/batch-approve", {
+    submission_ids: submissionIds,
+  });
+}
+
+/**
+ * 批量驳回：POST /api/annotation/admin/review/batch-reject
+ * @param {{ submission_id: number, comment: string }[]} decisions
+ * 响应同构 { results:[{submission_id,status∈rejected|error}], summary:{rejected,error} }
+ */
+export function batchReject(decisions) {
+  return request.post("/annotation/admin/review/batch-reject", { decisions });
 }
 
 /* ═══════════════ 管理端看板 / 导出 / 审计日志（T17） ═══════════════ */
