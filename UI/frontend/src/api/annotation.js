@@ -89,8 +89,7 @@ export function listPools() {
  * @returns {Promise<{ total_matched: number, eligible: number,
  *           page: number, page_size: number,
  *           items: Array<{ record_id: number, title: string, crawl_status: string,
- *                           pub_year: string|null, eligible: boolean,
- *                           blocked: null|string }> }>}
+ *                           pub_year: string|null, eligible: boolean }> }>}
  */
 export function previewPool(payload, params = {}) {
   return request.post("/annotation/admin/pools/preview", payload, { params });

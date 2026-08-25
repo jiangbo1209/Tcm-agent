@@ -1066,6 +1066,14 @@ async function loadReviewGroups() {
       const updated = groups.find((g) => g.task_id === reviewDetailTask.value.task_id);
       if (updated) {
         reviewDetailTask.value = updated;
+        const validIds = new Set(updated.items.map((i) => i.submission_id));
+        const nextSelected = new Set([...selectedReviewIds.value].filter((id) => validIds.has(id)));
+        if (nextSelected.size !== selectedReviewIds.value.size) {
+          selectedReviewIds.value = nextSelected;
+        }
+        if (expandedReviewId.value !== null && !validIds.has(expandedReviewId.value)) {
+          expandedReviewId.value = null;
+        }
       } else {
         reviewDetailTask.value = null;
         selectedReviewIds.value = new Set();
@@ -1463,7 +1471,13 @@ function startReviewPolling() {
   stopReviewPolling();
   if (activeTab.value === "review") {
     reviewPollTimer = setInterval(() => {
-      if (activeTab.value === "review" && !reviewLoading.value && !batchActing.value && !actingId.value) {
+      if (
+        activeTab.value === "review" &&
+        !reviewLoading.value &&
+        !batchActing.value &&
+        !actingId.value &&
+        !reviewDetailTask.value
+      ) {
         loadReviewGroups();
       }
     }, 15000);
@@ -1481,15 +1495,23 @@ onMounted(() => {
   startReviewPolling();
 });
 
-watch(activeTab, (tab) => {
-  if (tab === "review") {
+watch(activeTab, (newTab, oldTab) => {
+  if (oldTab === "review") {
+    reviewDetailTask.value = null;
+    selectedReviewIds.value = new Set();
+    expandedReviewId.value = null;
+  }
+  if (newTab === "review") {
+    reviewDetailTask.value = null;
+    selectedReviewIds.value = new Set();
+    expandedReviewId.value = null;
     loadReviewGroups();
     startReviewPolling();
   } else {
     stopReviewPolling();
-    if (tab === "board") loadBoard();
-    else if (tab === "export") loadExportOptions();
-    else if (tab === "rollback") resetAndLoadLogs();
+    if (newTab === "board") loadBoard();
+    else if (newTab === "export") loadExportOptions();
+    else if (newTab === "rollback") resetAndLoadLogs();
   }
 });
 

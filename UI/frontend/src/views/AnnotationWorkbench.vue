@@ -554,27 +554,33 @@ function normalizeRework(raw) {
   };
 }
 
+let prevReworkCount = 0;
 async function pollRework() {
   try {
     const res = await getMyRework();
     const data = res.data;
+    let newCount = 0;
     if (Array.isArray(data)) {
       reworkItems.value = data.map(normalizeRework);
-      reworkCount.value = data.length;
+      newCount = data.length;
+      reworkCount.value = newCount;
     } else {
-      reworkCount.value = Number(data?.count ?? 0) || 0;
+      newCount = Number(data?.count ?? 0) || 0;
+      reworkCount.value = newCount;
       if (Array.isArray(data?.items)) {
         reworkItems.value = data.items.map(normalizeRework);
       }
     }
-    if (reworkCount.value > 0 && taskCompleted.value) {
+    if (view.value === "task" && taskCompleted.value && prevReworkCount === 0 && newCount > 0) {
       taskCompleted.value = false;
       submitResult.value = null;
       await loadCurrentTask();
     }
+    prevReworkCount = newCount;
   } catch {
     reworkCount.value = 0;
     reworkItems.value = [];
+    prevReworkCount = 0;
   }
 }
 
