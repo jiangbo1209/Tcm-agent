@@ -2,6 +2,9 @@
   <div class="annotation-workbench">
     <div class="wb-header">
       <h1>标注工作台</h1>
+      <button type="button" class="history-btn" data-testid="history-btn" @click="openHistoryDrawer">
+        我的标注
+      </button>
       <button
         v-if="reworkCount > 0"
         type="button"
@@ -247,6 +250,36 @@
       </aside>
     </div>
 
+    <!-- 我的标注历史抽屉（只读，复用 rework-panel 样式模式） -->
+    <div v-if="historyDrawerOpen" class="rework-overlay" @click.self="closeHistoryDrawer">
+      <aside class="rework-panel" data-testid="history-drawer" role="dialog" aria-label="我的标注历史">
+        <header class="pane-header">
+          <span class="pane-title">我的标注（{{ historyTotal }}）</span>
+          <button type="button" class="pane-close" aria-label="关闭" @click="closeHistoryDrawer">&times;</button>
+        </header>
+        <div class="rework-body">
+          <div v-if="historyLoading" class="item-empty">加载中...</div>
+          <div v-else-if="historyItems.length === 0" class="item-empty">暂无标注记录</div>
+          <div v-for="h in historyItems" :key="h.submission_id" class="history-entry">
+            <div class="history-row">
+              <span class="history-id">#{{ h.record_id }}</span>
+              <span class="history-title" :title="h.title">{{ h.title }}</span>
+            </div>
+            <div class="history-row">
+              <span class="table-badge">{{ h.table_name }}</span>
+              <span class="status-badge" :class="historyStatusCls(h.status)">{{ historyStatusLabel(h.status) }}</span>
+              <span class="history-time">{{ formatTime(h.submitted_at) }}</span>
+            </div>
+          </div>
+          <div v-if="historyTotal > historyPageSize" class="history-pagination">
+            <button type="button" class="btn-nav" :disabled="historyPage <= 1" @click="changeHistoryPage(historyPage - 1)">上一页</button>
+            <span class="page-info">{{ historyPage }}/{{ historyTotalPages }}</span>
+            <button type="button" class="btn-nav" :disabled="historyPage >= historyTotalPages" @click="changeHistoryPage(historyPage + 1)">下一页</button>
+          </div>
+        </div>
+      </aside>
+    </div>
+
     <!-- 轻提示 toast -->
     <transition name="toast-fade">
       <div v-if="toast" class="toast" :class="'toast-' + toast.type" data-testid="toast">
@@ -258,7 +291,7 @@
 
 <script setup>
 import { ref, computed, watch, onMounted, onBeforeUnmount } from "vue";
-import { claimTask, getMyTask, getMyTaskDetail, getMyRework, draftItem, submitTask } from "../api/annotation";
+import { claimTask, getMyTask, getMyTaskDetail, getMyRework, draftItem, submitTask, myAnnotationHistory } from "../api/annotation";
 import { fetchFileUrl } from "../api/admin";
 
 // 视图状态：loading | disabled | claim | task
@@ -961,8 +994,64 @@ async function handleClaim() {
   }
 }
 
+/* ---------- 我的标注历史（只读抽屉 + 分页） ---------- */
+const historyDrawerOpen = ref(false);
+const historyLoading = ref(false);
+const historyItems = ref([]);
+const historyTotal = ref(0);
+const historyPage = ref(1);
+const historyPageSize = ref(20);
+const historyTotalPages = computed(() => Math.max(1, Math.ceil(historyTotal.value / historyPageSize.value)));
+
+function historyStatusLabel(s) {
+  const m = { approved: "已通过", rejected: "已驳回", pending: "待复核", expired: "已过期", draft: "草稿" };
+  return m[s] || s;
+}
+function historyStatusCls(s) {
+  const m = { approved: "st-approved", rejected: "st-rejected", pending: "st-pending-yellow", expired: "st-expired", draft: "st-drafted-blue" };
+  return m[s] || "st-other";
+}
+function formatTime(iso) {
+  if (!iso) return "—";
+  try {
+    const d = new Date(iso);
+    return d.toLocaleString();
+  } catch {
+    return iso;
+  }
+}
+async function loadHistory(page = 1) {
+  historyLoading.value = true;
+  try {
+    const res = await myAnnotationHistory({ page, page_size: historyPageSize.value });
+    const data = res.data || {};
+    historyItems.value = Array.isArray(data.items) ? data.items : [];
+    historyTotal.value = Number(data.total ?? historyItems.value.length);
+    historyPage.value = Number(data.page ?? page);
+  } catch {
+    historyItems.value = [];
+    historyTotal.value = 0;
+  } finally {
+    historyLoading.value = false;
+  }
+}
+async function openHistoryDrawer() {
+  historyDrawerOpen.value = true;
+  await loadHistory(1);
+}
+function closeHistoryDrawer() {
+  historyDrawerOpen.value = false;
+}
+function changeHistoryPage(p) {
+  loadHistory(p);
+}
+
 function handleKeydown(e) {
   if (e.key !== "Escape") return;
+  if (historyDrawerOpen.value) {
+    historyDrawerOpen.value = false;
+    return;
+  }
   if (reworkDrawerOpen.value) {
     reworkDrawerOpen.value = false;
   }
@@ -1090,6 +1179,20 @@ onBeforeUnmount(() => {
 .rework-deadline { font-size: 12px; color: #00796b; font-variant-numeric: tabular-nums; }
 .rework-deadline.expired { color: #999; }
 .expired-tag { padding: 1px 8px; border-radius: 8px; background: #f0f0f0; color: #999; font-size: 11px; font-weight: 400; }
+
+.history-btn { padding: 6px 14px; border: 1px solid #00796b; border-radius: 6px; background: #fff; color: #00796b; font-size: 13px; cursor: pointer; font-family: inherit; }
+.history-btn:hover { background: #e0f2f1; }
+.history-entry { display: flex; flex-direction: column; gap: 6px; padding: 10px 12px; border: 1px solid #e8e8e8; border-radius: 8px; background: #fafafa; }
+.history-row { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; font-size: 12px; }
+.history-id { font-weight: 600; color: #1a1a2e; }
+.history-title { flex: 1; color: #333; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.table-badge { padding: 1px 6px; border-radius: 4px; background: #e3f2fd; color: #1565c0; font-size: 11px; }
+.history-time { margin-left: auto; color: #999; }
+.st-pending-yellow { background: #fff8e1; color: #f57f17; }
+.st-expired { background: #f0f0f0; color: #999; }
+.st-drafted-blue { background: #e3f2fd; color: #1565c0; }
+.history-pagination { display: flex; align-items: center; justify-content: center; gap: 12px; padding-top: 8px; }
+.page-info { font-size: 12px; color: #666; }
 
 /* toast */
 .toast { position: fixed; left: 50%; bottom: 40px; transform: translateX(-50%); z-index: 2000; padding: 10px 20px; border-radius: 8px; font-size: 13px; color: #fff; box-shadow: 0 4px 16px rgba(0, 0, 0, 0.2); max-width: 80vw; }

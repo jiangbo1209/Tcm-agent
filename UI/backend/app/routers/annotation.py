@@ -10,7 +10,7 @@ from __future__ import annotations
 
 from typing import Any
 
-from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi import APIRouter, Depends, HTTPException, Query, status
 from pydantic import BaseModel
 from sqlalchemy.orm import Session
 
@@ -140,6 +140,16 @@ def my_task(
 ):
     """当前标注员的进行中任务概览；无活动任务时 task 为 null。"""
     return annotation_service.get_my_task(db, annotator)
+
+
+@router.get("/my/history")
+def my_history(
+    page: int = Query(1, ge=1),
+    page_size: int = Query(20, ge=1, le=100),
+    db: Session = Depends(get_db),
+    annotator: User = Depends(require_annotator),
+):
+    return annotation_service.my_annotation_history(db, annotator, page=page, page_size=page_size)
 
 
 @router.get("/my/task/detail")

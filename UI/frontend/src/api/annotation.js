@@ -35,6 +35,14 @@ export function getMyRework() {
 }
 
 /**
+ * 我的标注历史（标注员只读分页）：GET /api/annotation/my/history
+ * @param {{ page?: number, page_size?: number }} params
+ */
+export function myAnnotationHistory(params = {}) {
+  return request.get("/annotation/my/history", { params });
+}
+
+/**
  * 查询当前任务条目明细：GET /api/annotation/my/task/detail
  *
  * ⚠️ 后端缺口：该端点尚未提供（后续 todo 落地），当前调用会得到 404。

@@ -1234,6 +1234,80 @@ def get_my_task(db: Session, user: User) -> dict[str, Any]:
     }
 
 
+def my_annotation_history(
+    db: Session, user: User, page: int = 1, page_size: int = 20
+) -> dict[str, Any]:
+    """标注员只读标注历史：本人全部 AnnotationSubmission 分页。
+
+    join AnnotationTaskItem 取 table_name/record_id，
+    join 核心表取 title（无 title → ``病案#{record_id}`` 兜底，同 preview/export 口径）；
+    按 submission.id desc 排序，返回 {total, page, page_size, items:[{submission_id,...}]}。
+
+    纯只读，不触事务；page/page_size 合法性由路由层校验。
+    """
+
+    base = db.query(AnnotationSubmission).filter(AnnotationSubmission.annotator_id == user.id)
+    total = base.count()
+    submissions: list[AnnotationSubmission] = (
+        base.order_by(AnnotationSubmission.id.desc())
+        .offset((page - 1) * page_size)
+        .limit(page_size)
+        .all()
+    )
+    if not submissions:
+        return {"total": total, "page": page, "page_size": page_size, "items": []}
+
+    item_ids = [s.item_id for s in submissions]
+    items_map: dict[int, AnnotationTaskItem] = {
+        it.id: it
+        for it in db.query(AnnotationTaskItem).filter(AnnotationTaskItem.id.in_(item_ids)).all()
+    }
+
+    # 批量取标题：按 table_name 分组查核心表，避免逐条 N+1
+    grouped: dict[str, set[int]] = {}
+    for s in submissions:
+        it = items_map.get(s.item_id)
+        if it is not None:
+            grouped.setdefault(it.table_name, set()).add(int(it.record_id))
+    title_by_key: dict[tuple[str, int], str] = {}
+    for tname, ids in grouped.items():
+        model = _TABLE_MAP.get(tname)
+        if model is None:
+            for rid in ids:
+                title_by_key[(tname, rid)] = f"病案#{rid}"
+            continue
+        recs = db.query(model).filter(model.id.in_(list(ids))).all()
+        id_to_title: dict[int, str] = {}
+        for rec in recs:
+            t = getattr(rec, "title", None)
+            if not t:
+                t = f"病案#{rec.id}"
+            id_to_title[int(rec.id)] = str(t)
+        for rid in ids:
+            title_by_key[(tname, rid)] = id_to_title.get(rid, f"病案#{rid}")
+
+    result_items: list[dict[str, Any]] = []
+    for s in submissions:
+        it = items_map.get(s.item_id)
+        if it is None:
+            continue
+        title = title_by_key.get((it.table_name, int(it.record_id)), f"病案#{it.record_id}")
+        result_items.append(
+            {
+                "submission_id": s.id,
+                "record_id": it.record_id,
+                "table_name": it.table_name,
+                "title": title,
+                "status": s.status,
+                "submitted_at": it.submitted_at.isoformat() if it.submitted_at else None,
+                "reviewed_at": s.reviewed_at.isoformat() if s.reviewed_at else None,
+                "review_comment": s.review_comment,
+                "proposed_fields": s.proposed_fields,
+            }
+        )
+    return {"total": total, "page": page, "page_size": page_size, "items": result_items}
+
+
 def get_my_task_detail(db: Session, user: User) -> dict[str, Any]:
     """工作台条目明细（F-01）：当前任务的核心记录序列化行 + 每条目最新提交单。
 
