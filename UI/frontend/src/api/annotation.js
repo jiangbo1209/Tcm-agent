@@ -128,14 +128,13 @@ export function assignTasks(poolId, userIds) {
 }
 
 /**
- * 复核队列（扁平分页）：GET /api/annotation/admin/review/queue?page=&page_size=
- * @param {{ page?: number, page_size?: number }} params
- * 响应 { total, page, page_size, items:[{ submission_id, item_id, record_id,
- *   annotator_username, table_name, current_values, proposed_fields,
- *   base_updated_at, core_missing? }] }
+ * 复核队列（按任务分组）：GET /api/annotation/admin/review/queue
+ * 响应分组数组 [{ task_id, annotator_username, table_name, count, submitted_at,
+ *   items:[{ submission_id, item_id, record_id, current_values, proposed_fields,
+ *   base_updated_at, core_missing? }] }]；组内按 submission_id 升序，组按 task_id 升序，只含 pending
  */
-export function reviewQueueFlat(params = {}) {
-  return request.get("/annotation/admin/review/queue", { params });
+export function reviewQueue() {
+  return request.get("/annotation/admin/review/queue");
 }
 
 /**

@@ -1314,38 +1314,62 @@ def _core_current_values(db: Session, table_name: str, record_id: int) -> tuple[
     return values, False
 
 
-def review_queue(db: Session, page: int = 1, page_size: int = 20) -> dict[str, Any]:
-    """扁平分页复核队列：只含 submission.status=='pending'，扁平化分页。
+def review_queue(db: Session) -> list[dict[str, Any]]:
+    """按任务分组的复核队列：只含 submission.status=='pending'，按 task_id 分组。
 
-    查询 AnnotationSubmission.status==pending join TaskItem/Task，order by submission.id，
-    返回 {total, page, page_size, items:[{submission_id,item_id,record_id,annotator_username,table_name,current_values,proposed_fields,base_updated_at,core_missing?}]}
-    page/page_size 由路由层校验（page>=1, 1<=page_size<=100）。
+    组内条目按 submission_id 升序；组按 task_id 升序；submitted_at 取组内最早的
+    AnnotationTaskItem.submitted_at；返回数组
+    [{task_id, annotator_username, table_name, count, submitted_at,
+      items:[{submission_id,item_id,record_id,current_values,proposed_fields,base_updated_at,core_missing?}]}]
+    item 字段沿用扁平形状原样（除 annotator_username/table_name 提升至组）。
     """
-    base_query = (
+    rows = (
         db.query(AnnotationSubmission, AnnotationTaskItem, AnnotationTask)
         .join(AnnotationTaskItem, AnnotationTaskItem.id == AnnotationSubmission.item_id)
         .join(AnnotationTask, AnnotationTask.id == AnnotationTaskItem.task_id)
         .filter(AnnotationSubmission.status == "pending")
+        .order_by(AnnotationSubmission.id)
+        .all()
     )
-    total = base_query.count()
-    rows = base_query.order_by(AnnotationSubmission.id).offset((page - 1) * page_size).limit(page_size).all()
-    items: list[dict[str, Any]] = []
-    for submission, item, _task in rows:
+    groups: dict[int, dict[str, Any]] = {}
+    for submission, item, task in rows:
+        group = groups.get(task.id)
+        if group is None:
+            group = {
+                "task_id": task.id,
+                "annotator_username": submission.username,
+                "table_name": item.table_name,
+                "count": 0,
+                "items": [],
+                "_earliest_submitted_at": None,
+            }
+            groups[task.id] = group
         current_values, core_missing = _core_current_values(db, item.table_name, item.record_id)
         entry: dict[str, Any] = {
             "submission_id": submission.id,
             "item_id": item.id,
             "record_id": item.record_id,
-            "annotator_username": submission.username,
-            "table_name": item.table_name,
             "current_values": current_values,
             "proposed_fields": submission.proposed_fields,
             "base_updated_at": submission.base_updated_at.isoformat() if submission.base_updated_at else None,
         }
         if core_missing:
             entry["core_missing"] = True
-        items.append(entry)
-    return {"total": total, "page": page, "page_size": page_size, "items": items}
+        group["items"].append(entry)
+        group["count"] += 1
+        submitted_at = item.submitted_at
+        if submitted_at is not None and (
+            group["_earliest_submitted_at"] is None or submitted_at < group["_earliest_submitted_at"]
+        ):
+            group["_earliest_submitted_at"] = submitted_at
+
+    result: list[dict[str, Any]] = []
+    for task_id in sorted(groups):
+        group = groups[task_id]
+        earliest = group.pop("_earliest_submitted_at")
+        group["submitted_at"] = earliest.isoformat() if earliest else None
+        result.append(group)
+    return result
 
 
 def batch_approve(db: Session, reviewer: User, submission_ids: list[int]) -> dict[str, Any]:

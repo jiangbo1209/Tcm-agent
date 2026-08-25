@@ -1,4 +1,4 @@
-"""管理员复核（R3T4 扁平分页与批量）：review_queue flat pagination + batch approve/reject.
+"""管理员复核（R4T5 按任务分组回退+保留批量）：review_queue grouped + batch approve/reject.
 
 沿用 test_annotation_items 约定：裸 FastAPI + 真实依赖链（真实 JWT + DB 用户）。
 pending 提交单经 claim + draft + submit 自然产生。
@@ -90,7 +90,13 @@ def _seed_core_lit(db, n: int, *, prefix: str = "t8") -> list[int]:
             )
         )
     db.commit()
-    ids = [r.id for r in db.query(LitMetadata).order_by(LitMetadata.id).all()]
+    ids = [
+        r.id
+        for r in db.query(LitMetadata)
+        .filter(LitMetadata.file_uuid.like(f"{prefix}-%"))
+        .order_by(LitMetadata.id)
+        .all()
+    ]
     assert len(ids) == n
     return ids
 
@@ -198,95 +204,88 @@ def _log_for(db, action: str, submission_id: int):
     return log
 
 
-# --- (a) 扁平分页：page/page_size 翻页断言 total/items 顺序 ---------------------
+# --- (a) 按任务分组：组结构/count/submitted_at/items 字段 ---------------------
 
 
-def test_queue_flat_pagination_basic(client, db, admin):
-    # seed > default page_size 条 => 用 5 条，分页 page_size=2
+def test_queue_groups_by_task_basic(client, db, admin):
     annotator, task_id, items, subs = _submit_batch(
-        db,
-        client,
-        n=5,
-        fields=[{"title": f"稿{i}"} for i in range(5)],
-        prefix="flat1",
+        db, client, n=3, fields=[{"title": "组稿1"}, {}, {"title": "组稿3"}], prefix="grp1"
     )
-    # page 1
-    resp = client.get(QUEUE_URL, params={"page": 1, "page_size": 2}, headers=auth_header(admin))
+    resp = client.get(QUEUE_URL, headers=auth_header(admin))
     assert resp.status_code == 200
-    data = resp.json()
-    assert data["total"] == 5
-    assert data["page"] == 1
-    assert data["page_size"] == 2
-    assert len(data["items"]) == 2
-    # order by submission.id asc
-    ids_page1 = [it["submission_id"] for it in data["items"]]
-    assert ids_page1 == sorted(ids_page1)
-    assert ids_page1 == sorted([s.id for s in subs])[:2]
-
-    # page 2
-    resp2 = client.get(QUEUE_URL, params={"page": 2, "page_size": 2}, headers=auth_header(admin))
-    assert resp2.status_code == 200
-    data2 = resp2.json()
-    assert data2["total"] == 5
-    assert data2["page"] == 2
-    assert len(data2["items"]) == 2
-    ids_page2 = [it["submission_id"] for it in data2["items"]]
-    assert ids_page2 == sorted([s.id for s in subs])[2:4]
-    # no overlap
-    assert set(ids_page1).isdisjoint(set(ids_page2))
-
-    # page 3 - remaining 1
-    resp3 = client.get(QUEUE_URL, params={"page": 3, "page_size": 2}, headers=auth_header(admin))
-    assert resp3.status_code == 200
-    assert len(resp3.json()["items"]) == 1
-
-    # 默认分页参数 (不传即 1/20)
-    resp_default = client.get(QUEUE_URL, headers=auth_header(admin))
-    assert resp_default.status_code == 200
-    assert resp_default.json()["total"] == 5
-    assert resp_default.json()["page"] == 1
-    assert resp_default.json()["page_size"] == 20
+    groups = resp.json()
+    assert isinstance(groups, list)
+    assert len(groups) == 1
+    group = groups[0]
+    assert group["task_id"] == task_id
+    assert group["annotator_username"] == annotator.username
+    assert group["table_name"] == "lit"
+    assert group["count"] == 3
+    assert group["submitted_at"] is not None
+    assert len(group["items"]) == 3
+    assert [it["submission_id"] for it in group["items"]] == sorted(s.id for s in subs)
+    assert groups == sorted(groups, key=lambda g: g["task_id"])
 
 
-def test_queue_flat_item_schema_and_current_values(client, db, admin):
+def test_queue_group_item_schema_and_current_values(client, db, admin):
     annotator, task_id, items, subs = _submit_batch(
-        db, client, n=1, fields=[{"title": "扁平稿"}], prefix="flat2"
+        db, client, n=1, fields=[{"title": "分组稿"}], prefix="grp2"
     )
-    resp = client.get(QUEUE_URL, params={"page": 1, "page_size": 20}, headers=auth_header(admin))
+    resp = client.get(QUEUE_URL, headers=auth_header(admin))
     assert resp.status_code == 200
-    data = resp.json()
-    assert data["total"] == 1
-    assert len(data["items"]) == 1
-    entry = data["items"][0]
-    # required fields per spec
+    groups = resp.json()
+    assert len(groups) == 1
+    group = groups[0]
+    assert group["task_id"] == task_id
+    assert group["annotator_username"] == annotator.username
+    assert group["table_name"] == "lit"
+    assert group["count"] == 1
+    assert "submitted_at" in group
+    assert group["submitted_at"] is not None
+    assert len(group["items"]) == 1
+    entry = group["items"][0]
     assert entry["submission_id"] == subs[0].id
     assert entry["item_id"] == items[0].id
     assert entry["record_id"] == items[0].record_id
-    assert entry["annotator_username"] == annotator.username
-    assert entry["table_name"] == "lit"
     assert "current_values" in entry
     assert entry["current_values"]["title"] == "针灸治疗不孕症研究1"
-    assert entry["proposed_fields"] == {"title": "扁平稿"}
+    assert entry["proposed_fields"] == {"title": "分组稿"}
     assert "base_updated_at" in entry
     assert entry["base_updated_at"] is not None
-    # core_missing absent when not missing
     assert "core_missing" not in entry or entry["core_missing"] is not True
 
 
-def test_queue_flat_page_size_validation(client, db, admin):
-    resp = client.get(QUEUE_URL, params={"page": 1, "page_size": 101}, headers=auth_header(admin))
-    assert resp.status_code == 422
-    resp2 = client.get(QUEUE_URL, params={"page": 0, "page_size": 20}, headers=auth_header(admin))
-    assert resp2.status_code == 422
-    # status 旧参数已废弃：传 status 应被忽略或422？现在路由已移除 status 参数，传多余参数应忽略或报错；
-    # 约定不再支持 status，故只断言不走旧 tab 语义
-    _submit_batch(db, client, n=1, fields=[{"title": "x"}], prefix="flat3")
-    resp3 = client.get(QUEUE_URL, params={"page": 1, "page_size": 20}, headers=auth_header(admin))
-    assert resp3.status_code == 200
-    assert resp3.json()["total"] == 1
+def test_queue_groups_mutually_isolated(client, db, admin):
+    ann1, task1, items1, subs1 = _submit_batch(
+        db, client, n=2, fields=[{"title": "A1"}, {"title": "A2"}], prefix="grpA"
+    )
+    ann2, task2, items2, subs2 = _submit_batch(
+        db, client, n=3, fields=[{"title": "B1"}, {"title": "B2"}, {"title": "B3"}], prefix="grpB"
+    )
+    resp = client.get(QUEUE_URL, headers=auth_header(admin))
+    assert resp.status_code == 200
+    groups = resp.json()
+    assert isinstance(groups, list)
+    assert len(groups) == 2
+    assert [g["task_id"] for g in groups] == sorted([task1, task2])
+    g1 = next(g for g in groups if g["task_id"] == task1)
+    g2 = next(g for g in groups if g["task_id"] == task2)
+    assert g1["annotator_username"] == ann1.username
+    assert g2["annotator_username"] == ann2.username
+    assert g1["count"] == 2
+    assert g2["count"] == 3
+    assert len(g1["items"]) == 2
+    assert len(g2["items"]) == 3
+    assert [it["submission_id"] for it in g1["items"]] == sorted(s.id for s in subs1)
+    assert [it["submission_id"] for it in g2["items"]] == sorted(s.id for s in subs2)
+    ids1 = {it["submission_id"] for it in g1["items"]}
+    ids2 = {it["submission_id"] for it in g2["items"]}
+    assert ids1.isdisjoint(ids2)
+    assert g1["submitted_at"] is not None
+    assert g2["submitted_at"] is not None
 
 
-def test_queue_flags_missing_core_record_flat(db):
+def test_queue_flags_missing_core_record_grouped(db):
     from app.services import annotation_service
 
     record_ids = _seed_core_lit(db, 1, prefix="flat-missing")
@@ -322,10 +321,13 @@ def test_queue_flags_missing_core_record_flat(db):
     db.query(LitMetadata).filter(LitMetadata.id == record_ids[0]).delete()
     db.commit()
 
-    data = annotation_service.review_queue(db, page=1, page_size=20)
-    assert data["total"] == 1
-    assert len(data["items"]) == 1
-    entry = data["items"][0]
+    data = annotation_service.review_queue(db)
+    assert isinstance(data, list)
+    assert len(data) == 1
+    group = data[0]
+    assert group["count"] == 1
+    assert len(group["items"]) == 1
+    entry = group["items"][0]
     assert entry["core_missing"] is True
     assert entry["current_values"] == {}
 

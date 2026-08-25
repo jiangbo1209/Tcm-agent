@@ -133,10 +133,12 @@ def test_rework_resubmit_reappears_in_review_queue(client, db):
     pending_a_id_old = subs_a[0].id
     pending_b_id = subs_b[0].id
 
-    # queue 初始 2 pending
-    q0 = annotation_service.review_queue(db, page=1, page_size=20)
-    assert q0["total"] == 2
-    assert {x["submission_id"] for x in q0["items"]} == {pending_a_id_old, pending_b_id}
+    # queue 初始 2 pending (grouped)
+    q0 = annotation_service.review_queue(db)
+    q0_ids = {x["submission_id"] for g in q0 for x in g["items"]}
+    assert len(q0) == 1
+    assert q0[0]["count"] == 2
+    assert q0_ids == {pending_a_id_old, pending_b_id}
 
     # admin 驳回 item_a
     from app.services.annotation_service import reject_submission
@@ -149,10 +151,12 @@ def test_rework_resubmit_reappears_in_review_queue(client, db):
     assert db.get(AnnotationTask, task_id).status == "in_progress"
 
     # 驳回后 queue 仅剩 item_b 的 pending
-    q1 = annotation_service.review_queue(db, page=1, page_size=20)
-    assert q1["total"] == 1, f"驳回后应剩1条 pending, got {q1}"
-    assert q1["items"][0]["submission_id"] == pending_b_id
-    assert pending_a_id_old not in {x["submission_id"] for x in q1["items"]}
+    q1 = annotation_service.review_queue(db)
+    q1_ids = {x["submission_id"] for g in q1 for x in g["items"]}
+    assert len(q1) == 1
+    assert q1[0]["count"] == 1
+    assert q1_ids == {pending_b_id}
+    assert pending_a_id_old not in q1_ids
 
     # 标注员重做被驳条目：item_draft 应新建行，旧 rejected 保留
     dr = _draft(client, annotator, item_a.id, {"title": "稿A-返工"})
@@ -168,9 +172,10 @@ def test_rework_resubmit_reappears_in_review_queue(client, db):
     assert item_a.status == "drafted"
 
     # queue 仍只有 item_b 的 pending（draft 尚未进队列）
-    q2 = annotation_service.review_queue(db, page=1, page_size=20)
-    assert q2["total"] == 1
-    assert q2["items"][0]["submission_id"] == pending_b_id
+    q2 = annotation_service.review_queue(db)
+    q2_ids = {x["submission_id"] for g in q2 for x in g["items"]}
+    assert len(q2) == 1
+    assert q2_ids == {pending_b_id}
 
     # 再次整批提交
     r2 = client.post(f"/api/annotation/tasks/{task_id}/submit", headers=auth_header(annotator))
@@ -183,17 +188,20 @@ def test_rework_resubmit_reappears_in_review_queue(client, db):
     assert db.get(AnnotationSubmission, new_sub_id).status == "pending"
 
     # 最终断言：queue 含新 pending，且旧 rejected 不出现；并保持另一条 pending
-    q3 = annotation_service.review_queue(db, page=1, page_size=20)
-    ids = {x["submission_id"] for x in q3["items"]}
+    q3 = annotation_service.review_queue(db)
+    ids = {x["submission_id"] for g in q3 for x in g["items"]}
     assert new_sub_id in ids, f"重提交后新 pending {new_sub_id} 应在队列, got {ids}"
     assert pending_a_id_old not in ids, f"旧 rejected {pending_a_id_old} 不应出现在 pending 队列"
     # 另一条未驳回的 pending 仍在（服务层语义：drafted/submitted 原样保留）
     assert pending_b_id in ids, "未驳回条目的 pending 应仍在队列"
-    assert q3["total"] == 2, f"最终应有 2 pending (重做1条+未驳1条), got {q3['total']}"
+    assert len(q3) == 1
+    assert q3[0]["count"] == 2, f"最终应有 2 pending (重做1条+未驳1条), got {q3}"
 
-    # via HTTP 也应可见
-    http_q = client.get("/api/annotation/admin/review/queue", params={"page": 1, "page_size": 20}, headers=auth_header(admin))
+    # via HTTP 也应可见 (grouped, no pagination)
+    http_q = client.get("/api/annotation/admin/review/queue", headers=auth_header(admin))
     assert http_q.status_code == 200
-    http_ids = {x["submission_id"] for x in http_q.json()["items"]}
+    http_groups = http_q.json()
+    assert isinstance(http_groups, list)
+    http_ids = {x["submission_id"] for g in http_groups for x in g["items"]}
     assert new_sub_id in http_ids
     assert pending_a_id_old not in http_ids

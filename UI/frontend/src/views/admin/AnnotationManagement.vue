@@ -240,147 +240,163 @@
 
     </template>
 
-    <!-- ═══════════ 复核队列 ═══════════ -->
+    <!-- ═══════════ 复核队列（分组+下级视图） ═══════════ -->
     <template v-else-if="activeTab === 'review'">
-      <!-- 工具行 -->
-      <div class="review-toolbar">
-        <label class="review-select-all">
-          <input
-            type="checkbox"
-            class="wiz-checkbox"
-            :checked="isReviewAllSelected"
-            :disabled="!reviewSelectableItems.length"
-            @change="toggleReviewSelectAll"
-          />
-          <span>全选本页</span>
-        </label>
-        <button
-          class="btn-sm btn-review-approve"
-          :disabled="!selectedReviewIds.size || batchActing"
-          @click="handleBatchApprove"
-        >
-          批量通过
-        </button>
-        <button
-          class="btn-sm btn-review-reject"
-          :disabled="!selectedReviewIds.size || batchActing"
-          @click="openBatchReject"
-        >
-          批量驳回
-        </button>
-        <span class="review-count">
-          已选 <strong>{{ selectedReviewIds.size }}</strong> / 本页 {{ reviewSelectableItems.length }} · 共 {{ reviewTotal }} 条待复核
-        </span>
-        <div class="review-pager">
-          <button
-            class="btn-sm"
-            :disabled="reviewPage <= 1 || reviewLoading"
-            @click="goReviewPage(reviewPage - 1)"
-          >上一页</button>
-          <span class="pager-info">第 {{ reviewPage }} / {{ reviewPageCount }} 页</span>
-          <button
-            class="btn-sm"
-            :disabled="reviewPage >= reviewPageCount || reviewLoading"
-            @click="goReviewPage(reviewPage + 1)"
-          >下一页</button>
+      <!-- 下级视图：任务详情 -->
+      <template v-if="reviewDetailTask">
+        <div class="review-detail-header">
+          <button class="btn-sm" @click="closeReviewDetail">← 返回任务列表</button>
+          <span class="review-detail-title">任务 #{{ reviewDetailTask.task_id }} · {{ reviewDetailTask.annotator_username }} · {{ tableLabel(reviewDetailTask.table_name) }} · 共 {{ reviewDetailTask.count }} 条</span>
+          <span class="review-detail-time">提交于 {{ formatDate(reviewDetailTask.submitted_at) }}</span>
         </div>
-      </div>
+        <div class="review-toolbar">
+          <label class="review-select-all">
+            <input
+              type="checkbox"
+              class="wiz-checkbox"
+              :checked="isDetailAllSelected"
+              :disabled="!detailSelectableItems.length"
+              @change="toggleDetailSelectAll"
+            />
+            <span>全选本页</span>
+          </label>
+          <button
+            class="btn-sm btn-review-approve"
+            :disabled="!selectedReviewIds.size || batchActing"
+            @click="handleBatchApprove"
+          >
+            批量通过
+          </button>
+          <button
+            class="btn-sm btn-review-reject"
+            :disabled="!selectedReviewIds.size || batchActing"
+            @click="openBatchReject"
+          >
+            批量驳回
+          </button>
+          <span class="review-count">
+            已选 <strong>{{ selectedReviewIds.size }}</strong> / 本页 {{ detailSelectableItems.length }} · 共 {{ detailItems.length }} 条
+          </span>
+        </div>
 
-      <div v-if="reviewLoading" class="loading">加载中...</div>
-      <div v-else-if="reviewItems.length === 0" class="placeholder-card">
-        暂无待复核提交
-      </div>
-      <div v-else class="review-flat-list" data-testid="review-flat-list">
-        <table class="pool-table review-table" data-testid="review-table">
-          <thead>
-            <tr>
-              <th class="rev-col-check"></th>
-              <th class="rev-col-id">#记录ID</th>
-              <th>标注员</th>
-              <th>表类型</th>
-              <th>提交值摘要</th>
-              <th>状态</th>
-              <th>操作</th>
-            </tr>
-          </thead>
-          <tbody>
-            <template v-for="item in reviewItems" :key="item.submission_id">
-              <tr
-                class="review-row"
-                :class="{
-                  'review-row-core-missing': item.core_missing,
-                  'review-row-selected': selectedReviewIds.has(item.submission_id),
-                }"
-              >
-                <td class="rev-col-check">
-                  <input
-                    type="checkbox"
-                    class="wiz-checkbox"
-                    :checked="selectedReviewIds.has(item.submission_id)"
-                    @change="toggleReviewItem(item.submission_id)"
-                  />
-                </td>
-                <td class="rev-col-id">#{{ item.record_id }}</td>
-                <td>{{ item.annotator_username || "—" }}</td>
-                <td>{{ tableLabel(item.table_name) }}</td>
-                <td class="rev-summary">
-                  <span v-if="item.core_missing" class="core-missing-badge">核心缺失</span>
-                  <span v-if="!hasDiff(item)" class="badge badge-no-diff">无需修改</span>
-                  <span v-else class="badge badge-has-diff">{{ Object.keys(item.proposed_fields || {}).length }} 字段</span>
-                </td>
-                <td>
-                  <span class="badge badge-pending">待复核</span>
-                </td>
-                <td class="cell-actions">
-                  <button
-                    class="btn-sm btn-review-approve"
-                    :disabled="actingId === item.submission_id || item.core_missing"
-                    @click="handleSingleApprove(item)"
-                  >通过</button>
-                  <button
-                    class="btn-sm btn-review-reject"
-                    :disabled="actingId === item.submission_id"
-                    @click="openReject(item)"
-                  >驳回</button>
-                  <button
-                    class="btn-sm btn-review-expand"
-                    @click="toggleReviewExpand(item.submission_id)"
-                  >{{ expandedReviewId === item.submission_id ? "收起" : "展开" }}</button>
-                </td>
+        <div v-if="detailItems.length === 0" class="placeholder-card">
+          该任务暂无待复核条目
+        </div>
+        <div v-else class="review-flat-list" data-testid="review-detail-list">
+          <table class="pool-table review-table" data-testid="review-table">
+            <thead>
+              <tr>
+                <th class="rev-col-check"></th>
+                <th class="rev-col-id">#记录ID</th>
+                <th>标注员</th>
+                <th>表类型</th>
+                <th>提交值摘要</th>
+                <th>状态</th>
+                <th>操作</th>
               </tr>
-              <!-- 展开双栏对照 -->
-              <tr v-if="expandedReviewId === item.submission_id" class="review-expand-row">
-                <td colspan="7" class="review-expand-cell">
-                  <div class="diff-legend"><span class="diff-legend-mark">■</span> 高亮 = 标注员修改的字段</div>
-                  <div class="diff-grid">
-                    <div class="diff-col diff-col-current">
-                      <div class="diff-col-title">当前值</div>
-                      <div v-for="field in diffFields(item)" :key="'c-' + field" class="diff-row">
-                        <span class="diff-key">{{ field }}</span>
-                        <span class="diff-val">{{ formatValue(item.current_values?.[field]) }}</span>
+            </thead>
+            <tbody>
+              <template v-for="item in detailItems" :key="item.submission_id">
+                <tr
+                  class="review-row"
+                  :class="{
+                    'review-row-core-missing': item.core_missing,
+                    'review-row-selected': selectedReviewIds.has(item.submission_id),
+                  }"
+                >
+                  <td class="rev-col-check">
+                    <input
+                      type="checkbox"
+                      class="wiz-checkbox"
+                      :checked="selectedReviewIds.has(item.submission_id)"
+                      @change="toggleReviewItem(item.submission_id)"
+                    />
+                  </td>
+                  <td class="rev-col-id">#{{ item.record_id }}</td>
+                  <td>{{ reviewDetailTask.annotator_username || "—" }}</td>
+                  <td>{{ tableLabel(reviewDetailTask.table_name) }}</td>
+                  <td class="rev-summary">
+                    <span v-if="item.core_missing" class="core-missing-badge">核心缺失</span>
+                    <span v-if="!hasDiff(item)" class="badge badge-no-diff">无需修改</span>
+                    <span v-else class="badge badge-has-diff">{{ Object.keys(item.proposed_fields || {}).length }} 字段</span>
+                  </td>
+                  <td>
+                    <span class="badge badge-pending">待复核</span>
+                  </td>
+                  <td class="cell-actions">
+                    <button
+                      class="btn-sm btn-review-approve"
+                      :disabled="actingId === item.submission_id || item.core_missing"
+                      @click="handleSingleApprove(item)"
+                    >通过</button>
+                    <button
+                      class="btn-sm btn-review-reject"
+                      :disabled="actingId === item.submission_id"
+                      @click="openReject(item)"
+                    >驳回</button>
+                    <button
+                      class="btn-sm btn-review-expand"
+                      @click="toggleReviewExpand(item.submission_id)"
+                    >{{ expandedReviewId === item.submission_id ? "收起" : "展开" }}</button>
+                  </td>
+                </tr>
+                <tr v-if="expandedReviewId === item.submission_id" class="review-expand-row">
+                  <td colspan="7" class="review-expand-cell">
+                    <div class="diff-legend"><span class="diff-legend-mark">■</span> 高亮 = 标注员修改的字段</div>
+                    <div class="diff-grid">
+                      <div class="diff-col diff-col-current">
+                        <div class="diff-col-title">当前值</div>
+                        <div v-for="field in diffFields(item)" :key="'c-' + field" class="diff-row">
+                          <span class="diff-key">{{ field }}</span>
+                          <span class="diff-val">{{ formatValue(item.current_values?.[field]) }}</span>
+                        </div>
+                      </div>
+                      <div class="diff-col diff-col-proposed">
+                        <div class="diff-col-title">提交值</div>
+                        <div v-for="field in diffFields(item)" :key="'p-' + field" class="diff-row">
+                          <span class="diff-key">{{ field }}</span>
+                          <span
+                            class="diff-val"
+                            :class="{
+                              'diff-changed':
+                                formatValue(item.proposed_fields?.[field]) !==
+                                formatValue(item.current_values?.[field]),
+                            }"
+                          >{{ formatValue(item.proposed_fields?.[field]) }}</span>
+                        </div>
                       </div>
                     </div>
-                    <div class="diff-col diff-col-proposed">
-                      <div class="diff-col-title">提交值</div>
-                      <div v-for="field in diffFields(item)" :key="'p-' + field" class="diff-row">
-                        <span class="diff-key">{{ field }}</span>
-                        <span
-                          class="diff-val"
-                          :class="{
-                            'diff-changed':
-                              formatValue(item.proposed_fields?.[field]) !==
-                              formatValue(item.current_values?.[field]),
-                          }"
-                        >{{ formatValue(item.proposed_fields?.[field]) }}</span>
-                      </div>
-                    </div>
-                  </div>
-                </td>
-              </tr>
-            </template>
-          </tbody>
-        </table>
-      </div>
+                  </td>
+                </tr>
+              </template>
+            </tbody>
+          </table>
+        </div>
+      </template>
+      <!-- 顶层：任务组列表 -->
+      <template v-else>
+        <div v-if="reviewLoading" class="loading">加载中...</div>
+        <div v-else-if="reviewGroups.length === 0" class="placeholder-card">
+          暂无待复核提交
+        </div>
+        <div v-else class="review-group-list" data-testid="review-group-list">
+          <div
+            v-for="group in reviewGroups"
+            :key="group.task_id"
+            class="review-group-card"
+            :data-testid="'review-group-' + group.task_id"
+          >
+            <div class="review-group-info">
+              <span class="review-group-task">任务 #{{ group.task_id }}</span>
+              <span class="review-group-annotator">{{ group.annotator_username }}</span>
+              <span class="review-group-table">{{ tableLabel(group.table_name) }}</span>
+              <span class="review-group-count">{{ group.count }} 条待复核</span>
+              <span class="review-group-time">提交于 {{ formatDate(group.submitted_at) }}</span>
+            </div>
+            <button class="btn-sm btn-assign" @click="openReviewDetail(group)">进入复核</button>
+          </div>
+        </div>
+      </template>
     </template>
 
     <!-- ═══════════ 看板 ═══════════ -->
@@ -653,7 +669,7 @@ import {
   updatePool,
   deletePool,
   assignTasks,
-  reviewQueueFlat,
+  reviewQueue,
   approveSubmission,
   rejectSubmission,
   batchApprove,
@@ -1024,55 +1040,56 @@ async function confirmAssign() {
   }
 }
 
-/* ───────── 复核队列（扁平分页） ───────── */
-const REVIEW_PAGE_SIZE = 20;
-const reviewItems = ref([]);
-const reviewTotal = ref(0);
-const reviewPage = ref(1);
+/* ───────── 复核队列（分组+下级视图） ───────── */
+const reviewGroups = ref([]);
 const reviewLoading = ref(false);
+const reviewDetailTask = ref(null);
 const selectedReviewIds = ref(new Set());
 const expandedReviewId = ref(null);
 const actingId = ref(null);
 const batchActing = ref(false);
 
-const reviewPageCount = computed(() => Math.max(1, Math.ceil(reviewTotal.value / REVIEW_PAGE_SIZE)));
-
-const reviewSelectableItems = computed(() => reviewItems.value.filter((i) => !i.core_missing));
-
-const isReviewAllSelected = computed(() => {
-  const sel = reviewSelectableItems.value;
+const detailItems = computed(() => (reviewDetailTask.value ? reviewDetailTask.value.items || [] : []));
+const detailSelectableItems = computed(() => detailItems.value.filter((i) => !i.core_missing));
+const isDetailAllSelected = computed(() => {
+  const sel = detailSelectableItems.value;
   return sel.length > 0 && sel.every((i) => selectedReviewIds.value.has(i.submission_id));
 });
 
-async function loadReviewQueue() {
+async function loadReviewGroups() {
   reviewLoading.value = true;
   try {
-    const res = await reviewQueueFlat({ page: reviewPage.value, page_size: REVIEW_PAGE_SIZE });
-    const d = res.data || {};
-    const total = d.total ?? 0;
-    const items = Array.isArray(d.items) ? d.items : [];
-    if (items.length === 0 && total > 0 && reviewPage.value > 1) {
-      reviewPage.value = 1;
-      reviewLoading.value = false;
-      return loadReviewQueue();
+    const res = await reviewQueue();
+    const groups = Array.isArray(res.data) ? res.data : [];
+    reviewGroups.value = groups;
+    if (reviewDetailTask.value) {
+      const updated = groups.find((g) => g.task_id === reviewDetailTask.value.task_id);
+      if (updated) {
+        reviewDetailTask.value = updated;
+      } else {
+        reviewDetailTask.value = null;
+        selectedReviewIds.value = new Set();
+        expandedReviewId.value = null;
+      }
     }
-    reviewItems.value = items;
-    reviewTotal.value = total;
-    selectedReviewIds.value = new Set();
-    expandedReviewId.value = null;
   } catch (e) {
-    reviewItems.value = [];
-    reviewTotal.value = 0;
+    reviewGroups.value = [];
     showToast(e.response?.data?.detail || "加载复核队列失败", "error");
   } finally {
     reviewLoading.value = false;
   }
 }
 
-function goReviewPage(p) {
-  if (p < 1 || p > reviewPageCount.value) return;
-  reviewPage.value = p;
-  loadReviewQueue();
+function openReviewDetail(group) {
+  reviewDetailTask.value = group;
+  selectedReviewIds.value = new Set();
+  expandedReviewId.value = null;
+}
+
+function closeReviewDetail() {
+  reviewDetailTask.value = null;
+  selectedReviewIds.value = new Set();
+  expandedReviewId.value = null;
 }
 
 function toggleReviewItem(sid) {
@@ -1082,9 +1099,9 @@ function toggleReviewItem(sid) {
   selectedReviewIds.value = next;
 }
 
-function toggleReviewSelectAll() {
-  const sel = reviewSelectableItems.value;
-  const allSel = isReviewAllSelected.value;
+function toggleDetailSelectAll() {
+  const sel = detailSelectableItems.value;
+  const allSel = isDetailAllSelected.value;
   const next = new Set(selectedReviewIds.value);
   for (const i of sel) {
     if (allSel) next.delete(i.submission_id);
@@ -1097,7 +1114,6 @@ function toggleReviewExpand(sid) {
   expandedReviewId.value = expandedReviewId.value === sid ? null : sid;
 }
 
-// hasDiff / diffFields / formatValue —— 精确保留原有实现
 function hasDiff(entry) {
   const p = entry.proposed_fields;
   return !!p && typeof p === "object" && Object.keys(p).length > 0;
@@ -1126,7 +1142,8 @@ async function handleSingleApprove(entry) {
     } else {
       showToast(`提交 #${entry.submission_id} 已通过`);
     }
-    removeReviewItem(entry.submission_id);
+    removeDetailItem(entry.submission_id);
+    await loadReviewGroups();
   } catch (e) {
     showToast(e.response?.data?.detail || "通过失败", "error");
   } finally {
@@ -1134,17 +1151,18 @@ async function handleSingleApprove(entry) {
   }
 }
 
-function removeReviewItem(sid) {
-  const idx = reviewItems.value.findIndex((i) => i.submission_id === sid);
-  if (idx !== -1) {
-    reviewItems.value.splice(idx, 1);
-    reviewTotal.value = Math.max(0, reviewTotal.value - 1);
-    selectedReviewIds.value.delete(sid);
-    if (expandedReviewId.value === sid) expandedReviewId.value = null;
+function removeDetailItem(sid) {
+  if (reviewDetailTask.value) {
+    const idx = reviewDetailTask.value.items.findIndex((i) => i.submission_id === sid);
+    if (idx !== -1) {
+      reviewDetailTask.value.items.splice(idx, 1);
+      reviewDetailTask.value.count = Math.max(0, (reviewDetailTask.value.count || 1) - 1);
+    }
   }
+  selectedReviewIds.value.delete(sid);
+  if (expandedReviewId.value === sid) expandedReviewId.value = null;
 }
 
-/* ─── 批量通过 ─── */
 async function handleBatchApprove() {
   const ids = [...selectedReviewIds.value];
   if (!ids.length) return;
@@ -1154,10 +1172,10 @@ async function handleBatchApprove() {
     const res = await batchApprove(ids);
     const d = res.data || {};
     const s = d.summary || d;
-    showToast(
-      `通过 ${s.approved ?? 0} · 过期 ${s.expired ?? 0} · 异常 ${s.error ?? 0}`
-    );
-    await loadReviewQueue();
+    showToast(`通过 ${s.approved ?? 0} · 过期 ${s.expired ?? 0} · 异常 ${s.error ?? 0}`);
+    selectedReviewIds.value = new Set();
+    expandedReviewId.value = null;
+    await loadReviewGroups();
   } catch (e) {
     showToast(e.response?.data?.detail || "批量通过失败", "error");
   } finally {
@@ -1206,12 +1224,15 @@ async function confirmReject() {
       const s = d.summary || d;
       showToast(`驳回 ${s.rejected ?? 0} · 异常 ${s.error ?? 0}`);
       closeReject();
-      await loadReviewQueue();
+      selectedReviewIds.value = new Set();
+      expandedReviewId.value = null;
+      await loadReviewGroups();
     } else if (rejectTarget.value) {
       await rejectSubmission(rejectTarget.value.submission_id, comment);
       showToast(`提交 #${rejectTarget.value.submission_id} 已驳回，条目进入返工箱`);
-      removeReviewItem(rejectTarget.value.submission_id);
+      removeDetailItem(rejectTarget.value.submission_id);
       closeReject();
+      await loadReviewGroups();
     }
   } catch (e) {
     rejectError.value = e.response?.data?.detail || "驳回失败";
@@ -1435,7 +1456,7 @@ function startReviewPolling() {
   if (activeTab.value === "review") {
     reviewPollTimer = setInterval(() => {
       if (activeTab.value === "review" && !reviewLoading.value && !batchActing.value && !actingId.value) {
-        loadReviewQueue();
+        loadReviewGroups();
       }
     }, 15000);
   }
@@ -1454,8 +1475,7 @@ onMounted(() => {
 
 watch(activeTab, (tab) => {
   if (tab === "review") {
-    reviewPage.value = 1;
-    loadReviewQueue();
+    loadReviewGroups();
     startReviewPolling();
   } else {
     stopReviewPolling();

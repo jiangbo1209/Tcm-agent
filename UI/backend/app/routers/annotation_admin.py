@@ -189,13 +189,11 @@ class ReviewRejectRequest(BaseModel):
 
 @router.get("/review/queue")
 def review_queue(
-    page: int = Query(1, ge=1),
-    page_size: int = Query(20, ge=1, le=100),
     db: Session = Depends(get_db),
     _admin: User = Depends(require_admin),
 ):
     try:
-        return annotation_service.review_queue(db, page=page, page_size=page_size)
+        return annotation_service.review_queue(db)
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
 
