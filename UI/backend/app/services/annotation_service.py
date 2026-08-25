@@ -275,7 +275,7 @@ def create_pool(
     """
     model = _validate_table(table_name)
     filters = dict(filters or {})
-    if record_ids:
+    if record_ids is not None:
         return _create_pool_from_explicit_ids(
             db,
             model,
@@ -376,6 +376,8 @@ def _create_pool_from_explicit_ids(
     include_annotated: bool,
 ) -> dict[str, Any]:
     ids = list(dict.fromkeys(record_ids))
+    if not ids:
+        raise ValueError("请选择至少一条记录再建池")
     existing_ids = set(db.execute(select(model.id).where(model.id.in_(ids))).scalars())
     missing = [record_id for record_id in ids if record_id not in existing_ids]
     if missing:

@@ -638,6 +638,20 @@ def test_create_record_ids_approved_without_flag_rejected_then_included(client, 
     assert body["included_approved"] == 1
 
 
+def test_create_with_empty_record_ids_rejected(client, db, admin):
+    """m1: 显式空数组 [] 必须 400 且 detail 含“至少一条”，不得回退到筛选路径建池。"""
+    _seed_lit(db, n=2)
+    before = _table_counts(db)
+    resp = client.post(
+        "/api/annotation/admin/pools",
+        json={"table_name": "lit", "record_ids": []},
+        headers=auth_header(admin),
+    )
+    assert resp.status_code == 400
+    assert "至少一条" in resp.json()["detail"]
+    assert _table_counts(db) == before
+
+
 def test_create_without_record_ids_keeps_filter_path_and_flag_applies(client, db, admin):
     """⑥ 不传 record_ids 走原路径，include_annotated 作用于排除集；filter_json 无 selected_record_ids。"""
     ids = _seed_lit(db, n=4)
