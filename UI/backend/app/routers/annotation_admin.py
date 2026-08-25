@@ -189,15 +189,51 @@ class ReviewRejectRequest(BaseModel):
 
 @router.get("/review/queue")
 def review_queue(
-    status: str = Query("pending", description="pending | expired"),
+    page: int = Query(1, ge=1),
+    page_size: int = Query(20, ge=1, le=100),
     db: Session = Depends(get_db),
     _admin: User = Depends(require_admin),
 ):
-    """按任务分组的复核队列；status 可切 expired 查看基准冲突归档。"""
     try:
-        return annotation_service.review_queue(db, status=status)
+        return annotation_service.review_queue(db, page=page, page_size=page_size)
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+
+class BatchApproveRequest(BaseModel):
+    submission_ids: list[int]
+
+
+class BatchRejectDecision(BaseModel):
+    submission_id: int
+    comment: str
+
+
+class BatchRejectRequest(BaseModel):
+    decisions: list[BatchRejectDecision]
+
+
+@router.post("/review/batch-approve")
+def batch_approve(
+    body: BatchApproveRequest,
+    db: Session = Depends(get_db),
+    admin: User = Depends(require_admin),
+):
+    if not body.submission_ids:
+        raise HTTPException(status_code=400, detail="submission_ids 不能为空")
+    return annotation_service.batch_approve(db, admin, body.submission_ids)
+
+
+@router.post("/review/batch-reject")
+def batch_reject(
+    body: BatchRejectRequest,
+    db: Session = Depends(get_db),
+    admin: User = Depends(require_admin),
+):
+    if not body.decisions:
+        raise HTTPException(status_code=400, detail="decisions 不能为空")
+    decisions = [d.model_dump() for d in body.decisions]
+    return annotation_service.batch_reject(db, admin, decisions)
 
 
 def _map_review_errors(exc: Exception) -> HTTPException:
