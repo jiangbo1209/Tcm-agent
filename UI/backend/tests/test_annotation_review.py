@@ -757,3 +757,110 @@ def test_batch_reject_error_does_not_interrupt_others(client, db, admin):
     assert by_id[subs[0].id]["status"] == "rejected"
     assert by_id[bad_id]["status"] == "error"
     assert by_id[subs[1].id]["status"] == "rejected"
+
+
+# --- (e) 两池精确复位：M2 回归（两池同记录， expired 仅复位来源池） --------
+
+
+def test_expired_resets_only_source_pool_not_other_pool(client, db, admin):
+    """M2：池A领用→关闭A→同记录进池B再领用→对B任务制造 base 冲突 approve→仅B复位."""
+    from app.models import AnnotationPool, AnnotationPoolItem, AnnotationTaskItem, LitMetadata
+
+    # 1) 种子 1 条核心记录
+    record_ids = _seed_core_lit(db, 1, prefix="m2-twopool")
+    record_id = record_ids[0]
+
+    # 2) 池A 手工建池并领用（assigned）
+    pool_a = _seed_pool_with_records(db, [record_id])
+    annotator_a = make_user(db, "m2-annotator-a", role="annotator")
+    task_a_id = _claim_task(client, annotator_a)
+    # 校验池A已被领用
+    pool_item_a = (
+        db.query(AnnotationPoolItem)
+        .filter(AnnotationPoolItem.pool_id == pool_a.id, AnnotationPoolItem.record_id == record_id)
+        .one()
+    )
+    assert pool_item_a.status == "assigned"
+    item_a = (
+        db.query(AnnotationTaskItem).filter(AnnotationTaskItem.task_id == task_a_id).one()
+    )
+    assert item_a.source_pool_item_id == pool_item_a.id
+
+    # 3) PATCH 关闭池A：排除谓词不再阻塞
+    resp = client.patch(
+        f"/api/annotation/admin/pools/{pool_a.id}",
+        json={"status": "closed"},
+        headers=auth_header(admin),
+    )
+    assert resp.status_code == 200
+    assert resp.json()["status"] == "closed"
+    db.refresh(pool_a)
+    assert pool_a.status == "closed"
+
+    # 4) 同记录进池B（直接插库绕过占用校验，模拟多池同记录历史）
+    pool_b = AnnotationPool(table_name="lit", filter_json={}, status="active", priority=1)
+    db.add(pool_b)
+    db.flush()
+    pool_item_b = AnnotationPoolItem(
+        pool_id=pool_b.id, table_name="lit", record_id=record_id, status="available"
+    )
+    db.add(pool_item_b)
+    db.commit()
+    db.refresh(pool_b)
+    db.refresh(pool_item_b)
+
+    # 5) 池B再领用（不同标注员避免 has_active_task）
+    annotator_b = make_user(db, "m2-annotator-b", role="annotator")
+    task_b_id = _claim_task(client, annotator_b)
+    # claim 应命中池B
+    task_b_items = _task_items(db, task_b_id)
+    assert len(task_b_items) == 1
+    item_b = task_b_items[0]
+    assert item_b.record_id == record_id
+    # source 指向池B的 pool_item
+    db.refresh(pool_item_b)
+    assert pool_item_b.status == "assigned"
+    assert item_b.source_pool_item_id == pool_item_b.id
+
+    # 6) 对B任务制造 base 冲突：draft+submit 后直改核心 updated_at
+    assert _draft(client, annotator_b, item_b.id, {"title": "冲突稿B"}).status_code == 200
+    _submit_all(client, annotator_b, task_b_id)
+    subs_b = _pending_submissions(db, [item_b])
+    assert len(subs_b) == 1
+    sub_b = subs_b[0]
+    # 直改核心推进 updated_at
+    db.execute(
+        sa.update(LitMetadata).where(LitMetadata.id == record_id).values(updated_at=NEWER_TS)
+    )
+    db.commit()
+
+    # 7) approve 触发 Stale -> expired
+    resp = _approve(client, admin, sub_b.id)
+    assert resp.status_code == 200
+    assert resp.json()["status"] == "expired"
+
+    # 8) 断言：B 的 pool_item 复位 available，A 的仍 assigned
+    db.refresh(pool_item_b)
+    db.refresh(pool_item_a)
+    assert pool_item_b.status == "available"
+    assert pool_item_a.status == "assigned"
+
+    # 附带校验 expired 语义
+    db.refresh(item_b)
+    assert item_b.status == "expired"
+    assert item_b.rejected_at is None
+    db.refresh(sub_b)
+    assert sub_b.status == "expired"
+
+
+def test_batch_empty_service_guard_raises(client, db, admin):
+    """minor：服务层空列表直调抛 AnnotationFieldValidationError."""
+    import pytest
+
+    from app.services import annotation_service
+    from app.services.annotation_service import AnnotationFieldValidationError
+
+    with pytest.raises(AnnotationFieldValidationError):
+        annotation_service.batch_approve(db, admin, [])
+    with pytest.raises(AnnotationFieldValidationError):
+        annotation_service.batch_reject(db, admin, [])

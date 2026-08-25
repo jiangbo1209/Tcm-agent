@@ -1343,6 +1343,8 @@ def batch_approve(db: Session, reviewer: User, submission_ids: list[int]) -> dic
     返回 {"results":[{submission_id, status, detail?}], "summary":{approved,expired,error}} 并扁平兼容。
     status ∈ approved|expired|error（expired 来自 base 冲突）。
     """
+    if not submission_ids:
+        raise AnnotationFieldValidationError("submission_ids 不能为空")
     # 去重保序
     seen: set[int] = set()
     deduped: list[int] = []
@@ -1365,7 +1367,7 @@ def batch_approve(db: Session, reviewer: User, submission_ids: list[int]) -> dic
             elif status == "expired":
                 expired += 1
             else:
-                approved += 1
+                error += 1
         except Exception as exc:  # noqa: BLE001
             try:
                 db.rollback()
@@ -1384,6 +1386,8 @@ def batch_reject(db: Session, reviewer: User, decisions: list[dict[str, Any]]) -
 
     返回同构 results+汇总，成功 status 为 rejected。
     """
+    if not decisions:
+        raise AnnotationFieldValidationError("decisions 不能为空")
     results: list[dict[str, Any]] = []
     rejected = 0
     error = 0
@@ -1444,9 +1448,9 @@ def approve_submission(db: Session, reviewer: User, submission_id: int) -> dict[
     - 真实差异：复用 admin 直改唯一写入口 AdminQueryRepository.update_record
       （白名单、abstract 清洗、crawl_status 自动晋升同源；内部乐观锁 +
       commit），故每条目的核心写入天然独立成事务——单条 base 冲突转
-      expired（条目进返工箱）时绝不牵连其他条目。
+      expired（expired 存档不进返工箱、无 rejected_at、池位复位 available）时绝不牵连其他条目。
     返回 {"submission_id", "item_id", "record_id", "status"}，
-    status ∈ {"approved", "expired"}；expired 不抛错，由响应体标记。
+    status ∈ {"approved", "expired"}；expired 不抛错，由响应体标记，expired 存档不进返工箱、无 rejected_at、池位复位。
     """
     submission, item = _load_reviewable_submission(db, submission_id)
     now_utc = _utcnow()
@@ -1490,31 +1494,47 @@ def approve_submission(db: Session, reviewer: User, submission_id: int) -> dict[
             updated_at=submission.base_updated_at.isoformat(),
         )
     except StaleRecordError:
-        submission.status = "expired"
-        submission.reviewed_at = now_utc
-        submission.reviewer_id = reviewer.id
-        item.status = "expired"
-        pool_item = (
-            db.query(AnnotationPoolItem)
-            .filter(
-                AnnotationPoolItem.table_name == item.table_name,
-                AnnotationPoolItem.record_id == item.record_id,
-                AnnotationPoolItem.status == "assigned",
+        try:
+            submission.status = "expired"
+            submission.reviewed_at = now_utc
+            submission.reviewer_id = reviewer.id
+            item.status = "expired"
+            pool_item = None
+            if item.source_pool_item_id is not None:
+                candidate = db.get(AnnotationPoolItem, item.source_pool_item_id)
+                if candidate is not None and candidate.status == "assigned":
+                    pool_item = candidate
+            if pool_item is None:
+                pool_item = (
+                    db.query(AnnotationPoolItem)
+                    .join(AnnotationPool, AnnotationPool.id == AnnotationPoolItem.pool_id)
+                    .filter(
+                        AnnotationPoolItem.table_name == item.table_name,
+                        AnnotationPoolItem.record_id == item.record_id,
+                        AnnotationPoolItem.status == "assigned",
+                        AnnotationPool.status.in_(_BLOCKING_POOL_STATUSES),
+                    )
+                    .order_by(AnnotationPoolItem.id)
+                    .first()
+                )
+            if pool_item is not None:
+                pool_item.status = "available"
+            _write_log(
+                db,
+                table_name=item.table_name,
+                record_id=item.record_id,
+                actor=reviewer,
+                action="expire",
+                new_fields={"reason": "base_conflict"},
+                submission_id=submission.id,
             )
-            .first()
-        )
-        if pool_item is not None:
-            pool_item.status = "available"
-        _write_log(
-            db,
-            table_name=item.table_name,
-            record_id=item.record_id,
-            actor=reviewer,
-            action="expire",
-            new_fields={"reason": "base_conflict"},
-            submission_id=submission.id,
-        )
-        db.commit()
+            db.commit()
+        except Exception:
+            try:
+                db.rollback()
+            except Exception:  # noqa: BLE001
+                pass
+            raise
         return {
             "submission_id": submission.id,
             "item_id": item.id,
