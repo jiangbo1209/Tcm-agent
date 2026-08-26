@@ -2,7 +2,7 @@
   <div class="annotation-workbench">
     <div class="wb-header">
       <h1>标注工作台</h1>
-      <button type="button" class="history-btn" data-testid="history-btn" @click="openHistoryDrawer">
+      <button type="button" class="history-btn" data-testid="history-btn" @click="router.push('/annotate/history')">
         我的标注
       </button>
       <button
@@ -291,8 +291,11 @@
 
 <script setup>
 import { ref, computed, watch, onMounted, onBeforeUnmount } from "vue";
+import { useRouter } from "vue-router";
 import { claimTask, getMyTask, getMyTaskDetail, getMyRework, draftItem, submitTask, myAnnotationHistory } from "../api/annotation";
 import { fetchFileUrl } from "../api/admin";
+
+const router = useRouter();
 
 // 视图状态：loading | disabled | claim | task
 const view = ref("loading");

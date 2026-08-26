@@ -61,6 +61,12 @@ const routes = [
         meta: { requiresAnnotator: true },
       },
       {
+        path: "annotate/history",
+        name: "AnnotationHistory",
+        component: () => import("../views/AnnotationHistoryView.vue"),
+        meta: { requiresAnnotator: true },
+      },
+      {
         path: "admin/annotation",
         name: "AdminAnnotation",
         component: () => import("../views/admin/AnnotationManagement.vue"),
@@ -119,7 +125,7 @@ router.beforeEach((to, from, next) => {
 
   if (
     authStore.user?.role === "annotator" &&
-    to.path !== "/annotate" &&
+    !to.path.startsWith("/annotate") &&
     to.path !== "/login"
   ) {
     return next("/annotate");

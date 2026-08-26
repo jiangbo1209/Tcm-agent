@@ -99,6 +99,30 @@ def make_db() -> Iterator:
         connect_args={"check_same_thread": False},
         poolclass=StaticPool,
     )
+    for _tbl in Base.metadata.tables.values():
+        for _col in _tbl.columns:
+            try:
+                _sd = _col.server_default
+            except Exception:
+                continue
+            if _sd is not None:
+                try:
+                    _txt = str(_sd.arg) if hasattr(_sd, "arg") else str(_sd)
+                except Exception:
+                    continue
+                if "NOW()" in _txt:
+                    _col.server_default = None
+            try:
+                _ou = _col.onupdate
+            except Exception:
+                continue
+            if _ou is not None:
+                try:
+                    _otxt = str(_ou.arg) if hasattr(_ou, "arg") else str(_ou)
+                except Exception:
+                    continue
+                if "NOW()" in _otxt:
+                    _col.onupdate = None
     Base.metadata.create_all(engine)
     session = sessionmaker(bind=engine)()
     try:

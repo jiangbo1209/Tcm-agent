@@ -125,30 +125,27 @@
                   </tr>
                 </thead>
                 <tbody>
-                  <tr
-                    v-for="item in previewResult.items"
-                    v-if="item.eligible"
-                    :key="item.record_id"
-                    class="wiz-row"
-                  >
-                    <td class="wiz-col-check">
-                      <input
-                        type="checkbox"
-                        class="wiz-checkbox"
-                        :checked="selectedRecordIds.has(item.record_id)"
-                        @change="toggleRecord(item.record_id, true)"
-                      />
-                    </td>
-                    <td class="wiz-col-id">{{ item.record_id }}</td>
-                    <td class="wiz-col-title" :title="item.title">{{ item.title }}</td>
-                    <td class="wiz-col-status">
-                      <span class="badge" :class="crawlStatusBadge(item.crawl_status)">{{ crawlStatusLabel(item.crawl_status) }}</span>
-                    </td>
-                    <td class="wiz-col-year">{{ item.pub_year || "—" }}</td>
-                    <td class="wiz-col-pool">
-                      <span class="badge badge-eligible">可入池</span>
-                    </td>
-                  </tr>
+                  <template v-for="item in previewResult.items" :key="item.record_id">
+                    <tr v-if="item.eligible" class="wiz-row">
+                      <td class="wiz-col-check">
+                        <input
+                          type="checkbox"
+                          class="wiz-checkbox"
+                          :checked="selectedRecordIds.has(item.record_id)"
+                          @change="toggleRecord(item.record_id, true)"
+                        />
+                      </td>
+                      <td class="wiz-col-id">{{ item.record_id }}</td>
+                      <td class="wiz-col-title" :title="item.title">{{ item.title }}</td>
+                      <td class="wiz-col-status">
+                        <span class="badge" :class="crawlStatusBadge(item.crawl_status)">{{ crawlStatusLabel(item.crawl_status) }}</span>
+                      </td>
+                      <td class="wiz-col-year">{{ item.pub_year || "—" }}</td>
+                      <td class="wiz-col-pool">
+                        <span class="badge badge-eligible">可入池</span>
+                      </td>
+                    </tr>
+                  </template>
                   <tr v-if="!previewResult.items || previewResult.items.length === 0">
                     <td colspan="6" class="empty-row">无匹配记录</td>
                   </tr>
@@ -274,6 +271,12 @@
           >
             批量驳回
           </button>
+          <button
+            class="btn-sm"
+            @click="toggleAllExpand"
+          >
+            {{ isAllExpanded ? "全部收起" : "全部展开" }}
+          </button>
           <span class="review-count">
             已选 <strong>{{ selectedReviewIds.size }}</strong> / 本页 {{ detailSelectableItems.length }} · 共 {{ detailItems.length }} 条
           </span>
@@ -337,11 +340,13 @@
                     <button
                       class="btn-sm btn-review-expand"
                       @click="toggleReviewExpand(item.submission_id)"
-                    >{{ expandedReviewId === item.submission_id ? "收起" : "展开" }}</button>
+                    >{{ expandedReviewIds.has(item.submission_id) ? "收起" : "展开" }}</button>
                   </td>
                 </tr>
-                <tr v-if="expandedReviewId === item.submission_id" class="review-expand-row">
+                <tr v-if="expandedReviewIds.has(item.submission_id)" class="review-expand-row">
                   <td colspan="7" class="review-expand-cell">
+                    <div v-if="!hasDiff(item)" class="no-diff-placeholder">无需修改</div>
+                    <template v-else>
                     <div class="diff-legend"><span class="diff-legend-mark">■</span> 高亮 = 标注员修改的字段</div>
                     <div class="diff-grid">
                       <div class="diff-col diff-col-current">
@@ -366,6 +371,7 @@
                         </div>
                       </div>
                     </div>
+                    </template>
                   </td>
                 </tr>
               </template>
@@ -493,9 +499,15 @@
           <option value="case">病案元数据</option>
           <option value="guideline">指南元数据</option>
         </select>
+        <select v-model="logCategoryFilter" class="filter-select" @change="handleCategoryChange">
+          <option value="">全部分类</option>
+          <option value="任务记录">任务记录</option>
+          <option value="修改记录">修改记录</option>
+          <option value="复核记录">复核记录</option>
+        </select>
         <select v-model="logFilters.action" class="filter-select" @change="resetAndLoadLogs">
           <option value="">全部动作</option>
-          <option v-for="a in LOG_ACTIONS" :key="a" :value="a">{{ actionMeta(a).label }}</option>
+          <option v-for="a in filteredLogActions" :key="a" :value="a">{{ actionMeta(a).label }}</option>
         </select>
         <input
           v-model="logFilters.record_id"
@@ -518,18 +530,25 @@
                 <th>操作人</th>
                 <th>表</th>
                 <th>记录</th>
+                <th>分类</th>
                 <th>动作</th>
                 <th>变更摘要</th>
                 <th>操作</th>
               </tr>
             </thead>
             <tbody>
-              <tr v-for="log in logs" :key="log.id">
+              <tr v-for="log in displayedLogs" :key="log.id">
                 <td>{{ log.id }}</td>
                 <td class="cell-time">{{ formatDate(log.created_at) }}</td>
                 <td>{{ log.username || "—" }}</td>
                 <td>{{ tableLabel(log.table_name) }}</td>
                 <td>#{{ log.record_id }}</td>
+                <td>
+                  <span v-if="getCategory(log.action)" class="badge" :class="categoryMeta(getCategory(log.action)).cls">
+                    {{ categoryMeta(getCategory(log.action)).label }}
+                  </span>
+                  <span v-else class="badge badge-category-neutral">—</span>
+                </td>
                 <td>
                   <span class="badge" :class="actionMeta(log.action).cls">
                     {{ actionMeta(log.action).label }}
@@ -547,8 +566,8 @@
                   </button>
                 </td>
               </tr>
-              <tr v-if="logs.length === 0">
-                <td colspan="8" class="empty-row">暂无日志</td>
+              <tr v-if="displayedLogs.length === 0">
+                <td colspan="9" class="empty-row">暂无日志</td>
               </tr>
             </tbody>
           </table>
@@ -1045,7 +1064,7 @@ const reviewGroups = ref([]);
 const reviewLoading = ref(false);
 const reviewDetailTask = ref(null);
 const selectedReviewIds = ref(new Set());
-const expandedReviewId = ref(null);
+const expandedReviewIds = ref(new Set());
 const actingId = ref(null);
 const batchActing = ref(false);
 
@@ -1071,13 +1090,14 @@ async function loadReviewGroups() {
         if (nextSelected.size !== selectedReviewIds.value.size) {
           selectedReviewIds.value = nextSelected;
         }
-        if (expandedReviewId.value !== null && !validIds.has(expandedReviewId.value)) {
-          expandedReviewId.value = null;
+        const nextExpanded = new Set([...expandedReviewIds.value].filter((id) => validIds.has(id)));
+        if (nextExpanded.size !== expandedReviewIds.value.size) {
+          expandedReviewIds.value = nextExpanded;
         }
       } else {
         reviewDetailTask.value = null;
         selectedReviewIds.value = new Set();
-        expandedReviewId.value = null;
+        expandedReviewIds.value = new Set();
       }
     }
   } catch (e) {
@@ -1091,13 +1111,13 @@ async function loadReviewGroups() {
 function openReviewDetail(group) {
   reviewDetailTask.value = group;
   selectedReviewIds.value = new Set();
-  expandedReviewId.value = null;
+  expandedReviewIds.value = new Set(group.items.map((i) => i.submission_id));
 }
 
 function closeReviewDetail() {
   reviewDetailTask.value = null;
   selectedReviewIds.value = new Set();
-  expandedReviewId.value = null;
+  expandedReviewIds.value = new Set();
 }
 
 function toggleReviewItem(sid) {
@@ -1119,7 +1139,23 @@ function toggleDetailSelectAll() {
 }
 
 function toggleReviewExpand(sid) {
-  expandedReviewId.value = expandedReviewId.value === sid ? null : sid;
+  const next = new Set(expandedReviewIds.value);
+  if (next.has(sid)) next.delete(sid);
+  else next.add(sid);
+  expandedReviewIds.value = next;
+}
+
+const isAllExpanded = computed(() => {
+  const items = detailItems.value;
+  return items.length > 0 && items.every((i) => expandedReviewIds.value.has(i.submission_id));
+});
+
+function toggleAllExpand() {
+  if (isAllExpanded.value) {
+    expandedReviewIds.value = new Set();
+  } else {
+    expandedReviewIds.value = new Set(detailItems.value.map((i) => i.submission_id));
+  }
 }
 
 function hasDiff(entry) {
@@ -1128,10 +1164,7 @@ function hasDiff(entry) {
 }
 
 function diffFields(entry) {
-  const proposed = Object.keys(entry.proposed_fields || {});
-  const current = Object.keys(entry.current_values || {});
-  const rest = current.filter((k) => !proposed.includes(k));
-  return [...proposed, ...rest];
+  return Object.keys(entry.proposed_fields || {});
 }
 
 function formatValue(v) {
@@ -1168,7 +1201,11 @@ function removeDetailItem(sid) {
     }
   }
   selectedReviewIds.value.delete(sid);
-  if (expandedReviewId.value === sid) expandedReviewId.value = null;
+  if (expandedReviewIds.value.has(sid)) {
+    const next = new Set(expandedReviewIds.value);
+    next.delete(sid);
+    expandedReviewIds.value = next;
+  }
 }
 
 async function handleBatchApprove() {
@@ -1182,7 +1219,7 @@ async function handleBatchApprove() {
     const s = d.summary || d;
     showToast(`通过 ${s.approved ?? 0} · 过期 ${s.expired ?? 0} · 异常 ${s.error ?? 0}`);
     selectedReviewIds.value = new Set();
-    expandedReviewId.value = null;
+    expandedReviewIds.value = new Set();
     await loadReviewGroups();
   } catch (e) {
     showToast(e.response?.data?.detail || "批量通过失败", "error");
@@ -1233,7 +1270,7 @@ async function confirmReject() {
       showToast(`驳回 ${s.rejected ?? 0} · 异常 ${s.error ?? 0}`);
       closeReject();
       selectedReviewIds.value = new Set();
-      expandedReviewId.value = null;
+      expandedReviewIds.value = new Set();
       await loadReviewGroups();
     } else if (rejectTarget.value) {
       await rejectSubmission(rejectTarget.value.submission_id, comment);
@@ -1372,12 +1409,37 @@ const ACTION_META = {
   submit: { label: "提交", cls: "badge-action-submit" },
 };
 
+const ACTION_CATEGORIES = {
+  "任务记录": ["claim", "assign", "submit", "expire"],
+  "修改记录": ["draft", "no_change", "save_direct", "rollback"],
+  "复核记录": ["approve", "reject"],
+};
+
+const ACTION_CATEGORY_MAP = Object.fromEntries(
+  Object.entries(ACTION_CATEGORIES).flatMap(([cat, acts]) => acts.map((a) => [a, cat]))
+);
+
+const CATEGORY_META = {
+  "任务记录": { label: "任务记录", cls: "badge-category-task" },
+  "修改记录": { label: "修改记录", cls: "badge-category-edit" },
+  "复核记录": { label: "复核记录", cls: "badge-category-review" },
+};
+
 function actionMeta(action) {
   return ACTION_META[action] || { label: action, cls: "badge-action-neutral" };
 }
 
+function getCategory(action) {
+  return ACTION_CATEGORY_MAP[action] || "";
+}
+
+function categoryMeta(category) {
+  return CATEGORY_META[category] || { label: category, cls: "badge-category-neutral" };
+}
+
 const LOG_PAGE_SIZE = 20;
 const logFilters = ref({ table_name: "", action: "", record_id: "" });
+const logCategoryFilter = ref("");
 const logPage = ref(1);
 const logTotal = ref(0);
 const logs = ref([]);
@@ -1385,6 +1447,25 @@ const logsLoading = ref(false);
 const rollingBackId = ref(null);
 
 const logPageCount = computed(() => Math.max(1, Math.ceil(logTotal.value / LOG_PAGE_SIZE)));
+
+const filteredLogActions = computed(() => {
+  if (!logCategoryFilter.value) return LOG_ACTIONS;
+  return ACTION_CATEGORIES[logCategoryFilter.value] || [];
+});
+
+const displayedLogs = computed(() => {
+  if (!logCategoryFilter.value) return logs.value;
+  const allowed = new Set(ACTION_CATEGORIES[logCategoryFilter.value] || []);
+  return logs.value.filter((l) => allowed.has(l.action));
+});
+
+function handleCategoryChange() {
+  const allowed = new Set(filteredLogActions.value);
+  if (logFilters.value.action && !allowed.has(logFilters.value.action)) {
+    logFilters.value.action = "";
+  }
+  resetAndLoadLogs();
+}
 
 function logParams() {
   const f = logFilters.value;
@@ -1499,12 +1580,12 @@ watch(activeTab, (newTab, oldTab) => {
   if (oldTab === "review") {
     reviewDetailTask.value = null;
     selectedReviewIds.value = new Set();
-    expandedReviewId.value = null;
+    expandedReviewIds.value = new Set();
   }
   if (newTab === "review") {
     reviewDetailTask.value = null;
     selectedReviewIds.value = new Set();
-    expandedReviewId.value = null;
+    expandedReviewIds.value = new Set();
     loadReviewGroups();
     startReviewPolling();
   } else {
@@ -1638,7 +1719,52 @@ onBeforeUnmount(() => {
 .btn-save:hover { background: #00695c; }
 .btn-save:disabled { opacity: 0.6; cursor: default; }
 
-/* ── 复核队列（平铺分页） ── */
+/* ── 复核队列（分组+详情视图） ── */
+
+/* 顶层：任务组卡片列表 */
+.review-group-list { display: flex; flex-direction: column; gap: 10px; }
+.review-group-card {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 14px 18px;
+  border: 1px solid #e0e0e0;
+  border-radius: 10px;
+  background: #fff;
+  box-shadow: 0 2px 8px rgba(0,0,0,0.06);
+  transition: box-shadow 0.15s ease;
+}
+.review-group-card:hover { box-shadow: 0 4px 14px rgba(0,0,0,0.10); }
+
+.review-group-info { display: flex; align-items: center; gap: 16px; flex-wrap: wrap; flex: 1; min-width: 0; }
+.review-group-task { font-weight: 600; color: #00796b; font-size: 14px; white-space: nowrap; }
+.review-group-annotator { font-weight: 500; color: #333; font-size: 13px; }
+.review-group-table { display: inline-block; padding: 2px 8px; border-radius: 4px; background: #e0f2f1; color: #00695c; font-size: 12px; }
+.review-group-count { font-size: 13px; color: #555; }
+.review-group-time { font-size: 12px; color: #999; white-space: nowrap; margin-left: auto; }
+
+/* 详情：任务头 */
+.review-detail-header {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  padding: 12px 16px;
+  margin-bottom: 14px;
+  border: 1px solid #e0e0e0;
+  border-radius: 10px;
+  background: #fff;
+  box-shadow: 0 2px 8px rgba(0,0,0,0.06);
+}
+.review-detail-title { font-weight: 600; font-size: 14px; color: #1a1a2e; flex: 1; }
+.review-detail-time { font-size: 12px; color: #999; white-space: nowrap; }
+
+/* 详情表格外层 */
+.review-flat-list { overflow-x: auto; }
+
+/* 行基础（仅过渡；背景由 row-selected / row-core-missing 控制） */
+.review-row { transition: background 0.15s ease; }
+
+/* ── 工具栏+表头 ── */
 .review-toolbar { display: flex; align-items: center; gap: 10px; margin-bottom: 14px; flex-wrap: wrap; }
 .review-select-all { display: flex; align-items: center; gap: 6px; font-size: 13px; color: #333; cursor: pointer; user-select: none; }
 .review-count { margin-left: auto; font-size: 12px; color: #666; }
@@ -1685,6 +1811,7 @@ onBeforeUnmount(() => {
 .diff-val { min-width: 0; word-break: break-all; color: #333; }
 .diff-col-proposed .diff-val { color: #00695c; font-weight: 500; }
 .diff-changed { background: rgba(199, 124, 0, 0.12); border-left: 3px solid #b06a00; }
+.no-diff-placeholder { padding: 18px; text-align: center; color: #999; font-size: 13px; }
 
 .form-field textarea { width: 100%; padding: 8px 10px; border: 1px solid #d0d0d0; border-radius: 6px; font-size: 13px; outline: none; box-sizing: border-box; resize: vertical; font-family: inherit; line-height: 1.6; }
 .form-field textarea:focus { border-color: #00796b; }
@@ -1719,6 +1846,11 @@ onBeforeUnmount(() => {
 .badge-action-rollback { background: #ede7f6; color: #5e35b1; }
 .badge-action-submit { background: #e0f2f1; color: #00695c; }
 .badge-action-neutral { background: #f5f5f5; color: #666; }
+
+.badge-category-task { background: #e3f2fd; color: #1565c0; }
+.badge-category-edit { background: #fff3e0; color: #e65100; }
+.badge-category-review { background: #f3e5f5; color: #6a1b9a; }
+.badge-category-neutral { background: #f5f5f5; color: #999; }
 
 .pager { display: flex; align-items: center; gap: 12px; margin-top: 14px; }
 .pager-info { font-size: 12px; color: #888; }

@@ -69,7 +69,7 @@
         <router-link
           to="/annotate"
           class="nav-item"
-          :class="{ active: $route.path.startsWith('/annotate') }"
+          :class="{ active: $route.path === '/annotate' }"
           :title="isCollapsed ? '标注工作台' : undefined"
         >
           <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
@@ -77,6 +77,18 @@
             <path d="M21 12v7a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11"></path>
           </svg>
           <span v-if="!isCollapsed">标注工作台</span>
+        </router-link>
+        <router-link
+          to="/annotate/history"
+          class="nav-item"
+          :class="{ active: $route.path === '/annotate/history' }"
+          :title="isCollapsed ? '标注记录' : undefined"
+        >
+          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+            <circle cx="12" cy="12" r="10"></circle>
+            <polyline points="12 6 12 12 16 14"></polyline>
+          </svg>
+          <span v-if="!isCollapsed">标注记录</span>
         </router-link>
       </template>
 
