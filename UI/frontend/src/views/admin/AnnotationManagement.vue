@@ -88,7 +88,7 @@
               {{ previewing ? "预览中..." : "预览" }}
             </button>
             <button class="btn-create btn-confirm" :disabled="!canCreate || creating" @click="handleCreatePool">
-              {{ creating ? "建池中..." : (selectAllMode ? "确认建池（全部命中）" : `确认建池（${selectedRecordIds.size} 条）`) }}
+              {{ creating ? "建池中..." : `确认建池(${createCount}条)` }}
             </button>
           </div>
           <p v-if="previewText" class="preview-result" data-testid="pool-preview">{{ previewText }}</p>
@@ -100,7 +100,7 @@
                 {{ isAllSelected() ? "取消本页全选" : "全选本页" }}
               </button>
               <button class="btn-sm btn-select-all" :class="{ 'btn-select-all-active': selectAllMode }" @click="toggleSelectAllMode">
-                {{ selectAllMode ? "已选全部命中 · 取消全选" : "勾选所有命中" }}
+                {{ selectAllMode ? `取消全部命中(${previewResult?.eligible ?? 0})` : `全选全部命中(${previewResult?.eligible ?? 0})` }}
               </button>
               <span class="wiz-selected-count">已选 <strong>{{ selectedRecordIds.size }}</strong> 条</span>
             </div>
@@ -803,6 +803,10 @@ const previewPageCount = computed(() => {
 
 const canCreate = computed(() => selectedRecordIds.value.size > 0 || selectAllMode.value);
 
+const createCount = computed(() =>
+  selectAllMode.value ? (previewResult.value?.eligible ?? 0) : selectedRecordIds.value.size
+);
+
 function numOrNull(v) {
   if (v === "" || v === null || v === undefined) return null;
   const n = Number(v);
@@ -820,10 +824,9 @@ function filterPayload() {
   };
 }
 
-async function handlePreview() {
+async function fetchPreview() {
   wizardError.value = "";
   previewing.value = true;
-  selectedRecordIds.value = new Set();
   try {
     const payload = {
       ...filterPayload(),
@@ -840,6 +843,13 @@ async function handlePreview() {
   } finally {
     previewing.value = false;
   }
+}
+
+async function handlePreview() {
+  selectedRecordIds.value = new Set();
+  selectAllMode.value = false;
+  previewPage.value = 1;
+  await fetchPreview();
 }
 
 async function handleCreatePool() {
@@ -922,10 +932,8 @@ const allEligibleOnPage = computed(() => {
 
 function goPreviewPage(page) {
   if (page < 1 || page > previewPageCount.value) return;
-  selectedRecordIds.value = new Set();
-  selectAllMode.value = false;
   previewPage.value = page;
-  handlePreview();
+  fetchPreview();
 }
 
 function crawlStatusBadge(cls) {
