@@ -307,7 +307,10 @@ onMounted(() => {
 .filter-select:focus, .filter-input:focus { border-color: #00796b; }
 .filter-input { width: 130px; }
 
-.logs-table .cell-summary { max-width: 420px; word-break: break-all; color: #555; font-size: 12px; }
+.table-wrap { overflow-x: auto; }
+.logs-table { min-width: 1080px; }
+.logs-table th, .logs-table td { white-space: nowrap; }
+.logs-table .cell-summary { max-width: 420px; word-break: break-all; color: #555; font-size: 12px; white-space: normal; }
 
 .badge-action-approve { background: #e8f5e9; color: #2e7d32; }
 .badge-action-reject { background: #ffebee; color: #c62828; }

@@ -33,6 +33,9 @@ const TABS = [
 </script>
 
 <style scoped>
+.admin-page { width: 100%; padding: 24px 32px; height: 100vh; overflow-y: scroll; }
+.admin-header { display: flex; align-items: center; justify-content: space-between; margin-bottom: 20px; }
+.admin-header h1 { font-size: 22px; font-weight: 600; color: #1a1a2e; margin: 0; }
 .mgmt-tabs { display: flex; gap: 4px; margin-bottom: 16px; border-bottom: 2px solid #e0e0e0; }
 .mgmt-tab {
   padding: 9px 18px;

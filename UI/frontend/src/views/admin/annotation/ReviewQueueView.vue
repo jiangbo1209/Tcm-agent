@@ -239,6 +239,8 @@ function showToast(message, type = "success") {
 }
 
 /* ───────── 复核队列（分组+下级视图） ───────── */
+// 进入详情时首屏自动展开的最大条目数（超出部分由「全部展开」手动触发）
+const REVIEW_INITIAL_EXPAND = 20;
 const reviewGroups = ref([]);
 const reviewLoading = ref(false);
 const reviewDetailTask = ref(null);
@@ -290,7 +292,10 @@ async function loadReviewGroups() {
 function openReviewDetail(group) {
   reviewDetailTask.value = group;
   selectedReviewIds.value = new Set();
-  expandedReviewIds.value = new Set(group.items.map((i) => i.submission_id));
+  // 首屏只自动展开前 REVIEW_INITIAL_EXPAND 条，避免全量 diff 网格渲染卡顿
+  const items = group.items || [];
+  const initial = items.slice(0, REVIEW_INITIAL_EXPAND);
+  expandedReviewIds.value = new Set(initial.map((i) => i.submission_id));
 }
 
 function closeReviewDetail() {
