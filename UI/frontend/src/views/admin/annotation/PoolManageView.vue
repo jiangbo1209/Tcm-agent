@@ -81,23 +81,23 @@
               {{ isAllSelected() ? "取消本页全选" : "全选本页" }}
             </button>
             <button class="btn-sm btn-select-all" :class="{ 'btn-select-all-active': selectAllMode }" @click="toggleSelectAllMode">
-              {{ selectAllMode ? `取消全部命中(${previewResult?.eligible ?? 0})` : `全选全部命中(${previewResult?.eligible ?? 0})` }}
+              {{ selectAllMode ? `取消全选全部(${previewResult?.eligible ?? 0})` : `全选全部(${previewResult?.eligible ?? 0})` }}
             </button>
-            <span class="wiz-selected-count">已选 <strong>{{ selectedRecordIds.size }}</strong> 条</span>
+            <span class="wiz-selected-count">已选 <strong>{{ selectAllMode ? (previewResult?.eligible ?? 0) : selectedRecordIds.size }}</strong> 条</span>
           </div>
           <div class="wiz-table-wrap">
             <table class="pool-table wiz-preview-table">
               <thead>
                 <tr>
                   <th class="wiz-col-check">
-                    <input
-                      type="checkbox"
-                      class="wiz-checkbox"
-                      :checked="isAllSelected()"
-                      :disabled="allEligibleOnPage.length === 0"
-                      @change="toggleSelectAll"
-                    />
-                  </th>
+                      <input
+                        type="checkbox"
+                        class="wiz-checkbox"
+                        :checked="selectAllMode || isAllSelected()"
+                        :disabled="allEligibleOnPage.length === 0"
+                        @change="toggleSelectAll"
+                      />
+                    </th>
                   <th class="wiz-col-id">#ID</th>
                   <th>标题</th>
                   <th class="wiz-col-status">数据状态</th>
@@ -112,7 +112,7 @@
                       <input
                         type="checkbox"
                         class="wiz-checkbox"
-                        :checked="selectedRecordIds.has(item.record_id)"
+                        :checked="selectAllMode || selectedRecordIds.has(item.record_id)"
                         @change="toggleRecord(item.record_id, true)"
                       />
                     </td>
@@ -471,6 +471,14 @@ function toggleSelectAllMode() {
 
 function toggleRecord(recordId, eligible) {
   if (!eligible) return;
+  if (selectAllMode.value) {
+    // 全选全部状态下单条切换：退出全选全部，当前页除该条外保持选中
+    selectAllMode.value = false;
+    const pageIds = (previewResult.value?.items || []).filter((i) => i.eligible).map((i) => i.record_id);
+    const next = new Set(pageIds.filter((id) => id !== recordId));
+    selectedRecordIds.value = next;
+    return;
+  }
   const next = new Set(selectedRecordIds.value);
   if (next.has(recordId)) {
     next.delete(recordId);
@@ -481,6 +489,12 @@ function toggleRecord(recordId, eligible) {
 }
 
 function toggleSelectAll() {
+  if (selectAllMode.value) {
+    // 全选全部时点击本页全选：退出全选全部
+    selectAllMode.value = false;
+    selectedRecordIds.value = new Set();
+    return;
+  }
   const items = previewResult.value?.items || [];
   const next = new Set(selectedRecordIds.value);
   const eligibleIds = items.filter((i) => i.eligible).map((i) => i.record_id);
@@ -494,6 +508,7 @@ function toggleSelectAll() {
 }
 
 function isAllSelected() {
+  if (selectAllMode.value) return true;
   const items = previewResult.value?.items || [];
   const eligibleIds = items.filter((i) => i.eligible).map((i) => i.record_id);
   return eligibleIds.length > 0 && eligibleIds.every((id) => selectedRecordIds.value.has(id));
@@ -682,10 +697,6 @@ onMounted(() => {
 .btn-confirm { background: #ff8f00; }
 .btn-confirm:hover { background: #f57c00; }
 .btn-confirm:disabled { opacity: 0.5; cursor: default; }
-.btn-select-all { background: #5e35b1; color: #fff; }
-.btn-select-all:hover { background: #4527a0; color: #fff; }
-.btn-select-all-active { background: #c62828; }
-.btn-select-all-active:hover { background: #b71c1c; }
 
 .preview-result { margin: 12px 0 0; padding: 8px 12px; border-radius: 6px; background: #e0f2f1; color: #00695c; font-size: 13px; }
 .form-error { color: #c62828; font-size: 12px; margin: 10px 0 0; }
@@ -712,6 +723,10 @@ onMounted(() => {
 .progress-text { font-size: 12px; color: #666; white-space: nowrap; }
 
 .btn-sm { padding: 3px 10px; border: 1px solid #d0d0d0; border-radius: 4px; font-size: 12px; cursor: pointer; background: #fff; }
+.btn-sm.btn-select-all { background: #5e35b1; color: #fff; border-color: #5e35b1; }
+.btn-sm.btn-select-all:hover { background: #4527a0; color: #fff; border-color: #4527a0; }
+.btn-sm.btn-select-all-active { background: #c62828; color: #fff; border-color: #c62828; }
+.btn-sm.btn-select-all-active:hover { background: #b71c1c; border-color: #b71c1c; }
 .btn-assign { color: #00796b; border-color: #b2dfdb; }
 .btn-assign:hover { background: #e0f2f1; }
 .btn-toggle { color: #e65100; border-color: #ffcc80; }
