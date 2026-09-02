@@ -69,7 +69,7 @@ const routes = [
       {
         path: "admin/annotation",
         name: "AdminAnnotation",
-        component: () => import("../views/admin/annotation/AnnotationLayout.vue"),
+        component: () => import("../views/admin/AnnotationLayout.vue"),
         meta: { requiresAdmin: true },
         redirect: { name: "AnnotationPools" },
         children: [
