@@ -308,6 +308,10 @@ onMounted(() => {
 .filter-input { width: 130px; }
 
 .table-wrap { overflow-x: auto; }
+.pool-table { width: 100%; border-collapse: collapse; font-size: 13px; }
+.pool-table th { text-align: left; padding: 10px 12px; background: #f5f5f5; color: #666; font-weight: 500; border-bottom: 2px solid #e0e0e0; white-space: nowrap; }
+.pool-table td { padding: 10px 12px; border-bottom: 1px solid #eee; color: #333; vertical-align: middle; }
+.pool-table tr:hover { background: #fafafa; }
 .logs-table { min-width: 1080px; }
 .logs-table th, .logs-table td { white-space: nowrap; }
 .logs-table .cell-summary { max-width: 420px; word-break: break-all; color: #555; font-size: 12px; white-space: normal; }
