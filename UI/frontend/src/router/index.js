@@ -69,8 +69,36 @@ const routes = [
       {
         path: "admin/annotation",
         name: "AdminAnnotation",
-        component: () => import("../views/admin/AnnotationManagement.vue"),
+        component: () => import("../views/admin/annotation/AnnotationLayout.vue"),
         meta: { requiresAdmin: true },
+        redirect: { name: "AnnotationPools" },
+        children: [
+          {
+            path: "pools",
+            name: "AnnotationPools",
+            component: () => import("../views/admin/annotation/PoolManageView.vue"),
+          },
+          {
+            path: "review",
+            name: "AnnotationReview",
+            component: () => import("../views/admin/annotation/ReviewQueueView.vue"),
+          },
+          {
+            path: "board",
+            name: "AnnotationBoard",
+            component: () => import("../views/admin/annotation/BoardView.vue"),
+          },
+          {
+            path: "export",
+            name: "AnnotationExport",
+            component: () => import("../views/admin/annotation/ExportView.vue"),
+          },
+          {
+            path: "logs",
+            name: "AnnotationLogs",
+            component: () => import("../views/admin/annotation/OperationLogsView.vue"),
+          },
+        ],
       },
     ],
   },

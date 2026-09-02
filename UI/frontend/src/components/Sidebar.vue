@@ -123,7 +123,7 @@
 
       <router-link
         v-if="authStore.isAdmin"
-        to="/admin/annotation"
+        to="/admin/annotation/pools"
         class="nav-item"
         :class="{ active: $route.path.startsWith('/admin/annotation') }"
         :title="isCollapsed ? '数据标注' : undefined"
