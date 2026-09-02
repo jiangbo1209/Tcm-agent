@@ -30,7 +30,7 @@
 
 <script setup>
 import { ref, onMounted, onBeforeUnmount } from "vue";
-import G6 from "@antv/g6";
+import { Graph, NodeEvent, GraphEvent } from "@antv/g6";
 import { expandGraph } from "../api/graph";
 
 const YEAR_DOMAIN = [1963, 2024];
@@ -68,6 +68,8 @@ function mapNodeColor(type, year, age) { return type === "paper" ? mixColor("#c9
 function mapDistance(s) { return Math.round(DISTANCE_RANGE[1] - clamp(Number(s) || 0, 0, 1) * (DISTANCE_RANGE[1] - DISTANCE_RANGE[0])); }
 function mapEdgeOpacity(s) { return Number((0.25 + clamp(Number(s) || 0, 0, 1) * 0.65).toFixed(3)); }
 
+/* ── v5 data mappers ────────────────────────────────────────── */
+
 function mapNode(raw) {
   const nt = raw.node_type === "paper" ? "paper" : "record";
   const topK = Number(raw.top_k_value);
@@ -75,19 +77,44 @@ function mapNode(raw) {
   const age = Number(raw.age ?? raw.metric_value);
   const size = mapNodeSize(topK);
   const full = raw.title || String(raw.id);
+  const short = truncateLabel(full, LABEL_MAX_CHARS);
+
   const node = {
-    id: String(raw.id), node_type: nt, title: raw.title || String(raw.id),
-    label: truncateLabel(full, LABEL_MAX_CHARS), full_label: full, short_label: truncateLabel(full, LABEL_MAX_CHARS),
-    metric_value: Number(raw.metric_value), publish_year: Number.isFinite(py) ? py : null,
-    age: Number.isFinite(age) ? age : null, top_k_value: Number.isFinite(topK) ? topK : null,
-    type: nt === "paper" ? "circle" : "rect", size: nt === "paper" ? size : [size, size],
-    style: { fill: mapNodeColor(nt, py, age), stroke: DEFAULT_NODE_STROKE, lineWidth: 1, cursor: "pointer" },
-    labelCfg: { style: { fill: "#153a47", fontSize: 11, fontWeight: 400, background: { fill: "rgba(255,255,255,0.52)", radius: 4, padding: [1, 2] } }, position: "bottom", offset: 7 },
+    id: String(raw.id),
+    type: nt === "paper" ? "circle" : "rect",
+    size: nt === "paper" ? size : [size, size],
+    data: {
+      node_type: nt, title: raw.title || String(raw.id),
+      full_label: full, short_label: short,
+      metric_value: Number(raw.metric_value),
+      publish_year: Number.isFinite(py) ? py : null,
+      age: Number.isFinite(age) ? age : null,
+      top_k_value: Number.isFinite(topK) ? topK : null,
+    },
+    style: {
+      fill: mapNodeColor(nt, py, age),
+      stroke: DEFAULT_NODE_STROKE,
+      lineWidth: 1,
+      cursor: "pointer",
+      labelText: short,
+      labelFill: "#153a47",
+      labelFontSize: 11,
+      labelFontWeight: 400,
+      labelPlacement: "bottom",
+      labelOffsetY: 7,
+      labelBackground: true,
+      labelBackgroundFill: "rgba(255,255,255,0.52)",
+      labelBackgroundRadius: 4,
+      labelBackgroundLineWidth: 0,
+      labelPadding: [1, 2],
+      opacity: 1,
+    },
   };
+
   const x = Number(raw.x);
   const y = Number(raw.y);
-  if (Number.isFinite(x)) node.x = x;
-  if (Number.isFinite(y)) node.y = y;
+  if (Number.isFinite(x)) node.style.x = x;
+  if (Number.isFinite(y)) node.style.y = y;
   return node;
 }
 
@@ -96,49 +123,120 @@ function mapEdge(raw) {
   const et = rawType === "record-paper" || rawType === "ref" ? "paper-record" : rawType;
   const score = clamp(Number(raw.similarity_score) || 0, 0, 1);
   const op = mapEdgeOpacity(score);
-  let style;
-  if (et === "paper-record") style = { stroke: EDGE_BASE_COLOR, lineWidth: 3.4 + score * 1.4, lineDash: null, opacity: op, endArrow: false };
-  else if (et === "record-record") style = { stroke: EDGE_BASE_COLOR, lineWidth: 1.5 + score * 0.7, lineDash: [7, 5], opacity: op, endArrow: false };
-  else style = { stroke: EDGE_BASE_COLOR, lineWidth: 1 + score * 0.6, lineDash: null, opacity: op, endArrow: false };
-  return { id: String(raw.id || `${raw.source}->${raw.target}|${et}`), source: String(raw.source), target: String(raw.target), edge_type: et, similarity_score: score, base_opacity: op, type: "line", style };
+  let lw, ld;
+  if (et === "paper-record") { lw = 3.4 + score * 1.4; ld = null; }
+  else if (et === "record-record") { lw = 1.5 + score * 0.7; ld = [7, 5]; }
+  else { lw = 1 + score * 0.6; ld = null; }
+  return {
+    id: String(raw.id || `${raw.source}->${raw.target}|${et}`),
+    source: String(raw.source),
+    target: String(raw.target),
+    data: { edge_type: et, similarity_score: score, base_opacity: op },
+    style: { stroke: EDGE_BASE_COLOR, lineWidth: lw, lineDash: ld, opacity: op, endArrow: false },
+  };
 }
 
-function applyNodeBaseStyle(item) {
-  const m = item.getModel();
-  if (activeSeedNodeId && m.id === activeSeedNodeId) {
-    graph.updateItem(item, { style: { stroke: SEED_NODE_STROKE, lineWidth: 4, opacity: 1 }, label: m.full_label || m.label, labelCfg: { style: { opacity: 1 } } });
-  } else {
-    graph.updateItem(item, { style: { stroke: DEFAULT_NODE_STROKE, lineWidth: 1, opacity: 1 }, label: m.short_label || m.label, labelCfg: { style: { opacity: 0.9 } } });
+/* ── v5 style helpers (operate on data, not DOM items) ────── */
+
+function applyNodeBaseStyle(nodeData) {
+  const d = nodeData.data || {};
+  const isSeed = activeSeedNodeId && nodeData.id === activeSeedNodeId;
+  const updates = {
+    id: nodeData.id,
+    style: {
+      stroke: isSeed ? SEED_NODE_STROKE : DEFAULT_NODE_STROKE,
+      lineWidth: isSeed ? 4 : 1,
+      opacity: 1,
+      labelText: isSeed ? (d.full_label || nodeData.style?.labelText) : (d.short_label || nodeData.style?.labelText),
+    },
+  };
+  return updates;
+}
+
+function applyEdgeBaseStyle(edgeData) {
+  const d = edgeData.data || {};
+  return {
+    id: edgeData.id,
+    style: {
+      stroke: EDGE_BASE_COLOR,
+      opacity: Number.isFinite(d.base_opacity) ? d.base_opacity : 0.5,
+    },
+  };
+}
+
+function resetHover() {
+  if (!graph) return;
+  const allNodes = graph.getNodeData();
+  const allEdges = graph.getEdgeData();
+  const nodeUpdates = allNodes.map(n => applyNodeBaseStyle(n));
+  const edgeUpdates = allEdges.map(e => applyEdgeBaseStyle(e));
+  if (nodeUpdates.length) graph.updateNodeData(nodeUpdates);
+  if (edgeUpdates.length) graph.updateEdgeData(edgeUpdates);
+  if (nodeUpdates.length || edgeUpdates.length) graph.draw();
+}
+
+function applyHover(focusNodeId) {
+  if (!focusNodeId || !graph) { resetHover(); return; }
+  const allNodes = graph.getNodeData();
+  const allEdges = graph.getEdgeData();
+
+  // Collect related node IDs from edges
+  const related = new Set([focusNodeId]);
+  const relatedEdgeIds = new Set();
+  for (const e of allEdges) {
+    if (e.source === focusNodeId || e.target === focusNodeId) {
+      relatedEdgeIds.add(e.id);
+      related.add(e.source);
+      related.add(e.target);
+    }
   }
-}
 
-function applyEdgeBaseStyle(item) {
-  const m = item.getModel();
-  graph.updateItem(item, { style: { stroke: EDGE_BASE_COLOR, opacity: Number.isFinite(m.base_opacity) ? m.base_opacity : 0.5 } });
-}
-
-function resetHover() { graph.getNodes().forEach(applyNodeBaseStyle); graph.getEdges().forEach(applyEdgeBaseStyle); }
-
-function applyHover(focusItem) {
-  if (!focusItem) { resetHover(); return; }
-  const focusId = focusItem.getModel().id;
-  const related = new Set([focusId]);
-  const relatedEdges = new Set();
-  (focusItem.getEdges?.() || []).forEach(e => { relatedEdges.add(e.getModel().id); related.add(e.getSource().getModel().id); related.add(e.getTarget().getModel().id); });
-  graph.getNodes().forEach(n => {
-    const id = n.getModel().id;
-    if (!related.has(id)) { graph.updateItem(n, { style: { opacity: 0.1 }, labelCfg: { style: { opacity: 0.1 } } }); return; }
-    if (activeSeedNodeId && id === activeSeedNodeId) { graph.updateItem(n, { style: { stroke: SEED_NODE_STROKE, lineWidth: 4, opacity: 1 }, label: n.getModel().full_label || n.getModel().label, labelCfg: { style: { opacity: 1 } } }); return; }
-    graph.updateItem(n, { style: { stroke: HOVER_NODE_STROKE, lineWidth: id === focusId ? 3 : 2, opacity: 1 }, label: n.getModel().full_label || n.getModel().label, labelCfg: { style: { opacity: 1 } } });
+  const nodeUpdates = allNodes.map(n => {
+    const id = n.id;
+    if (!related.has(id)) {
+      return { id, style: { opacity: 0.1, labelText: n.style?.labelText } };
+    }
+    const d = n.data || {};
+    const isSeed = activeSeedNodeId && id === activeSeedNodeId;
+    if (isSeed) {
+      return { id, style: { stroke: SEED_NODE_STROKE, lineWidth: 4, opacity: 1, labelText: d.full_label || n.style?.labelText } };
+    }
+    return { id, style: { stroke: HOVER_NODE_STROKE, lineWidth: id === focusNodeId ? 3 : 2, opacity: 1, labelText: d.full_label || n.style?.labelText } };
   });
-  graph.getEdges().forEach(e => { const m = e.getModel(); const base = Number.isFinite(m.base_opacity) ? m.base_opacity : 0.5; graph.updateItem(e, { style: { stroke: EDGE_BASE_COLOR, opacity: relatedEdges.has(m.id) ? Math.min(1, base + 0.18) : Math.max(0.04, base * 0.2) } }); });
+
+  const edgeUpdates = allEdges.map(e => {
+    const d = e.data || {};
+    const base = Number.isFinite(d.base_opacity) ? d.base_opacity : 0.5;
+    const connected = relatedEdgeIds.has(e.id);
+    return { id: e.id, style: { stroke: EDGE_BASE_COLOR, opacity: connected ? Math.min(1, base + 0.18) : Math.max(0.04, base * 0.2) } };
+  });
+
+  if (nodeUpdates.length) graph.updateNodeData(nodeUpdates);
+  if (edgeUpdates.length) graph.updateEdgeData(edgeUpdates);
+  if (nodeUpdates.length || edgeUpdates.length) graph.draw();
 }
 
 function markSeed(id) {
-  if (activeSeedNodeId && activeSeedNodeId !== id) { const prev = graph.findById(activeSeedNodeId); if (prev) applyNodeBaseStyle(prev); }
+  if (!graph) return;
+  // Clear old seed style
+  if (activeSeedNodeId && activeSeedNodeId !== id) {
+    const prevData = graph.getNodeData(activeSeedNodeId);
+    if (prevData) {
+      const updates = applyNodeBaseStyle(prevData);
+      graph.updateNodeData([updates]);
+    }
+  }
   activeSeedNodeId = id;
-  const cur = graph.findById(id); if (cur) applyNodeBaseStyle(cur);
+  // Apply seed style
+  const curData = graph.getNodeData(id);
+  if (curData) {
+    const updates = applyNodeBaseStyle(curData);
+    graph.updateNodeData([updates]);
+    graph.draw();
+  }
 }
+
+/* ── data merge & render ─────────────────────────────────── */
 
 function mergeGraph(payload) {
   const inN = Array.isArray(payload.nodes) ? payload.nodes.map(mapNode) : [];
@@ -147,16 +245,21 @@ function mergeGraph(payload) {
   inN.forEach(n => {
     const existing = nodeMap.get(n.id);
     if (existing) {
-      if (!Number.isFinite(n.x) && Number.isFinite(existing.x)) n.x = existing.x;
-      if (!Number.isFinite(n.y) && Number.isFinite(existing.y)) n.y = existing.y;
+      if (n.style && existing.style) {
+        if (!Number.isFinite(n.style.x) && Number.isFinite(existing.style.x)) n.style.x = existing.style.x;
+        if (!Number.isFinite(n.style.y) && Number.isFinite(existing.style.y)) n.style.y = existing.style.y;
+      }
     }
     nodeMap.set(n.id, n);
   });
   const validE = inE.filter(e => nodeMap.has(e.source) && nodeMap.has(e.target));
   const newE = validE.filter(e => !edgeMap.has(e.id));
   validE.forEach(e => edgeMap.set(e.id, e));
-  newN.forEach(n => graph.addItem("node", n));
-  newE.forEach(e => graph.addItem("edge", e));
+
+  // v5: use addData instead of addItem
+  if (newN.length) graph.addData({ nodes: newN });
+  if (newE.length) graph.addData({ edges: newE });
+
   nodeCount.value = nodeMap.size;
   return {
     nodeIds: inN.map(n => n.id),
@@ -166,15 +269,15 @@ function mergeGraph(payload) {
 
 function syncNodePositions() {
   if (!graph) return;
-  graph.getNodes().forEach(item => {
-    const model = item.getModel();
-    const node = nodeMap.get(String(model.id));
-    if (!node) return;
-    const x = Number(model.x);
-    const y = Number(model.y);
-    if (Number.isFinite(x)) node.x = x;
-    if (Number.isFinite(y)) node.y = y;
-  });
+  const allNodes = graph.getNodeData();
+  for (const nd of allNodes) {
+    const node = nodeMap.get(String(nd.id));
+    if (!node) continue;
+    const x = Number(nd.style?.x);
+    const y = Number(nd.style?.y);
+    if (Number.isFinite(x) && node.style) node.style.x = x;
+    if (Number.isFinite(y) && node.style) node.style.y = y;
+  }
 }
 
 function getVisibleIds(limit) {
@@ -202,12 +305,18 @@ function renderCurrentGraph({ relayout = false } = {}) {
     edgeIds.has(e.id) && nodeIds.has(e.source) && nodeIds.has(e.target)
   );
 
-  graph.changeData({ nodes: visibleNodes, edges: visibleEdges });
+  // v5: setData + draw instead of changeData
+  graph.setData({ nodes: visibleNodes, edges: visibleEdges });
+  graph.draw();
   nodeCount.value = visibleNodes.length;
 
   if (activeSeedNodeId && nodeMap.has(activeSeedNodeId)) {
-    const item = graph.findById(activeSeedNodeId);
-    if (item) applyNodeBaseStyle(item);
+    const nd = graph.getNodeData(activeSeedNodeId);
+    if (nd) {
+      const updates = applyNodeBaseStyle(nd);
+      graph.updateNodeData([updates]);
+      graph.draw();
+    }
   }
   if (relayout) graph.layout();
 }
@@ -227,7 +336,7 @@ async function fetchAndExpand(seedId) {
     const centerX = graphRef.value?.clientWidth / 2 || 400;
     const centerY = graphRef.value?.clientHeight / 2 || 300;
 
-    // 给新节点设置初始位置（围绕种子节点散开）
+    // Give new nodes initial positions around the seed
     const existingCount = nodeMap.size;
     const inN = Array.isArray(data.nodes) ? data.nodes : [];
     inN.forEach((raw, i) => {
@@ -241,27 +350,27 @@ async function fetchAndExpand(seedId) {
 
     const { nodeIds, edgeIds } = mergeGraph(data);
 
-    // 记录本次接口返回的完整子图，而不是只记录新增节点/边。
     expansionHistory.push({ seedId: String(seedId), nodeIds: new Set(nodeIds), edgeIds: new Set(edgeIds) });
 
-    // 种子节点放中心
+    // Place seed node at center
     const seedNode = nodeMap.get(seedId);
-    if (seedNode) {
-      seedNode.x = centerX;
-      seedNode.y = centerY;
+    if (seedNode && seedNode.style) {
+      seedNode.style.x = centerX;
+      seedNode.style.y = centerY;
     }
-    const item = graph.findById(seedId);
-    if (item) graph.updateItem(item, { x: centerX, y: centerY });
+    const seedData = graph.getNodeData(seedId);
+    if (seedData) {
+      graph.updateNodeData([{ id: seedId, style: { x: centerX, y: centerY } }]);
+    }
 
-    // 裁剪超出限制的旧扩展
     applyExpansionLimit();
 
-    // 运行一次性布局
+    // Run one-time layout
     graph.layout();
     if (nodeMap.has(String(seedId))) markSeed(String(seedId));
 
-    // 布局完成后适配视图
-    setTimeout(() => graph.fitView(40), 500);
+    // Fit view after layout settles
+    setTimeout(() => graph.fitView(), 500);
   } finally {
     inFlightSeeds.delete(seedId);
     loading.value = false;
@@ -270,26 +379,64 @@ async function fetchAndExpand(seedId) {
 
 function zoomIn() { graph?.zoom(1.12); }
 function zoomOut() { graph?.zoom(0.9); }
-function fitView() { graph?.fitView(20); }
-function focusNode(id) { const item = graph?.findById(id); if (item && graph.focusItem) graph.focusItem(item, true, { easing: "easeCubic", duration: 400 }); }
-function clearGraph() { activeSeedNodeId = null; nodeMap.clear(); edgeMap.clear(); inFlightSeeds.clear(); expansionHistory.length = 0; nodeCount.value = 0; visibleLimit = 3; graph?.changeData({ nodes: [], edges: [] }); }
-
+function fitView() { graph?.fitView(); }
+function focusNode(id) {
+  if (graph) graph.focusItem(id, true, { easing: "easeCubic", duration: 400 });
+}
+function clearGraph() {
+  activeSeedNodeId = null;
+  nodeMap.clear();
+  edgeMap.clear();
+  inFlightSeeds.clear();
+  expansionHistory.length = 0;
+  nodeCount.value = 0;
+  visibleLimit = 3;
+  if (graph) {
+    graph.setData({ nodes: [], edges: [] });
+    graph.draw();
+  }
+}
 function applyMaxExpansions() { applyExpansionLimit({ relayout: true }); }
+
+/* ── lifecycle ────────────────────────────────────────────── */
 
 onMounted(() => {
   const container = graphRef.value;
   if (!container) return;
-  graph = new G6.Graph({
+
+  graph = new Graph({
     container,
-    width: container.clientWidth,
-    height: container.clientHeight,
-    modes: { default: ["drag-canvas", "zoom-canvas", "drag-node"] },
-    defaultNode: { type: "circle", size: 26, style: { lineWidth: 1, stroke: DEFAULT_NODE_STROKE, fill: "#e6edf5" } },
-    defaultEdge: { style: { stroke: EDGE_BASE_COLOR, opacity: 0.5 } },
+    data: { nodes: [], edges: [] },
+    node: {
+      style: {
+        labelText: (d) => d.data?.short_label || d.data?.title || d.id,
+        labelFill: "#153a47",
+        labelFontSize: 11,
+        labelFontWeight: 400,
+        labelPlacement: "bottom",
+        labelOffsetY: 7,
+        labelBackground: true,
+        labelBackgroundFill: "rgba(255,255,255,0.52)",
+        labelBackgroundRadius: 4,
+        labelBackgroundLineWidth: 0,
+        labelPadding: [1, 2],
+        fill: "#e6edf5",
+        stroke: DEFAULT_NODE_STROKE,
+        lineWidth: 1,
+        cursor: "pointer",
+      },
+    },
+    edge: {
+      style: {
+        stroke: EDGE_BASE_COLOR,
+        opacity: 0.5,
+      },
+    },
+    behaviors: ["zoom-canvas", "drag-canvas", "drag-element"],
     layout: {
       type: "force",
       preventOverlap: true,
-      linkDistance: (edge) => mapDistance(edge.similarity_score),
+      linkDistance: (edge) => mapDistance(edge.data?.similarity_score),
       nodeStrength: -80,
       edgeStrength: 0.6,
       collideStrength: 0.8,
@@ -297,20 +444,37 @@ onMounted(() => {
       alphaMin: 0.01,
     },
   });
-  graph.data({ nodes: [], edges: [] });
+
   graph.render();
 
-  graph.on("node:click", async (ev) => {
-    const model = ev.item.getModel();
-    if (!model?.id) return;
-    markSeed(model.id);
-    emit("nodeClick", model);
-    await fetchAndExpand(model.id);
+  // v5 events: NodeEvent.CLICK replaces "node:click"
+  graph.on(NodeEvent.CLICK, async (evt) => {
+    const { target } = evt;
+    const nodeId = target?.id;
+    if (!nodeId) return;
+    const nodeData = graph.getNodeData(nodeId);
+    if (!nodeData) return;
+    markSeed(nodeId);
+    emit("nodeClick", nodeData.data || nodeData);
+    await fetchAndExpand(nodeId);
   });
-  graph.on("node:mouseenter", (ev) => { applyHover(ev.item); emit("nodeHover", ev.item.getModel()); });
-  graph.on("node:mouseleave", () => { resetHover(); emit("nodeHover", null); });
 
-  window.addEventListener("resize", () => { if (graph && container) graph.changeSize(container.clientWidth, container.clientHeight); });
+  graph.on(NodeEvent.POINTER_OVER, (evt) => {
+    const { target } = evt;
+    const nodeId = target?.id;
+    if (!nodeId) return;
+    applyHover(nodeId);
+    const nodeData = graph.getNodeData(nodeId);
+    emit("nodeHover", nodeData?.data || nodeData || null);
+  });
+
+  graph.on(NodeEvent.POINTER_LEAVE, () => {
+    resetHover();
+    emit("nodeHover", null);
+  });
+
+  // v5: resize() instead of changeSize()
+  window.addEventListener("resize", () => { if (graph) graph.resize(); });
 });
 
 onBeforeUnmount(() => { graph?.destroy(); graph = null; });
