@@ -55,7 +55,7 @@
 <script setup>
 import { ref } from "vue";
 import { useRouter } from "vue-router";
-import { register } from "../api/auth";
+import { register } from "../../api/auth";
 
 const router = useRouter();
 

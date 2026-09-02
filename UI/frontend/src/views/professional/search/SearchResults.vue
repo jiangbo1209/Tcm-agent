@@ -97,7 +97,7 @@
 <script setup>
 import { computed, reactive, ref, onMounted, watch } from "vue";
 import { useRoute, useRouter } from "vue-router";
-import { useSearchStore } from "../stores/search";
+import { useSearchStore } from "../../../stores/search";
 
 const route = useRoute();
 const router = useRouter();

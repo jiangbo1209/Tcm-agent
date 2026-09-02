@@ -5,13 +5,13 @@ const routes = [
   {
     path: "/login",
     name: "Login",
-    component: () => import("../views/Login.vue"),
+    component: () => import("../views/auth/Login.vue"),
     meta: { guest: true },
   },
   {
     path: "/register",
     name: "Register",
-    component: () => import("../views/Register.vue"),
+    component: () => import("../views/auth/Register.vue"),
     meta: { guest: true },
   },
   {
@@ -22,48 +22,48 @@ const routes = [
       {
         path: "",
         name: "Chat",
-        component: () => import("../views/Chat.vue"),
+        component: () => import("../views/chat/Chat.vue"),
       },
       {
         path: "search",
         name: "Search",
-        component: () => import("../views/Search.vue"),
+        component: () => import("../views/professional/search/Search.vue"),
         meta: { requiresProfessional: true },
       },
       {
         path: "search/results",
         name: "SearchResults",
-        component: () => import("../views/SearchResults.vue"),
+        component: () => import("../views/professional/search/SearchResults.vue"),
         meta: { requiresProfessional: true },
       },
       {
         path: "graph",
         name: "Graph",
-        component: () => import("../views/Graph.vue"),
+        component: () => import("../views/professional/graph/Graph.vue"),
         meta: { requiresProfessional: true },
       },
       {
         path: "admin",
         name: "Admin",
-        component: () => import("../views/AdminDataEdit.vue"),
+        component: () => import("../views/admin/data/DataEdit.vue"),
         meta: { requiresAdmin: true },
       },
       {
         path: "users",
         name: "Users",
-        component: () => import("../views/UserManagement.vue"),
+        component: () => import("../views/admin/users/UserManagement.vue"),
         meta: { requiresAdmin: true },
       },
       {
         path: "annotate",
         name: "AnnotateWorkbench",
-        component: () => import("../views/AnnotationWorkbench.vue"),
+        component: () => import("../views/annotator/Workbench.vue"),
         meta: { requiresAnnotator: true },
       },
       {
         path: "annotate/history",
         name: "AnnotationHistory",
-        component: () => import("../views/AnnotationHistoryView.vue"),
+        component: () => import("../views/annotator/HistoryView.vue"),
         meta: { requiresAnnotator: true },
       },
       {
@@ -105,13 +105,13 @@ const routes = [
   {
     path: "/detail/:nodeId",
     name: "Detail",
-    component: () => import("../views/Detail.vue"),
+    component: () => import("../views/professional/graph/Detail.vue"),
     meta: { requiresAuth: true, requiresProfessional: true },
   },
   {
     path: "/detail-by-file/:fileUuid",
     name: "DetailByFile",
-    component: () => import("../views/Detail.vue"),
+    component: () => import("../views/professional/graph/Detail.vue"),
     meta: { requiresAuth: true, requiresProfessional: true },
   },
 ];

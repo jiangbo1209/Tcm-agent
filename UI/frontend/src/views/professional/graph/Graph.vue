@@ -43,9 +43,9 @@
 <script setup>
 import { ref, computed, onMounted, onBeforeUnmount, watch } from "vue";
 import { useRoute } from "vue-router";
-import GraphView from "../components/GraphView.vue";
-import NodeDetail from "../components/NodeDetail.vue";
-import { searchGraph } from "../api/graph";
+import GraphView from "../../../components/GraphView.vue";
+import NodeDetail from "../../../components/NodeDetail.vue";
+import { searchGraph } from "../../../api/graph";
 
 const route = useRoute();
 const graphRef = ref(null);

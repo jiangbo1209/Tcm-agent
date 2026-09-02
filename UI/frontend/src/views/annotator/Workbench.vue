@@ -292,8 +292,8 @@
 <script setup>
 import { ref, computed, watch, onMounted, onBeforeUnmount } from "vue";
 import { useRouter } from "vue-router";
-import { claimTask, getMyTask, getMyTaskDetail, getMyRework, draftItem, submitTask, myAnnotationHistory } from "../api/annotation";
-import { fetchFileUrl } from "../api/admin";
+import { claimTask, getMyTask, getMyTaskDetail, getMyRework, draftItem, submitTask, myAnnotationHistory } from "../../api/annotation";
+import { fetchFileUrl } from "../../api/admin";
 
 const router = useRouter();
 

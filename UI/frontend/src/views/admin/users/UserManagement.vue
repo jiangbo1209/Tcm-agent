@@ -121,7 +121,7 @@ import {
   resetUserPassword,
   deleteUser,
   setUserActive,
-} from "../api/users";
+} from "../../../api/users";
 
 const TABS = [
   { key: "normal", label: "普通", role: "normal" },

@@ -51,7 +51,7 @@
 
 <script setup>
 import { ref, computed, onMounted } from "vue";
-import { myAnnotationHistory } from "../api/annotation";
+import { myAnnotationHistory } from "../../api/annotation";
 
 const loading = ref(true);
 const items = ref([]);

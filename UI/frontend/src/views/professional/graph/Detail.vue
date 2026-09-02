@@ -59,8 +59,8 @@
 <script setup>
 import { ref, computed, onMounted, watch } from "vue";
 import { useRoute } from "vue-router";
-import { getNodeDetail, getDetailByFile } from "../api/graph";
-import { getFileUrlByUuid } from "../api/file";
+import { getNodeDetail, getDetailByFile } from "../../../api/graph";
+import { getFileUrlByUuid } from "../../../api/file";
 
 const route = useRoute();
 

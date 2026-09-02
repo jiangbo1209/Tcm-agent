@@ -169,7 +169,7 @@
 
 <script setup>
 import { ref, computed, onMounted, onBeforeUnmount } from "vue";
-import { fetchAdminList, updateAdminRecord, deleteAdminRecord, fetchFileUrl } from "../api/admin";
+import { fetchAdminList, updateAdminRecord, deleteAdminRecord, fetchFileUrl } from "../../../api/admin";
 
 const tabs = [
   { key: "lit", label: "文献元数据 (lit_metadata)", count: null },

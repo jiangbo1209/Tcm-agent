@@ -24,10 +24,10 @@
 
 <script setup>
 import { ref, nextTick, watch } from "vue";
-import { useChatStore } from "../stores/chat";
-import { sendMessageStream } from "../api/chat";
-import ChatMessage from "../components/ChatMessage.vue";
-import ChatInput from "../components/ChatInput.vue";
+import { useChatStore } from "../../stores/chat";
+import { sendMessageStream } from "../../api/chat";
+import ChatMessage from "../../components/ChatMessage.vue";
+import ChatInput from "../../components/ChatInput.vue";
 
 const chatStore = useChatStore();
 const messagesRef = ref(null);
