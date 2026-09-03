@@ -1,0 +1,2056 @@
+"""标注池服务：筛选快照建池（三类排除）、只读预览、池列表与优先级/状态管理。
+
+候选筛选必须与 admin 列表页口径完全一致：复用
+``AdminQueryRepository._build_search_filter`` / ``_apply_filters``
+（@staticmethod，经类调用），且所有排除都在 SQL 层完成，禁止取回后在
+Python 里二次过滤。
+
+审计约定：annotation_logs 本是逐记录的审计行；**池级事件以 record_id=0
+落一行日志**（new_fields 携带 pool_id/count 等）。本模块的 :func:`_write_log`
+是后续所有标注 todo 共用的唯一写日志入口——它只 add 不 commit，
+事务由调用方控制。
+"""
+
+from __future__ import annotations
+
+import csv
+import io
+from datetime import datetime, timedelta, timezone
+from typing import Any
+
+from sqlalchemy import case, exists, func, insert, select, update
+from sqlalchemy.orm import Session
+
+from app.config import get_annotation_config
+from app.models import (
+    AnnotationLog,
+    AnnotationPool,
+    AnnotationPoolItem,
+    AnnotationSubmission,
+    AnnotationTask,
+    AnnotationTaskItem,
+)
+from app.models.user import User
+from app.repositories.admin_repo import (
+    _EDITABLE_FIELDS,
+    AdminQueryRepository,
+    _TABLE_MAP,
+    StaleRecordError,
+)
+
+# 占用记录的池状态：active/paused 中的记录不可再入新池
+_BLOCKING_POOL_STATUSES = ("active", "paused")
+# 占用记录的任务状态
+_ACTIVE_TASK_STATUSES = ("open", "in_progress")
+# PATCH 允许的目标池状态
+_PATCHABLE_POOL_STATUSES = ("paused", "closed")
+# 单次随机抽取的记录数上限
+_MAX_DRAW_SIZE = 20
+# pending=首次暂存 drafted=覆盖自己草稿 rejected=返工重做；submitted/approved 已进复核流
+_DRAFTABLE_ITEM_STATUSES = ("pending", "drafted", "rejected")
+
+
+class PoolNotFoundError(Exception):
+    """PATCH 目标池不存在。"""
+
+
+class AnnotationNotFoundError(ValueError):
+    """条目/任务/核心记录不存在；路由须先于 ValueError 捕获并映射 404。"""
+
+
+class AnnotationPermissionDeniedError(ValueError):
+    """越权操作他人任务；路由须先于 ValueError 捕获并映射 403。
+
+    故意继承 ValueError：旧式 ``except ValueError`` 兜底仍能兜住，
+    但路由层必须按 子类 -> ValueError 的顺序捕获才能精确映射。
+    """
+
+
+class AnnotationFieldValidationError(ValueError):
+    """请求负载校验失败（如字段不可编辑）；路由映射 400。"""
+
+
+def _utcnow() -> datetime:
+    return datetime.now(timezone.utc).replace(tzinfo=None)
+
+
+def _validate_table(table_name: str) -> type:
+    model = _TABLE_MAP.get(table_name)
+    if model is None:
+        raise ValueError(f"Unknown table: {table_name}")
+    return model
+
+
+def _exclusion_predicates(
+    model: type, table_name: str, include_annotated: bool = False
+) -> list[Any]:
+    """三类排除，全部编译为相关子查询 NOT EXISTS（SQL 层过滤）。
+
+    (a) 已存在于任何 active/paused 池的 annotation_pool_items；
+    (b) 已挂在任何 open/in_progress 任务的 annotation_task_items 上；
+    (c) 曾有 status='approved' 的 annotation_task_items（永久占用）——
+        include_annotated=True 时跳过 (c)，曾 approved 的记录可重新入池。
+    """
+    has_expired = (
+        select(AnnotationTaskItem.id).where(
+            AnnotationTaskItem.table_name == table_name,
+            AnnotationTaskItem.record_id == model.id,
+            AnnotationTaskItem.status == "expired",
+        )
+    )
+    in_blocking_pool = (
+        select(AnnotationPoolItem.id)
+        .join(AnnotationPool, AnnotationPool.id == AnnotationPoolItem.pool_id)
+        .where(
+            AnnotationPoolItem.table_name == table_name,
+            AnnotationPoolItem.record_id == model.id,
+            AnnotationPool.status.in_(_BLOCKING_POOL_STATUSES),
+            ~exists(has_expired),
+        )
+    )
+    in_running_task = (
+        select(AnnotationTaskItem.id)
+        .join(AnnotationTask, AnnotationTask.id == AnnotationTaskItem.task_id)
+        .where(
+            AnnotationTaskItem.table_name == table_name,
+            AnnotationTaskItem.record_id == model.id,
+            AnnotationTask.status.in_(_ACTIVE_TASK_STATUSES),
+            AnnotationTaskItem.status != "expired",
+        )
+    )
+    predicates = [~exists(in_blocking_pool), ~exists(in_running_task)]
+    if not include_annotated:
+        approved_before = select(AnnotationTaskItem.id).where(
+            AnnotationTaskItem.table_name == table_name,
+            AnnotationTaskItem.record_id == model.id,
+            AnnotationTaskItem.status == "approved",
+        )
+        predicates.append(~exists(approved_before))
+    return predicates
+
+
+def _filtered_stmt(model: type, filters: dict[str, Any]):
+    """与 admin 列表页同口径的候选语句（搜索 + crawl_status + 年份区间）。"""
+    stmt = select(model)
+    search = str(filters.get("q") or "").strip()
+    if search:
+        search_filter = AdminQueryRepository._build_search_filter(model, search)
+        if search_filter is not None:
+            stmt = stmt.where(search_filter)
+    return AdminQueryRepository._apply_filters(
+        model,
+        stmt,
+        filters.get("crawl_status"),
+        filters.get("year_min"),
+        filters.get("year_max"),
+    )
+
+
+def _count(db: Session, stmt) -> int:
+    # 与 AdminQueryRepository.list_records 相同的计数模式
+    return int(db.execute(select(func.count()).select_from(stmt.subquery())).scalar() or 0)
+
+
+def _occupancy_id_sets(
+    db: Session, table_name: str, record_ids: list[int]
+) -> tuple[set[int], set[int], set[int]]:
+    """批量求三类占用 id 集合：(池占用, 任务占用, 曾 approved)。"""
+    if not record_ids:
+        return set(), set(), set()
+    expired_ids = set(
+        db.execute(
+            select(AnnotationTaskItem.record_id).where(
+                AnnotationTaskItem.table_name == table_name,
+                AnnotationTaskItem.record_id.in_(record_ids),
+                AnnotationTaskItem.status == "expired",
+            )
+        ).scalars()
+    )
+    pooled = set(
+        db.execute(
+            select(AnnotationPoolItem.record_id)
+            .join(AnnotationPool, AnnotationPool.id == AnnotationPoolItem.pool_id)
+            .where(
+                AnnotationPoolItem.table_name == table_name,
+                AnnotationPoolItem.record_id.in_(record_ids),
+                AnnotationPool.status.in_(_BLOCKING_POOL_STATUSES),
+            )
+        ).scalars()
+    )
+    pooled = pooled - expired_ids
+    tasked = set(
+        db.execute(
+            select(AnnotationTaskItem.record_id)
+            .join(AnnotationTask, AnnotationTask.id == AnnotationTaskItem.task_id)
+            .where(
+                AnnotationTaskItem.table_name == table_name,
+                AnnotationTaskItem.record_id.in_(record_ids),
+                AnnotationTask.status.in_(_ACTIVE_TASK_STATUSES),
+                AnnotationTaskItem.status != "expired",
+            )
+        ).scalars()
+    )
+    approved = set(
+        db.execute(
+            select(AnnotationTaskItem.record_id).where(
+                AnnotationTaskItem.table_name == table_name,
+                AnnotationTaskItem.record_id.in_(record_ids),
+                AnnotationTaskItem.status == "approved",
+            )
+        ).scalars()
+    )
+    return pooled, tasked, approved
+
+
+def _preview_row(
+    record: Any,
+    pooled: set[int],
+    tasked: set[int],
+    approved: set[int],
+    include_annotated: bool,
+) -> dict[str, Any]:
+    record_id = record.id
+    if record_id in pooled:
+        eligible, blocked = False, "pooled"
+    elif record_id in tasked:
+        eligible, blocked = False, "task"
+    elif (not include_annotated) and record_id in approved:
+        eligible, blocked = False, "approved"
+    else:
+        eligible, blocked = True, None
+    title = getattr(record, "title", None)
+    if not title:
+        title = f"病案#{record_id}"
+    return {
+        "record_id": record_id,
+        "title": title,
+        "crawl_status": getattr(record, "crawl_status", None),
+        "pub_year": getattr(record, "pub_year", None),
+        "eligible": eligible,
+        "blocked": blocked,
+    }
+
+
+def preview_pool(
+    db: Session,
+    table_name: str,
+    filters: dict[str, Any] | None,
+    include_annotated: bool = False,
+    page: int = 1,
+    page_size: int = 20,
+) -> dict[str, Any]:
+    """只读预览：返回 {total_matched, eligible, page, page_size, items[...]}。
+
+    R4T3（D3）：items 在 SQL 层直接排除被占用行（pooled/task/approved），
+    分页 offset/limit 基于排除后的集合；单行 ``blocked`` 字段已移除，
+    ``eligible`` 在结果集中恒为 True。
+    """
+    model = _validate_table(table_name)
+    filters = filters or {}
+    base = _filtered_stmt(model, filters)
+    total_matched = _count(db, base)
+    eligible = _count(
+        db, base.where(*_exclusion_predicates(model, table_name, include_annotated))
+    )
+
+    filtered = base.where(*_exclusion_predicates(model, table_name, include_annotated))
+    rows = (
+        db.execute(
+            filtered.order_by(model.id.desc())
+            .offset((page - 1) * page_size)
+            .limit(page_size)
+        )
+        .scalars()
+        .all()
+    )
+    items: list[dict[str, Any]] = []
+    for record in rows:
+        title = getattr(record, "title", None)
+        if not title:
+            title = f"病案#{record.id}"
+        items.append(
+            {
+                "record_id": record.id,
+                "title": title,
+                "crawl_status": getattr(record, "crawl_status", None),
+                "pub_year": getattr(record, "pub_year", None),
+                "eligible": True,
+            }
+        )
+    return {
+        "total_matched": total_matched,
+        "eligible": eligible,
+        "page": page,
+        "page_size": page_size,
+        "items": items,
+    }
+
+
+def create_pool(
+    db: Session,
+    table_name: str,
+    filters: dict[str, Any] | None,
+    deadline_days: int | None,
+    created_by_user: User | None,
+    record_ids: list[int] | None = None,
+    include_annotated: bool = False,
+) -> dict[str, Any]:
+    """按当前筛选快照建池：pool(active) + 每条 eligible 记录一条 pool_item(available)。
+
+    返回含 pool_id/total；matched 但被三类排除的记录数 >0 时附带 shortfall 信息字段。
+    空候选集抛 ValueError（路由层转 400），不残留任何行。
+
+    record_ids 提供非空清单时走显式路径：逐 id 校验存在性与占用守卫，
+    曾 approved 仅当 include_annotated=True 放行，filter_json 存档
+    {"selected_record_ids": [...], **filters}。
+    """
+    model = _validate_table(table_name)
+    filters = dict(filters or {})
+    if record_ids is not None:
+        return _create_pool_from_explicit_ids(
+            db,
+            model,
+            table_name,
+            filters,
+            deadline_days,
+            created_by_user,
+            record_ids,
+            include_annotated,
+        )
+    return _create_pool_from_filters(
+        db,
+        model,
+        table_name,
+        filters,
+        deadline_days,
+        created_by_user,
+        include_annotated,
+    )
+
+
+def _create_pool_from_filters(
+    db: Session,
+    model: type,
+    table_name: str,
+    filters: dict[str, Any],
+    deadline_days: int | None,
+    created_by_user: User | None,
+    include_annotated: bool,
+) -> dict[str, Any]:
+    base = _filtered_stmt(model, filters)
+    matched = _count(db, base)
+
+    eligible_stmt = (
+        base.with_only_columns(model.id)
+        .where(*_exclusion_predicates(model, table_name, include_annotated))
+        .order_by(model.id.desc())
+    )
+    eligible_ids: list[int] = [row for row in db.execute(eligible_stmt).scalars()]
+    if not eligible_ids:
+        raise ValueError("无可加入池中的候选记录：请调整筛选条件")
+
+    pool = AnnotationPool(
+        table_name=table_name,
+        filter_json=filters,
+        status="active",
+        priority=0,
+        deadline_days=deadline_days,
+        created_by=created_by_user.id if created_by_user is not None else None,
+    )
+    db.add(pool)
+    db.flush()
+    db.execute(
+        insert(AnnotationPoolItem),
+        [
+            {
+                "pool_id": pool.id,
+                "table_name": table_name,
+                "record_id": record_id,
+                "status": "available",
+            }
+            for record_id in eligible_ids
+        ],
+    )
+    _write_log(
+        db,
+        table_name=table_name,
+        record_id=0,
+        actor=created_by_user,
+        action="create_pool",
+        new_fields={"pool_id": pool.id, "count": len(eligible_ids)},
+    )
+    db.commit()
+
+    result: dict[str, Any] = {
+        "pool_id": pool.id,
+        "table_name": pool.table_name,
+        "status": pool.status,
+        "priority": pool.priority,
+        "deadline_days": pool.deadline_days,
+        "created_at": pool.created_at.isoformat() if pool.created_at else None,
+        "total": len(eligible_ids),
+    }
+    shortfall = max(0, matched - len(eligible_ids))
+    if shortfall > 0:
+        result["shortfall"] = shortfall
+    return result
+
+
+def _create_pool_from_explicit_ids(
+    db: Session,
+    model: type,
+    table_name: str,
+    filters: dict[str, Any],
+    deadline_days: int | None,
+    created_by_user: User | None,
+    record_ids: list[int],
+    include_annotated: bool,
+) -> dict[str, Any]:
+    ids = list(dict.fromkeys(record_ids))
+    if not ids:
+        raise ValueError("请选择至少一条记录再建池")
+    existing_ids = set(db.execute(select(model.id).where(model.id.in_(ids))).scalars())
+    missing = [record_id for record_id in ids if record_id not in existing_ids]
+    if missing:
+        raise ValueError(f"以下记录不存在：{missing}")
+
+    pooled, tasked, approved = _occupancy_id_sets(db, table_name, ids)
+    occupied = sorted(pooled | tasked)
+    if occupied:
+        raise ValueError(f"以下记录已被占用：{occupied}")
+    if not include_annotated and approved:
+        raise ValueError(f"以下记录已完成标注，请勾选包含已完成标注后重试：{sorted(approved)}")
+
+    pool = AnnotationPool(
+        table_name=table_name,
+        filter_json={"selected_record_ids": ids, **filters},
+        status="active",
+        priority=0,
+        deadline_days=deadline_days,
+        created_by=created_by_user.id if created_by_user is not None else None,
+    )
+    db.add(pool)
+    db.flush()
+    db.execute(
+        insert(AnnotationPoolItem),
+        [
+            {
+                "pool_id": pool.id,
+                "table_name": table_name,
+                "record_id": record_id,
+                "status": "available",
+            }
+            for record_id in ids
+        ],
+    )
+    _write_log(
+        db,
+        table_name=table_name,
+        record_id=0,
+        actor=created_by_user,
+        action="create_pool",
+        new_fields={"pool_id": pool.id, "count": len(ids), "mode": "selected"},
+    )
+    db.commit()
+
+    result: dict[str, Any] = {
+        "pool_id": pool.id,
+        "table_name": pool.table_name,
+        "status": pool.status,
+        "priority": pool.priority,
+        "deadline_days": pool.deadline_days,
+        "created_at": pool.created_at.isoformat() if pool.created_at else None,
+        "total": len(ids),
+    }
+    included_approved = len(approved)
+    if include_annotated and included_approved > 0:
+        result["included_approved"] = included_approved
+    return result
+
+
+def _serialize_pool(pool: AnnotationPool, total_items: int, remaining_items: int) -> dict[str, Any]:
+    return {
+        "id": pool.id,
+        "table_name": pool.table_name,
+        "status": pool.status,
+        "priority": pool.priority,
+        "deadline_days": pool.deadline_days,
+        "total_items": total_items,
+        "remaining_items": remaining_items,
+        "created_at": pool.created_at.isoformat() if pool.created_at else None,
+    }
+
+
+def list_pools(db: Session) -> list[dict[str, Any]]:
+    """全部池 + 余量统计（单条 GROUP BY 聚合，无 N+1）。"""
+    available_count = func.count(case((AnnotationPoolItem.status == "available", 1)))
+    rows = db.execute(
+        select(AnnotationPool, func.count(AnnotationPoolItem.id), available_count)
+        .outerjoin(AnnotationPoolItem, AnnotationPoolItem.pool_id == AnnotationPool.id)
+        .group_by(AnnotationPool.id)
+        .order_by(
+            AnnotationPool.priority.desc(),
+            AnnotationPool.created_at.desc(),
+            AnnotationPool.id.desc(),
+        )
+    ).all()
+    return [_serialize_pool(pool, int(total), int(remaining)) for pool, total, remaining in rows]
+
+
+def update_pool(
+    db: Session,
+    pool_id: int,
+    *,
+    priority: int | None = None,
+    status: str | None = None,
+) -> dict[str, Any]:
+    """调整池优先级 / 状态（仅 paused|closed）；未知池抛 PoolNotFoundError。"""
+    if status is not None and status not in _PATCHABLE_POOL_STATUSES:
+        raise ValueError(f"Invalid status: {status}")
+
+    pool = db.get(AnnotationPool, pool_id)
+    if pool is None:
+        raise PoolNotFoundError("Pool not found")
+
+    if status is not None:
+        pool.status = status
+    if priority is not None:
+        pool.priority = priority
+    db.commit()
+    db.refresh(pool)
+
+    counts = db.execute(
+        select(
+            func.count(AnnotationPoolItem.id),
+            func.count(case((AnnotationPoolItem.status == "available", 1))),
+        ).where(AnnotationPoolItem.pool_id == pool_id)
+    ).one()
+    return _serialize_pool(pool, int(counts[0]), int(counts[1]))
+
+
+def delete_pool(db: Session, admin_user: User, pool_id: int) -> dict[str, Any]:
+    """删除已关闭的池：先显式清空其 pool_items 再删池，最后落一条池级审计。
+
+    未知池抛 PoolNotFoundError（路由 404）；非 closed 状态抛 ValueError
+    （路由 409）。显式删除 items 不依赖 ondelete=CASCADE——SQLite 测试库
+    不开 FK pragma，级联不可靠；池行本身由 db.delete 移除。
+    """
+    pool = db.get(AnnotationPool, pool_id)
+    if pool is None:
+        raise PoolNotFoundError("池不存在")
+    if pool.status != "closed":
+        raise ValueError("仅已关闭的任务池可删除")
+
+    deleted_items = (
+        db.query(AnnotationPoolItem)
+        .filter(AnnotationPoolItem.pool_id == pool_id)
+        .delete(synchronize_session=False)
+    )
+    db.delete(pool)
+    _write_log(
+        db,
+        table_name=pool.table_name,
+        record_id=0,
+        actor=admin_user,
+        action="delete_pool",
+        new_fields={"pool_id": pool_id, "deleted_items": deleted_items},
+    )
+    db.commit()
+    return {"deleted": True, "pool_id": pool_id, "deleted_items": deleted_items}
+
+
+def resolve_pool(db: Session, pool_id: int | None = None) -> AnnotationPool:
+    """解析抽取目标池。
+
+    显式 pool_id：池必须存在（否则 PoolNotFoundError）且 status='active'
+    （否则 ValueError）。pool_id 为 None 时按 priority DESC / created_at DESC /
+    id DESC 找第一个仍有 available 余量的 active 池；一个都没有抛 ValueError。
+    """
+    if pool_id is not None:
+        pool = db.get(AnnotationPool, pool_id)
+        if pool is None:
+            raise PoolNotFoundError("Pool not found")
+        if pool.status != "active":
+            raise ValueError("任务池未开放")
+        return pool
+
+    available_cnt = func.count(case((AnnotationPoolItem.status == "available", 1)))
+    row = db.execute(
+        select(AnnotationPool, available_cnt)
+        .outerjoin(AnnotationPoolItem, AnnotationPoolItem.pool_id == AnnotationPool.id)
+        .where(AnnotationPool.status == "active")
+        .group_by(AnnotationPool.id)
+        .having(available_cnt > 0)
+        .order_by(
+            AnnotationPool.priority.desc(),
+            AnnotationPool.created_at.desc(),
+            AnnotationPool.id.desc(),
+        )
+        .limit(1)
+    ).first()
+    if row is None:
+        raise ValueError("暂无可领取的任务池")
+    return row[0]
+
+
+def _assert_user_can_receive_task(db: Session, user: User) -> None:
+    """领取前置约束（应用层校验）：进行中任务唯一 + 待返工条目上限。"""
+    has_active_task = db.execute(
+        select(AnnotationTask.id)
+        .where(
+            AnnotationTask.claimed_by == user.id,
+            AnnotationTask.status.in_(_ACTIVE_TASK_STATUSES),
+        )
+        .limit(1)
+    ).first()
+    if has_active_task is not None:
+        raise ValueError("已有进行中的任务")
+
+    max_pending_rework = get_annotation_config().max_pending_rework
+    if max_pending_rework > 0:
+        rejected_count = (
+            db.execute(
+                select(func.count())
+                .select_from(AnnotationTaskItem)
+                .join(AnnotationTask, AnnotationTask.id == AnnotationTaskItem.task_id)
+                .where(
+                    AnnotationTask.claimed_by == user.id,
+                    AnnotationTaskItem.status == "rejected",
+                )
+            ).scalar()
+            or 0
+        )
+        if int(rejected_count) >= max_pending_rework:
+            raise ValueError("待返工条目过多")
+
+
+def _available_count(db: Session, pool_id: int) -> int:
+    return int(
+        db.execute(
+            select(func.count())
+            .select_from(AnnotationPoolItem)
+            .where(
+                AnnotationPoolItem.pool_id == pool_id,
+                AnnotationPoolItem.status == "available",
+            )
+        ).scalar()
+        or 0
+    )
+
+
+def _random_candidate_ids(db: Session, pool_id: int, n: int) -> list[int]:
+    """随机抽 n 个 available 候选 id（ORDER BY random() LIMIT n，SQLite/PG 通用）。"""
+    stmt = (
+        select(AnnotationPoolItem.id)
+        .where(
+            AnnotationPoolItem.pool_id == pool_id,
+            AnnotationPoolItem.status == "available",
+        )
+        .order_by(func.random())
+        .limit(n)
+    )
+    return [item_id for item_id in db.execute(stmt).scalars()]
+
+
+def _draw_atomically(db: Session, target_pool_id: int, n: int) -> list[int]:
+    """原子地把 n 个 available 记录置为 assigned 并返回被抽中的 pool_item id。
+
+    postgresql：SELECT ... ORDER BY random() LIMIT n FOR UPDATE SKIP LOCKED，
+    行锁保证并发事务抽到互斥子集；锁到的行数不足即并发抢占。
+    其余方言（如 SQLite）：选 id 后用条件 UPDATE（WHERE status='available'）
+    对账 rowcount——短缺说明候选已被并发改写，回滚后重试一次，仍短缺则报错。
+    """
+    if db.get_bind().dialect.name == "postgresql":
+        locked_stmt = (
+            select(AnnotationPoolItem.id)
+            .where(
+                AnnotationPoolItem.pool_id == target_pool_id,
+                AnnotationPoolItem.status == "available",
+            )
+            .order_by(func.random())
+            .limit(n)
+            .with_for_update(skip_locked=True)
+        )
+        drawn_ids = [item_id for item_id in db.execute(locked_stmt).scalars()]
+        if len(drawn_ids) != n:
+            db.rollback()
+            raise ValueError("任务池已被抢占，请重试")
+        db.execute(
+            update(AnnotationPoolItem)
+            .where(AnnotationPoolItem.id.in_(drawn_ids))
+            .values(status="assigned")
+        )
+        return drawn_ids
+
+    drawn_ids: list[int] | None = None
+    for _attempt in range(2):
+        candidate_ids = _random_candidate_ids(db, target_pool_id, n)
+        if not candidate_ids:
+            db.rollback()
+            continue
+        result = db.execute(
+            update(AnnotationPoolItem)
+            .where(
+                AnnotationPoolItem.id.in_(candidate_ids),
+                AnnotationPoolItem.status == "available",
+            )
+            .values(status="assigned")
+        )
+        if result.rowcount == len(candidate_ids):
+            drawn_ids = list(candidate_ids)
+            break
+        # rowcount 对账失败：候选中有记录在选取与更新之间被并发占用
+        db.rollback()
+    if drawn_ids is None:
+        raise ValueError("任务池已被抢占，请重试")
+    return drawn_ids
+
+
+def draw_and_create_task(
+    db: Session,
+    user: User,
+    pool_id: int | None = None,
+    action: str = "claim",
+    actor: User | None = None,
+) -> dict[str, Any]:
+    """随机抽取并创建标注任务（annotator 领取与 admin 代派共用的唯一路径）。
+
+    流程：前置约束校验 -> 解析目标池 -> min(_MAX_DRAW_SIZE, available) 原子抽取 ->
+    建 AnnotationTask(in_progress) + 逐条 TaskItem(pending) -> 审计日志 -> commit。
+    抛出的 ValueError 由路由映射为 409/400 或逐用户错误条目。
+    """
+    if action not in ("claim", "assign"):
+        raise ValueError(f"Invalid action: {action}")
+
+    _assert_user_can_receive_task(db, user)
+    pool = resolve_pool(db, pool_id)
+
+    draw_size = min(_MAX_DRAW_SIZE, _available_count(db, pool.id))
+    if draw_size <= 0:
+        raise ValueError("暂无可领取的任务池")
+    drawn_ids = _draw_atomically(db, pool.id, draw_size)
+
+    deadline_days = pool.deadline_days or get_annotation_config().task_deadline_days
+    now_utc = datetime.now(timezone.utc).replace(tzinfo=None)
+    task = AnnotationTask(
+        pool_id=pool.id,
+        claimed_by=user.id,
+        claimed_at=now_utc,
+        deadline_at=now_utc + timedelta(days=deadline_days),
+        status="in_progress",
+    )
+    db.add(task)
+    db.flush()
+
+    claimed_pool_items = (
+        db.query(AnnotationPoolItem)
+        .filter(AnnotationPoolItem.id.in_(drawn_ids))
+        .all()
+    )
+    task_items = [
+        AnnotationTaskItem(
+            task_id=task.id,
+            table_name=pool_item.table_name,
+            record_id=pool_item.record_id,
+            source_pool_item_id=pool_item.id,
+            status="pending",
+        )
+        for pool_item in claimed_pool_items
+    ]
+    db.add_all(task_items)
+    _write_log(
+        db,
+        table_name=pool.table_name,
+        record_id=0,
+        actor=actor if actor is not None else user,
+        action=action,
+        new_fields={"task_id": task.id, "count": len(task_items)},
+    )
+    db.commit()
+
+    return {
+        "task_id": task.id,
+        "pool_id": pool.id,
+        "table_name": pool.table_name,
+        "count": len(task_items),
+        "deadline_at": task.deadline_at.isoformat() if task.deadline_at else None,
+    }
+
+
+def _write_log(
+    db: Session,
+    *,
+    table_name: str,
+    record_id: int,
+    actor: User | None,
+    action: str,
+    old_fields: dict[str, Any] | None = None,
+    new_fields: dict[str, Any] | None = None,
+    submission_id: int | None = None,
+) -> None:
+    """追加一条审计行；只 add 不 commit —— 提交时机由调用方掌控。
+
+    record_id=0 为池级事件约定（日志表本身是逐记录粒度）。
+    username 冗余快照保证用户被删后审计仍可读。
+    """
+    db.add(
+        AnnotationLog(
+            table_name=table_name,
+            record_id=record_id,
+            actor_id=actor.id if actor is not None else None,
+            username=actor.username if actor is not None else "system",
+            action=action,
+            old_fields=old_fields,
+            new_fields=new_fields,
+            submission_id=submission_id,
+        )
+    )
+
+
+def snapshot_core_record(db: Session, table_name: str, record_id: int) -> dict[str, Any] | None:
+    """核心记录全部可编辑字段的现值快照（admin 直改审计用）。
+
+    表未知或核心行缺失返回 None，由调用方决定是否跳过审计；
+    只读不写，绝不触碰会话事务。
+    """
+    model = _TABLE_MAP.get(table_name)
+    if model is None:
+        return None
+    core = db.query(model).filter(model.id == record_id).first()
+    if core is None:
+        return None
+    return {field: getattr(core, field) for field in _EDITABLE_FIELDS.get(table_name, [])}
+
+
+def log_direct_edit(
+    db: Session,
+    *,
+    table_name: str,
+    record_id: int,
+    actor: User | None,
+    old_values: dict[str, Any],
+    new_values: dict[str, Any],
+) -> None:
+    """管理员直改审计（F4-V1/G3）：action='save_direct' 落 annotation_logs。
+
+    与标注总闸无关——admin 路由不经 gate，直改也必须留痕；
+    只 add 不 commit，事务由调用方掌控。
+    """
+    _write_log(
+        db,
+        table_name=table_name,
+        record_id=record_id,
+        actor=actor,
+        action="save_direct",
+        old_fields=old_values,
+        new_fields=new_values,
+    )
+
+
+def _load_owned_task(db: Session, user: User, task_id: int) -> AnnotationTask:
+    """取任务并校验属主；缺失 404、越权 403，由调用方继续做状态类校验。"""
+    task = db.get(AnnotationTask, task_id)
+    if task is None:
+        raise AnnotationNotFoundError("任务不存在")
+    if task.claimed_by != user.id:
+        raise AnnotationPermissionDeniedError("只能操作自己任务中的条目")
+    return task
+
+
+def _latest_submission(db: Session, item_id: int) -> AnnotationSubmission | None:
+    return (
+        db.query(AnnotationSubmission)
+        .filter(AnnotationSubmission.item_id == item_id)
+        .order_by(AnnotationSubmission.id.desc())
+        .first()
+    )
+
+
+def item_draft(
+    db: Session,
+    user: User,
+    item_id: int,
+    proposed_fields: dict[str, Any] | None,
+) -> dict[str, Any]:
+    """逐条暂存：upsert 一条 draft 提交单并快照核心记录 updated_at。
+
+    - proposed_fields 为空 dict 表达「标记无需修改」；
+    - 已有 draft 提交单 -> 原位覆盖（同一行）；rejected -> 新建行保留驳回历史；
+    - base_updated_at 取核心记录当前 updated_at，供整批提交时做 C8 失效预警；
+    - 本函数不把 proposed_fields 写入核心表（T8 审批时才落库）。
+    """
+    item = db.get(AnnotationTaskItem, item_id)
+    if item is None:
+        raise AnnotationNotFoundError("条目不存在")
+    task = _load_owned_task(db, user, item.task_id)
+    if task.status != "in_progress":
+        raise ValueError("任务不在进行中")
+    if item.status not in _DRAFTABLE_ITEM_STATUSES:
+        raise ValueError("该条目当前状态不可暂存")
+
+    fields = dict(proposed_fields or {})
+    allowed = set(_EDITABLE_FIELDS.get(item.table_name, []))
+    for key in fields:
+        if key not in allowed:
+            raise AnnotationFieldValidationError(f"字段不可编辑: {key}")
+
+    model = _TABLE_MAP.get(item.table_name)
+    core = None if model is None else db.query(model).filter(model.id == item.record_id).first()
+    if core is None:
+        raise AnnotationNotFoundError("核心记录不存在")
+
+    latest = _latest_submission(db, item.id)
+    if latest is not None and latest.status == "draft":
+        submission = latest
+    else:
+        submission = AnnotationSubmission(
+            item_id=item.id,
+            annotator_id=user.id,
+            username=user.username,
+            proposed_fields=fields,
+            base_updated_at=core.updated_at,
+            status="draft",
+        )
+        db.add(submission)
+        db.flush()
+    submission.proposed_fields = fields
+    submission.base_updated_at = core.updated_at
+    submission.annotator_id = user.id
+    submission.username = user.username
+
+    item.status = "drafted"
+    action = "no_change" if not fields else "draft"
+    _write_log(
+        db,
+        table_name=item.table_name,
+        record_id=item.record_id,
+        actor=user,
+        action=action,
+        new_fields=fields,
+        submission_id=submission.id,
+    )
+    db.commit()
+
+    return {
+        "item_id": item.id,
+        "task_id": task.id,
+        "submission_id": submission.id,
+        "action": action,
+        "base_updated_at": submission.base_updated_at.isoformat()
+        if submission.base_updated_at
+        else None,
+    }
+
+
+def batch_submit(db: Session, user: User, task_id: int) -> dict[str, Any]:
+    """整批提交：无未暂存条目才放行；瞬时完成任务（复核解耦，T8 再审批）。
+
+    返工重提语义（F-02）：任务被驳回重开后，已是 submitted/approved 的条目
+    原样保留，仅 drafted 条目翻转为 submitted、其 draft 提交单转 pending；
+    pending/rejected 条目仍视为「未暂存」拦截提交。
+    C8 base 失效检测：比对各 draft 提交单的 base_updated_at 与核心记录当前
+    updated_at，失配者列入 stale_base_item_ids —— 仅预警，绝不拦截提交。
+    """
+    task = _load_owned_task(db, user, task_id)
+    if task.status != "in_progress":
+        raise ValueError("任务不在进行中")
+
+    items = (
+        db.query(AnnotationTaskItem)
+        .filter(AnnotationTaskItem.task_id == task_id)
+        .order_by(AnnotationTaskItem.id)
+        .all()
+    )
+    undrafted = [
+        it for it in items if it.status not in ("drafted", "submitted", "approved")
+    ]
+    if undrafted:
+        raise ValueError(f"还有 {len(undrafted)} 条未暂存")
+
+    draft_submissions = {
+        s.item_id: s
+        for s in db.query(AnnotationSubmission)
+        .filter(
+            AnnotationSubmission.item_id.in_([it.id for it in items]),
+            AnnotationSubmission.status == "draft",
+        )
+        .all()
+    }
+
+    stale_item_ids: list[int] = []
+    for it in items:
+        if it.status != "drafted":
+            continue
+        submission = draft_submissions.get(it.id)
+        model = _TABLE_MAP.get(it.table_name)
+        core = (
+            None if model is None else db.query(model).filter(model.id == it.record_id).first()
+        )
+        current_updated_at = getattr(core, "updated_at", None) if core is not None else None
+        if (
+            submission is None
+            or current_updated_at is None
+            or submission.base_updated_at != current_updated_at
+        ):
+            stale_item_ids.append(it.id)
+
+    now_utc = _utcnow()
+    for submission in draft_submissions.values():
+        submission.status = "pending"
+    for it in items:
+        if it.status != "drafted":
+            continue
+        it.status = "submitted"
+        it.submitted_at = now_utc
+    task.status = "completed"
+
+    _write_log(
+        db,
+        table_name=items[0].table_name if items else "lit",
+        record_id=0,
+        actor=user,
+        action="submit",
+        new_fields={"task_id": task.id, "count": len(items)},
+    )
+    db.commit()
+
+    return {
+        "task_id": task.id,
+        "completed": True,
+        "count": len(items),
+        "stale_base_item_ids": sorted(stale_item_ids),
+    }
+
+
+def _release_pool_item(db: Session, source_pool_item_id: int | None) -> None:
+    """把条目占用的池位归还为 available（source 缺失或已被并发处理时静默跳过）。"""
+    if source_pool_item_id is None:
+        return
+    pool_item = db.get(AnnotationPoolItem, source_pool_item_id)
+    if pool_item is not None:
+        pool_item.status = "available"
+
+
+def run_lazy_sweep(db: Session, now: datetime | None = None) -> dict[str, int]:
+    """惰性清扫（plan todo #7）：超期任务恢复 + 返工过期释放，随请求触发。
+
+    (a) 截止恢复：status='in_progress' 且 deadline_at < now 的任务 ——
+        pending 条目 -> recovered 并把池位归还 available；
+        drafted 条目 -> 其 draft 提交单转 pending、条目转 submitted
+        （等价 batch_submit 落库语义但不经它——后者强制全部已暂存）；
+        收尾定态：任一条目 submitted/approved -> completed，否则 cancelled；
+        每任务仅落一行 expire_recover 审计（record_id=0 池级约定）。
+    (b) 返工释放：status='rejected' 且 rejected_at + REWORK_DAYS < now 的条目 ->
+        recovered 并归还池位；逐条落一行 expire_recover 审计。
+    幂等：两分支的筛选条件在处理后自然失配（终态不再命中），连跑第二次全零。
+    返回计数器字典供测试断言；now 可注入以保证确定性。
+    """
+    now_utc = now if now is not None else _utcnow()
+    recovered = 0
+    resubmitted = 0
+    completed_tasks = 0
+    cancelled_tasks = 0
+
+    expired_tasks = (
+        db.query(AnnotationTask)
+        .filter(AnnotationTask.status == "in_progress")
+        .filter(AnnotationTask.deadline_at.isnot(None))
+        .filter(AnnotationTask.deadline_at < now_utc)
+        .order_by(AnnotationTask.id)
+        .all()
+    )
+    for task in expired_tasks:
+        # 逐任务局部计数：expire_recover 日志只反映本任务，返回字典保持累计总量
+        task_recovered = 0
+        task_resubmitted = 0
+        items = (
+            db.query(AnnotationTaskItem)
+            .filter(AnnotationTaskItem.task_id == task.id)
+            .order_by(AnnotationTaskItem.id)
+            .all()
+        )
+        for item in items:
+            if item.status == "pending":
+                item.status = "recovered"
+                recovered += 1
+                task_recovered += 1
+                _release_pool_item(db, item.source_pool_item_id)
+            elif item.status == "drafted":
+                # 等价 batch_submit 的落库动作，但只针对本任务的 drafted 条目，
+                # 不复用该函数（其「全部条目必须已暂存」前置在这里不成立）。
+                db.query(AnnotationSubmission).filter(
+                    AnnotationSubmission.item_id == item.id,
+                    AnnotationSubmission.status == "draft",
+                ).update({AnnotationSubmission.status: "pending"}, synchronize_session=False)
+                item.status = "submitted"
+                item.submitted_at = now_utc
+                resubmitted += 1
+                task_resubmitted += 1
+
+        has_output = any(it.status in ("submitted", "approved") for it in items)
+        task.status = "completed" if has_output else "cancelled"
+        if has_output:
+            completed_tasks += 1
+        else:
+            cancelled_tasks += 1
+
+        _write_log(
+            db,
+            table_name=items[0].table_name if items else "lit",
+            record_id=0,
+            actor=None,
+            action="expire_recover",
+            new_fields={
+                "task_id": task.id,
+                "recovered": task_recovered,
+                "resubmitted": task_resubmitted,
+            },
+        )
+
+    rework_days = timedelta(days=get_annotation_config().rework_days)
+    released_rework = 0
+    # 粗筛后 Python 侧精确比较：col + timedelta 的 SQL 算术在 SQLite 上不可靠
+    rejected_candidates = (
+        db.query(AnnotationTaskItem)
+        .filter(
+            AnnotationTaskItem.status == "rejected",
+            AnnotationTaskItem.rejected_at.isnot(None),
+            AnnotationTaskItem.rejected_at < now_utc,
+        )
+        .order_by(AnnotationTaskItem.id)
+        .all()
+    )
+    for item in rejected_candidates:
+        assert item.rejected_at is not None
+        if not (item.rejected_at + rework_days < now_utc):
+            continue
+        item.status = "recovered"
+        released_rework += 1
+        _release_pool_item(db, item.source_pool_item_id)
+        _write_log(
+            db,
+            table_name=item.table_name,
+            record_id=item.record_id,
+            actor=None,
+            action="expire_recover",
+            new_fields={"item_id": item.id, "reason": "rework_expired"},
+        )
+
+    db.commit()
+    return {
+        "expired_tasks": len(expired_tasks),
+        "recovered": recovered,
+        "resubmitted": resubmitted,
+        "completed_tasks": completed_tasks,
+        "cancelled_tasks": cancelled_tasks,
+        "released_rework": released_rework,
+    }
+
+
+def get_my_rework(db: Session, user: User) -> dict[str, Any]:
+    """当前标注员的待返工清单：本人未释放（仍为 rejected）的驳回条目。
+
+    review_comment 取最新一条 rejected 提交单的复核意见；
+    deadline_at = rejected_at + REWORK_DAYS，expired 与清扫判定同口径（严格小于）。
+    """
+    rows = (
+        db.query(AnnotationTaskItem)
+        .join(AnnotationTask, AnnotationTask.id == AnnotationTaskItem.task_id)
+        .filter(
+            AnnotationTask.claimed_by == user.id,
+            AnnotationTaskItem.status == "rejected",
+        )
+        .order_by(AnnotationTaskItem.id.desc())
+        .all()
+    )
+    rework_days = timedelta(days=get_annotation_config().rework_days)
+    now_utc = _utcnow()
+    items: list[dict[str, Any]] = []
+    for item in rows:
+        latest_rejected = (
+            db.query(AnnotationSubmission)
+            .filter(
+                AnnotationSubmission.item_id == item.id,
+                AnnotationSubmission.status == "rejected",
+            )
+            .order_by(AnnotationSubmission.id.desc())
+            .first()
+        )
+        deadline = item.rejected_at + rework_days if item.rejected_at else None
+        items.append(
+            {
+                "item_id": item.id,
+                "table_name": item.table_name,
+                "record_id": item.record_id,
+                "review_comment": latest_rejected.review_comment if latest_rejected else None,
+                "rejected_at": item.rejected_at.isoformat() if item.rejected_at else None,
+                "deadline_at": deadline.isoformat() if deadline else None,
+                "expired": bool(deadline is not None and deadline < now_utc),
+            }
+        )
+    return {"count": len(items), "items": items}
+
+
+def get_my_task(db: Session, user: User) -> dict[str, Any]:
+    """当前标注员的进行中任务概览（open/in_progress 取最新一个）；无则 task=null。"""
+    task = (
+        db.query(AnnotationTask)
+        .filter(
+            AnnotationTask.claimed_by == user.id,
+            AnnotationTask.status.in_(_ACTIVE_TASK_STATUSES),
+        )
+        .order_by(AnnotationTask.id.desc())
+        .first()
+    )
+    if task is None:
+        return {"task": None}
+
+    items = (
+        db.query(AnnotationTaskItem)
+        .filter(AnnotationTaskItem.task_id == task.id)
+        .order_by(AnnotationTaskItem.id)
+        .all()
+    )
+    table_name: str | None = items[0].table_name if items else None
+    if table_name is None and task.pool_id is not None:
+        pool = db.get(AnnotationPool, task.pool_id)
+        table_name = pool.table_name if pool is not None else None
+
+    counts = {"drafted": 0, "submitted": 0, "rejected": 0}
+    for it in items:
+        if it.status in counts:
+            counts[it.status] += 1
+
+    return {
+        "task": {
+            "task_id": task.id,
+            "table_name": table_name,
+            "status": task.status,
+            "deadline_at": task.deadline_at.isoformat() if task.deadline_at else None,
+            "total": len(items),
+            "count": len(items),
+            **counts,
+        }
+    }
+
+
+def my_annotation_history(
+    db: Session, user: User, page: int = 1, page_size: int = 20
+) -> dict[str, Any]:
+    """标注员只读标注历史：本人全部 AnnotationSubmission 分页。
+
+    join AnnotationTaskItem 取 table_name/record_id，
+    join 核心表取 title（无 title → ``病案#{record_id}`` 兜底，同 preview/export 口径）；
+    按 submission.id desc 排序，返回 {total, page, page_size, items:[{submission_id,...}]}。
+
+    纯只读，不触事务；page/page_size 合法性由路由层校验。
+    """
+
+    base = db.query(AnnotationSubmission).join(
+        AnnotationTaskItem, AnnotationTaskItem.id == AnnotationSubmission.item_id
+    ).filter(
+        AnnotationSubmission.annotator_id == user.id,
+        AnnotationSubmission.status != "draft",
+    )
+    total = base.count()
+    submissions: list[AnnotationSubmission] = (
+        base.order_by(AnnotationSubmission.id.desc())
+        .offset((page - 1) * page_size)
+        .limit(page_size)
+        .all()
+    )
+    if not submissions:
+        return {"total": total, "page": page, "page_size": page_size, "items": []}
+
+    item_ids = [s.item_id for s in submissions]
+    items_map: dict[int, AnnotationTaskItem] = {
+        it.id: it
+        for it in db.query(AnnotationTaskItem).filter(AnnotationTaskItem.id.in_(item_ids)).all()
+    }
+
+    # 批量取标题：按 table_name 分组查核心表，避免逐条 N+1
+    grouped: dict[str, set[int]] = {}
+    for s in submissions:
+        it = items_map.get(s.item_id)
+        if it is not None:
+            grouped.setdefault(it.table_name, set()).add(int(it.record_id))
+    title_by_key: dict[tuple[str, int], str] = {}
+    for tname, ids in grouped.items():
+        model = _TABLE_MAP.get(tname)
+        if model is None:
+            for rid in ids:
+                title_by_key[(tname, rid)] = f"病案#{rid}"
+            continue
+        recs = db.query(model).filter(model.id.in_(list(ids))).all()
+        id_to_title: dict[int, str] = {}
+        for rec in recs:
+            t = getattr(rec, "title", None)
+            if not t:
+                t = f"病案#{rec.id}"
+            id_to_title[int(rec.id)] = str(t)
+        for rid in ids:
+            title_by_key[(tname, rid)] = id_to_title.get(rid, f"病案#{rid}")
+
+    result_items: list[dict[str, Any]] = []
+    for s in submissions:
+        it = items_map.get(s.item_id)
+        if it is None:
+            continue
+        title = title_by_key.get((it.table_name, int(it.record_id)), f"病案#{it.record_id}")
+        result_items.append(
+            {
+                "submission_id": s.id,
+                "record_id": it.record_id,
+                "table_name": it.table_name,
+                "title": title,
+                "status": s.status,
+                "submitted_at": it.submitted_at.isoformat() if it.submitted_at else None,
+                "reviewed_at": s.reviewed_at.isoformat() if s.reviewed_at else None,
+                "review_comment": s.review_comment,
+                "proposed_fields": s.proposed_fields,
+            }
+        )
+    return {"total": total, "page": page, "page_size": page_size, "items": result_items}
+
+
+def get_my_task_detail(db: Session, user: User) -> dict[str, Any]:
+    """工作台条目明细（F-01）：当前任务的核心记录序列化行 + 每条目最新提交单。
+
+    无活动任务返回 {"task": None}；table_name 取 items[0]，空任务回退所属池；
+    核心行已被删除的条目 record 为 None（前端按缺失降级）。
+    """
+    task = (
+        db.query(AnnotationTask)
+        .filter(
+            AnnotationTask.claimed_by == user.id,
+            AnnotationTask.status.in_(_ACTIVE_TASK_STATUSES),
+        )
+        .order_by(AnnotationTask.id.desc())
+        .first()
+    )
+    if task is None:
+        return {"task": None}
+
+    items = (
+        db.query(AnnotationTaskItem)
+        .filter(AnnotationTaskItem.task_id == task.id)
+        .order_by(AnnotationTaskItem.id)
+        .all()
+    )
+    table_name: str | None = items[0].table_name if items else None
+    if table_name is None and task.pool_id is not None:
+        pool = db.get(AnnotationPool, task.pool_id)
+        table_name = pool.table_name if pool is not None else None
+
+    entries: list[dict[str, Any]] = []
+    for item in items:
+        model = _TABLE_MAP.get(item.table_name)
+        core = (
+            None if model is None else db.query(model).filter(model.id == item.record_id).first()
+        )
+        latest = _latest_submission(db, item.id)
+        entries.append(
+            {
+                "item_id": item.id,
+                "record_id": item.record_id,
+                "table_name": item.table_name,
+                "status": item.status,
+                "record": (
+                    AdminQueryRepository._serialize(core, item.table_name)
+                    if core is not None
+                    else None
+                ),
+                "submission": {
+                    "id": latest.id,
+                    "status": latest.status,
+                    "proposed_fields": latest.proposed_fields,
+                }
+                if latest is not None
+                else None,
+            }
+        )
+
+    return {
+        "task_id": task.id,
+        "table_name": table_name,
+        "editable_fields": _EDITABLE_FIELDS.get(table_name or "", []),
+        "items": entries,
+    }
+
+
+# ---------------------------------------------------------------------------
+# 管理员复核（plan todo #8）：复核队列 + 逐条批准/驳回/过期处理
+# ---------------------------------------------------------------------------
+
+
+def _core_current_values(db: Session, table_name: str, record_id: int) -> tuple[dict[str, Any], bool]:
+    """读核心记录全部可编辑字段现值；核心行缺失时返回 ({}, True) 交由调用方打标。"""
+    model = _TABLE_MAP.get(table_name)
+    core = None if model is None else db.query(model).filter(model.id == record_id).first()
+    if core is None:
+        return {}, True
+    values = {field: getattr(core, field) for field in _EDITABLE_FIELDS.get(table_name, [])}
+    return values, False
+
+
+def review_queue(db: Session) -> list[dict[str, Any]]:
+    """按任务分组的复核队列：只含 submission.status=='pending'，按 task_id 分组。
+
+    组内条目按 submission_id 升序；组按 task_id 升序；submitted_at 取组内最早的
+    AnnotationTaskItem.submitted_at；返回数组
+    [{task_id, annotator_username, table_name, count, submitted_at,
+      items:[{submission_id,item_id,record_id,current_values,proposed_fields,base_updated_at,core_missing?}]}]
+    item 字段沿用扁平形状原样（除 annotator_username/table_name 提升至组）。
+    """
+    rows = (
+        db.query(AnnotationSubmission, AnnotationTaskItem, AnnotationTask)
+        .join(AnnotationTaskItem, AnnotationTaskItem.id == AnnotationSubmission.item_id)
+        .join(AnnotationTask, AnnotationTask.id == AnnotationTaskItem.task_id)
+        .filter(AnnotationSubmission.status == "pending")
+        .order_by(AnnotationSubmission.id)
+        .all()
+    )
+    groups: dict[int, dict[str, Any]] = {}
+    for submission, item, task in rows:
+        group = groups.get(task.id)
+        if group is None:
+            group = {
+                "task_id": task.id,
+                "annotator_username": submission.username,
+                "table_name": item.table_name,
+                "count": 0,
+                "items": [],
+                "_earliest_submitted_at": None,
+            }
+            groups[task.id] = group
+        current_values, core_missing = _core_current_values(db, item.table_name, item.record_id)
+        entry: dict[str, Any] = {
+            "submission_id": submission.id,
+            "item_id": item.id,
+            "record_id": item.record_id,
+            "current_values": current_values,
+            "proposed_fields": submission.proposed_fields,
+            "base_updated_at": submission.base_updated_at.isoformat() if submission.base_updated_at else None,
+        }
+        if core_missing:
+            entry["core_missing"] = True
+        group["items"].append(entry)
+        group["count"] += 1
+        submitted_at = item.submitted_at
+        if submitted_at is not None and (
+            group["_earliest_submitted_at"] is None or submitted_at < group["_earliest_submitted_at"]
+        ):
+            group["_earliest_submitted_at"] = submitted_at
+
+    result: list[dict[str, Any]] = []
+    for task_id in sorted(groups):
+        group = groups[task_id]
+        earliest = group.pop("_earliest_submitted_at")
+        group["submitted_at"] = earliest.isoformat() if earliest else None
+        result.append(group)
+    return result
+
+
+def batch_approve(db: Session, reviewer: User, submission_ids: list[int]) -> dict[str, Any]:
+    """批量通过：ids 去重保序；逐条调用 approve_submission 核心逻辑；单条异常不中断批次。
+
+    返回 {"results":[{submission_id, status, detail?}], "summary":{approved,expired,error}} 并扁平兼容。
+    status ∈ approved|expired|error（expired 来自 base 冲突）。
+    """
+    if not submission_ids:
+        raise AnnotationFieldValidationError("submission_ids 不能为空")
+    # 去重保序
+    seen: set[int] = set()
+    deduped: list[int] = []
+    for sid in submission_ids:
+        if sid not in seen:
+            seen.add(sid)
+            deduped.append(sid)
+
+    results: list[dict[str, Any]] = []
+    approved = 0
+    expired = 0
+    error = 0
+    for sid in deduped:
+        try:
+            ret = approve_submission(db, reviewer, sid)
+            status = ret.get("status", "approved")
+            results.append({"submission_id": sid, "status": status})
+            if status == "approved":
+                approved += 1
+            elif status == "expired":
+                expired += 1
+            else:
+                error += 1
+        except Exception as exc:  # noqa: BLE001
+            try:
+                db.rollback()
+            except Exception:  # noqa: BLE001
+                pass
+            detail = str(exc) if str(exc) else exc.__class__.__name__
+            results.append({"submission_id": sid, "status": "error", "detail": detail})
+            error += 1
+
+    summary = {"approved": approved, "expired": expired, "error": error}
+    return {"results": results, "summary": summary, "approved": approved, "expired": expired, "error": error}
+
+
+def batch_reject(db: Session, reviewer: User, decisions: list[dict[str, Any]]) -> dict[str, Any]:
+    """批量驳回：decisions=[{submission_id, comment}]；逐条 reject_submission；comment 空→error。
+
+    返回同构 results+汇总，成功 status 为 rejected。
+    """
+    if not decisions:
+        raise AnnotationFieldValidationError("decisions 不能为空")
+    results: list[dict[str, Any]] = []
+    rejected = 0
+    error = 0
+    for dec in decisions:
+        sid = dec.get("submission_id") if isinstance(dec, dict) else getattr(dec, "submission_id", None)
+        comment = dec.get("comment") if isinstance(dec, dict) else getattr(dec, "comment", None)
+        if sid is None:
+            results.append({"submission_id": sid, "status": "error", "detail": "缺少 submission_id"})
+            error += 1
+            continue
+        if not (comment or "").strip():
+            results.append({"submission_id": sid, "status": "error", "detail": "驳回必须填写评论"})
+            error += 1
+            continue
+        try:
+            reject_submission(db, reviewer, int(sid), str(comment))
+            results.append({"submission_id": int(sid), "status": "rejected"})
+            rejected += 1
+        except Exception as exc:  # noqa: BLE001
+            try:
+                db.rollback()
+            except Exception:  # noqa: BLE001
+                pass
+            detail = str(exc) if str(exc) else exc.__class__.__name__
+            results.append({"submission_id": int(sid), "status": "error", "detail": detail})
+            error += 1
+
+    summary = {"rejected": rejected, "error": error}
+    return {
+        "results": results,
+        "summary": summary,
+        "rejected": rejected,
+        "error": error,
+        "approved": 0,
+        "expired": 0,
+    }
+
+
+def _load_reviewable_submission(
+    db: Session, submission_id: int
+) -> tuple[AnnotationSubmission, AnnotationTaskItem]:
+    """取提交单并校验处于待复核态；缺失 404、非 pending 由路由映射 409。"""
+    submission = db.get(AnnotationSubmission, submission_id)
+    if submission is None:
+        raise AnnotationNotFoundError("提交单不存在")
+    if submission.status != "pending":
+        raise ValueError(f"该提交单状态为 {submission.status}，不可复核")
+    item = db.get(AnnotationTaskItem, submission.item_id)
+    if item is None:
+        raise AnnotationNotFoundError("条目不存在")
+    return submission, item
+
+
+def approve_submission(db: Session, reviewer: User, submission_id: int) -> dict[str, Any]:
+    """逐条批准：把 proposed_fields 经 update_record 落入核心表。
+
+    - 空差异快速通道：仅落 approved 状态与审计，绝不触核心表；
+    - 真实差异：复用 admin 直改唯一写入口 AdminQueryRepository.update_record
+      （白名单、abstract 清洗、crawl_status 自动晋升同源；内部乐观锁 +
+      commit），故每条目的核心写入天然独立成事务——单条 base 冲突转
+      expired（expired 存档不进返工箱、无 rejected_at、池位复位 available）时绝不牵连其他条目。
+    返回 {"submission_id", "item_id", "record_id", "status"}，
+    status ∈ {"approved", "expired"}；expired 不抛错，由响应体标记，expired 存档不进返工箱、无 rejected_at、池位复位。
+    """
+    submission, item = _load_reviewable_submission(db, submission_id)
+    now_utc = _utcnow()
+
+    if not submission.proposed_fields:
+        submission.status = "approved"
+        submission.reviewed_at = now_utc
+        submission.reviewer_id = reviewer.id
+        item.status = "approved"
+        _write_log(
+            db,
+            table_name=item.table_name,
+            record_id=item.record_id,
+            actor=reviewer,
+            action="approve",
+            old_fields={},
+            new_fields={},
+            submission_id=submission.id,
+        )
+        db.commit()
+        return {
+            "submission_id": submission.id,
+            "item_id": item.id,
+            "record_id": item.record_id,
+            "status": "approved",
+        }
+
+    model = _TABLE_MAP.get(item.table_name)
+    core = None if model is None else db.query(model).filter(model.id == item.record_id).first()
+    if core is None:
+        raise AnnotationNotFoundError("核心记录不存在")
+
+    # 应用前快照：审计的 old_fields 必须是落库前的现值。
+    old_fields = {field: getattr(core, field) for field in submission.proposed_fields}
+
+    try:
+        AdminQueryRepository(db).update_record(
+            item.table_name,
+            item.record_id,
+            submission.proposed_fields,
+            updated_at=submission.base_updated_at.isoformat(),
+        )
+    except StaleRecordError:
+        try:
+            submission.status = "expired"
+            submission.reviewed_at = now_utc
+            submission.reviewer_id = reviewer.id
+            item.status = "expired"
+            pool_item = None
+            if item.source_pool_item_id is not None:
+                candidate = db.get(AnnotationPoolItem, item.source_pool_item_id)
+                if candidate is not None and candidate.status == "assigned":
+                    pool_item = candidate
+            if pool_item is None:
+                pool_item = (
+                    db.query(AnnotationPoolItem)
+                    .join(AnnotationPool, AnnotationPool.id == AnnotationPoolItem.pool_id)
+                    .filter(
+                        AnnotationPoolItem.table_name == item.table_name,
+                        AnnotationPoolItem.record_id == item.record_id,
+                        AnnotationPoolItem.status == "assigned",
+                        AnnotationPool.status.in_(_BLOCKING_POOL_STATUSES),
+                    )
+                    .order_by(AnnotationPoolItem.id)
+                    .first()
+                )
+            if pool_item is not None:
+                pool_item.status = "available"
+            _write_log(
+                db,
+                table_name=item.table_name,
+                record_id=item.record_id,
+                actor=reviewer,
+                action="expire",
+                new_fields={"reason": "base_conflict"},
+                submission_id=submission.id,
+            )
+            db.commit()
+        except Exception:
+            try:
+                db.rollback()
+            except Exception:  # noqa: BLE001
+                pass
+            raise
+        return {
+            "submission_id": submission.id,
+            "item_id": item.id,
+            "record_id": item.record_id,
+            "status": "expired",
+        }
+
+    submission.status = "approved"
+    submission.reviewed_at = now_utc
+    submission.reviewer_id = reviewer.id
+    item.status = "approved"
+    _write_log(
+        db,
+        table_name=item.table_name,
+        record_id=item.record_id,
+        actor=reviewer,
+        action="approve",
+        old_fields=old_fields,
+        new_fields=submission.proposed_fields,
+        submission_id=submission.id,
+    )
+    db.commit()
+    return {
+        "submission_id": submission.id,
+        "item_id": item.id,
+        "record_id": item.record_id,
+        "status": "approved",
+    }
+
+
+def reject_submission(db: Session, reviewer: User, submission_id: int, comment: str) -> dict[str, Any]:
+    """逐条驳回：意见落提交单，条目带 rejected_at 进返工箱。
+
+    F-02：任务已 completed 时驳回条目会把任务重新打开（in_progress），
+    否则 item_draft 的「任务不在进行中」前置会让 rejected 条目永久死锁。
+    重开时同步顺延 deadline_at 一个完整返工窗口（REWORK_DAYS）：否则驳回发生在
+    原截止时间之后（或返工横跨截止线）时，惰性清扫会看到 in_progress+expired 而
+    把任务又扫回 completed，被驳回条目在 REWORK_DAYS 释放前持续 item_draft 409，
+    标注员最长被锁 5 天、返工承诺落空。
+    标注员的活跃任务槽位由此被占用直至返工完成（与 MAX_PENDING_REWORK 口径一致）。
+    """
+    if not (comment or "").strip():
+        raise AnnotationFieldValidationError("驳回必须填写评论")
+
+    submission, item = _load_reviewable_submission(db, submission_id)
+    now_utc = _utcnow()
+    submission.status = "rejected"
+    submission.review_comment = comment
+    submission.reviewed_at = now_utc
+    submission.reviewer_id = reviewer.id
+    item.status = "rejected"
+    item.rejected_at = now_utc
+    task = db.get(AnnotationTask, item.task_id)
+    if task is not None and task.status == "completed":
+        task.status = "in_progress"
+        task.deadline_at = now_utc + timedelta(days=get_annotation_config().rework_days)
+    _write_log(
+        db,
+        table_name=item.table_name,
+        record_id=item.record_id,
+        actor=reviewer,
+        action="reject",
+        new_fields={"comment": comment},
+        submission_id=submission.id,
+    )
+    db.commit()
+    return {"submission_id": submission.id, "item_id": item.id, "status": "rejected"}
+
+
+# ---------------------------------------------------------------------------
+# 审计日志检索与一键回滚（plan todo #9）：history append-only，回滚只追加新行
+# ---------------------------------------------------------------------------
+
+
+def query_logs(
+    db: Session,
+    *,
+    table_name: str | None = None,
+    record_id: int | None = None,
+    actor_id: int | None = None,
+    action: str | None = None,
+    date_from: datetime | None = None,
+    date_to: datetime | None = None,
+    page: int = 1,
+    page_size: int = 20,
+) -> dict[str, Any]:
+    """分页检索审计日志：过滤条件 AND 组合，created_at 区间含两端，按 id 倒序。
+
+    纯只读；分页参数非法（page<1 或 page_size 越出 1..100）抛 ValueError，
+    由路由映射 400。T8 的 approve/reject/expire 日志无需任何改造即天然可查。
+    """
+    if page < 1:
+        raise ValueError("page 必须 >= 1")
+    if not 1 <= page_size <= 100:
+        raise ValueError("page_size 必须在 1..100 之间")
+
+    predicates = []
+    if table_name:
+        predicates.append(AnnotationLog.table_name == table_name)
+    if record_id is not None:
+        predicates.append(AnnotationLog.record_id == record_id)
+    if actor_id is not None:
+        predicates.append(AnnotationLog.actor_id == actor_id)
+    if action:
+        predicates.append(AnnotationLog.action == action)
+    if date_from is not None:
+        predicates.append(AnnotationLog.created_at >= date_from)
+    if date_to is not None:
+        predicates.append(AnnotationLog.created_at <= date_to)
+
+    stmt = select(AnnotationLog)
+    if predicates:
+        stmt = stmt.where(*predicates)
+
+    total = _count(db, stmt)
+    rows = (
+        db.execute(
+            stmt.order_by(AnnotationLog.id.desc())
+            .offset((page - 1) * page_size)
+            .limit(page_size)
+        )
+        .scalars()
+        .all()
+    )
+
+    items = [
+        {
+            "id": log.id,
+            "table_name": log.table_name,
+            "record_id": log.record_id,
+            "actor_id": log.actor_id,
+            "username": log.username,
+            "action": log.action,
+            "old_fields": log.old_fields,
+            "new_fields": log.new_fields,
+            "submission_id": log.submission_id,
+            "created_at": log.created_at.isoformat() if log.created_at else None,
+        }
+        for log in rows
+    ]
+    return {"total": total, "page": page, "page_size": page_size, "items": items}
+
+
+def rollback_log(db: Session, reviewer: User, log_id: int) -> dict[str, Any]:
+    """一键回滚：把源日志的 old_fields 经 update_record 反向写回核心表。
+
+    - 历史追加不改：源日志原样保留；回滚动作另记一条 action='rollback' 的
+      **新**日志（old=回滚前现值，new=被恢复旧值），绝不 delete/update 任何行；
+    - 乐观锁与审批同源（approve_submission）：以读取时的核心行 updated_at 为
+      基准传入 update_record，期间被人改过即 StaleRecordError ->
+      ValueError（路由映射 409），核心表保持不动、不留任何审计行。
+    - 白名单：仅 action in {approve, save_direct} 可回滚（决议A），其余 400。
+    """
+    source = db.get(AnnotationLog, log_id)
+    if source is None:
+        raise AnnotationNotFoundError("日志不存在")
+    if source.action not in {"approve", "save_direct"}:
+        raise AnnotationFieldValidationError("该动作不支持回滚")
+
+    restore_fields = dict(source.old_fields) if source.old_fields else {}
+    if not restore_fields:
+        raise AnnotationFieldValidationError("该日志不含可回滚的字段变更")
+
+    model = _TABLE_MAP.get(source.table_name)
+    core = (
+        None if model is None else db.query(model).filter(model.id == source.record_id).first()
+    )
+    if core is None:
+        raise AnnotationNotFoundError("核心记录不存在")
+
+    # 应用前快照：新审计行的 old_fields 必须是回滚前的现值；
+    # 锁基准取当前 updated_at（与审批同语义）。
+    before_values = {field: getattr(core, field) for field in restore_fields}
+    lock_token = core.updated_at.isoformat() if core.updated_at is not None else None
+
+    try:
+        AdminQueryRepository(db).update_record(
+            source.table_name, source.record_id, restore_fields, lock_token
+        )
+    except StaleRecordError:
+        raise ValueError("记录已被他人修改，无法回滚，请刷新后重试") from None
+
+    _write_log(
+        db,
+        table_name=source.table_name,
+        record_id=source.record_id,
+        actor=reviewer,
+        action="rollback",
+        old_fields=before_values,
+        new_fields=restore_fields,
+        submission_id=source.submission_id,
+    )
+    db.commit()
+
+    entry = (
+        db.query(AnnotationLog)
+        .filter(
+            AnnotationLog.action == "rollback",
+            AnnotationLog.table_name == source.table_name,
+            AnnotationLog.record_id == source.record_id,
+        )
+        .order_by(AnnotationLog.id.desc())
+        .first()
+    )
+    return {
+        "log_id": entry.id if entry is not None else None,
+        "record_id": source.record_id,
+        "table_name": source.table_name,
+        "restored_fields": sorted(restore_fields),
+    }
+
+
+# ---------------------------------------------------------------------------
+# 管理端仪表盘与工作量导出（plan todo #10）：分组聚合，禁止 N+1
+# ---------------------------------------------------------------------------
+
+# 覆盖率统计覆盖的核心表（与 _TABLE_MAP 的键保持一致）
+_COVERAGE_TABLES = ("lit", "case", "guideline")
+# CSV 表头（顺序即列序，逐字符对外契约）
+_WORKLOAD_CSV_HEADER = ("date", "username", "table_name", "record_id", "title", "item_status", "review_outcome")
+
+
+def dashboard_stats(db: Session) -> dict[str, Any]:
+    """管理端仪表盘聚合：池余量 / 三类核心表覆盖率 / 标注员工作量。
+
+    全部为常数条数的分组查询（无逐用户/逐池循环 SQL）：
+    - pools：一条 GROUP BY（与 list_pools 同口径），按 priority 降序；
+    - coverage：一条按 table_name 分组的 DISTINCT 批准记录数，
+      外加每张核心表各一条全表计数（空表 0 安全）；
+    - users：一条 annotator 列表 + 一条按 (claimed_by, item.status) 分组的
+      条目计数 + 一条活动任务去重集合。
+    """
+    available_count = func.count(case((AnnotationPoolItem.status == "available", 1)))
+    pool_rows = db.execute(
+        select(AnnotationPool, func.count(AnnotationPoolItem.id), available_count)
+        .outerjoin(AnnotationPoolItem, AnnotationPoolItem.pool_id == AnnotationPool.id)
+        .group_by(AnnotationPool.id)
+        .order_by(
+            AnnotationPool.priority.desc(),
+            AnnotationPool.created_at.desc(),
+            AnnotationPool.id.desc(),
+        )
+    ).all()
+    pools = [
+        {
+            "id": pool.id,
+            "table_name": pool.table_name,
+            "status": pool.status,
+            "priority": pool.priority,
+            "total_items": int(total),
+            "remaining_items": int(remaining),
+        }
+        for pool, total, remaining in pool_rows
+    ]
+
+    annotated_rows = db.execute(
+        select(
+            AnnotationTaskItem.table_name,
+            func.count(func.distinct(AnnotationTaskItem.record_id)),
+        )
+        .where(AnnotationTaskItem.status == "approved")
+        .group_by(AnnotationTaskItem.table_name)
+    ).all()
+    annotated_map = {table: int(count) for table, count in annotated_rows}
+    coverage: dict[str, dict[str, int]] = {}
+    for name in _COVERAGE_TABLES:
+        model = _TABLE_MAP.get(name)
+        total = (
+            int(db.execute(select(func.count()).select_from(model)).scalar() or 0)
+            if model is not None
+            else 0
+        )
+        coverage[name] = {"annotated": annotated_map.get(name, 0), "total": total}
+
+    annotators = db.query(User).filter(User.role == "annotator").order_by(User.id).all()
+    status_counts: dict[int, dict[str, int]] = {}
+    per_user_status = (
+        select(AnnotationTask.claimed_by, AnnotationTaskItem.status, func.count())
+        .join(AnnotationTask, AnnotationTask.id == AnnotationTaskItem.task_id)
+        .where(AnnotationTask.claimed_by.isnot(None))
+        .group_by(AnnotationTask.claimed_by, AnnotationTaskItem.status)
+    )
+    for user_id, status, cnt in db.execute(per_user_status).all():
+        status_counts.setdefault(int(user_id), {})[str(status)] = int(cnt)
+
+    active_user_ids = {
+        int(user_id)
+        for (user_id,) in db.execute(
+            select(AnnotationTask.claimed_by)
+            .where(
+                AnnotationTask.claimed_by.isnot(None),
+                AnnotationTask.status.in_(_ACTIVE_TASK_STATUSES),
+            )
+            .distinct()
+        ).all()
+    }
+
+    users: list[dict[str, Any]] = []
+    for user in annotators:
+        counts = status_counts.get(user.id, {})
+        approved = counts.get("approved", 0)
+        rejected = counts.get("rejected", 0)
+        denominator = approved + rejected
+        users.append(
+            {
+                "user_id": user.id,
+                "username": user.username,
+                "completed": approved,
+                "rejected_rate": round(rejected / denominator, 2) if denominator else 0.0,
+                "pending_rework": rejected,
+                "in_progress": 1 if user.id in active_user_ids else 0,
+            }
+        )
+
+    return {"pools": pools, "coverage": coverage, "users": users}
+
+
+def export_workload_csv(
+    db: Session,
+    *,
+    user_id: int | None = None,
+    pool_id: int | None = None,
+    date_from: datetime | None = None,
+    date_to: datetime | None = None,
+) -> str:
+    """工作量明细 CSV 文本：每行一条任务条目，附最新提交单的复核结论。
+
+    过滤（AND 组合）：user 走 task.claimed_by；pool 走 task.pool_id；
+    date_from/date_to 作用于 item.created_at（含两端，与审计日志检索同口径）。
+    行序 created_at 升序再 id 升序；review_outcome 取该条目最新提交单的
+    status，无任何提交单时为 "-"。纯只读；两条 SQL 取数（条目 + 提交单），
+    无逐行查询。
+    """
+    predicates = []
+    if user_id is not None:
+        predicates.append(AnnotationTask.claimed_by == user_id)
+    if pool_id is not None:
+        predicates.append(AnnotationTask.pool_id == pool_id)
+    if date_from is not None:
+        predicates.append(AnnotationTaskItem.created_at >= date_from)
+    if date_to is not None:
+        predicates.append(AnnotationTaskItem.created_at <= date_to)
+
+    stmt = (
+        select(AnnotationTaskItem, AnnotationTask, User.username)
+        .join(AnnotationTask, AnnotationTask.id == AnnotationTaskItem.task_id)
+        .outerjoin(User, User.id == AnnotationTask.claimed_by)
+        .order_by(AnnotationTaskItem.created_at.asc(), AnnotationTaskItem.id.asc())
+    )
+    if predicates:
+        stmt = stmt.where(*predicates)
+    rows = db.execute(stmt).all()
+
+    latest_submission: dict[int, AnnotationSubmission] = {}
+    if rows:
+        item_ids = [item.id for item, _task, _username in rows]
+        submissions = (
+            db.query(AnnotationSubmission)
+            .filter(AnnotationSubmission.item_id.in_(item_ids))
+            .order_by(AnnotationSubmission.id.asc())
+            .all()
+        )
+        # id 升序遍历、后写覆盖先写 => 每个条目保留最新一条提交单
+        for submission in submissions:
+            latest_submission[submission.item_id] = submission
+
+    title_by_key: dict[tuple[str, int], str] = {}
+    if rows:
+        grouped_ids: dict[str, set[int]] = {}
+        for item, *_ in rows:
+            grouped_ids.setdefault(item.table_name, set()).add(int(item.record_id))
+        for table_name, ids in grouped_ids.items():
+            model = _TABLE_MAP.get(table_name)
+            if model is None:
+                for rid in ids:
+                    title_by_key[(table_name, rid)] = f"病案#{rid}"
+                continue
+            records = db.query(model).filter(model.id.in_(list(ids))).all()
+            id_to_title: dict[int, str] = {}
+            for rec in records:
+                t = getattr(rec, "title", None)
+                if not t:
+                    t = f"病案#{rec.id}"
+                id_to_title[int(rec.id)] = str(t)
+            for rid in ids:
+                title_by_key[(table_name, rid)] = id_to_title.get(rid, f"病案#{rid}")
+
+    buffer = io.StringIO()
+    writer = csv.writer(buffer)
+    writer.writerow(_WORKLOAD_CSV_HEADER)
+    for item, _task, username in rows:
+        submission = latest_submission.get(item.id)
+        title = title_by_key.get((item.table_name, int(item.record_id)), f"病案#{item.record_id}")
+        writer.writerow(
+            [
+                item.created_at.date().isoformat() if item.created_at is not None else "",
+                username or "-",
+                item.table_name,
+                item.record_id,
+                title,
+                item.status,
+                submission.status if submission is not None else "-",
+            ]
+        )
+    return buffer.getvalue()

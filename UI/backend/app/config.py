@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from functools import lru_cache
+from pathlib import Path
 from urllib.parse import quote_plus
 
 from pydantic import Field
@@ -10,6 +11,10 @@ from pydantic_settings import BaseSettings, SettingsConfigDict
 
 from app.models.search_history import SearchBackendMode
 from app.storage.config import S3Config, UploadConfig
+
+# 子 Settings 不继承根 Settings 的 env_file，裸 uvicorn 也不加载 .env——必须显式指定。
+PROJECT_ROOT = Path(__file__).resolve().parents[3]
+ENV_FILE = str(PROJECT_ROOT / ".env")
 
 
 class PostgresSettings(BaseSettings):
@@ -43,22 +48,42 @@ class PostgresSettings(BaseSettings):
 
 
 class SearchSettings(BaseSettings):
-    model_config = SettingsConfigDict(env_prefix="SEARCH_", extra="ignore")
+    model_config = SettingsConfigDict(
+        env_prefix="SEARCH_", extra="ignore", env_file=ENV_FILE
+    )
 
     backend_mode: SearchBackendMode = SearchBackendMode.AUTO
     suggest_default_size: int = 8
 
+DEFAULT_JWT_SECRET_KEY = "tcm-agent-secret-key-change-in-production"
+
 
 class AuthSettings(BaseSettings):
-    model_config = SettingsConfigDict(env_prefix="JWT_", extra="ignore")
+    model_config = SettingsConfigDict(
+        env_prefix="JWT_", extra="ignore", env_file=ENV_FILE
+    )
 
-    secret_key: str = "tcm-agent-secret-key-change-in-production"
+    secret_key: str = Field(default=DEFAULT_JWT_SECRET_KEY, alias="JWT_SECRET_KEY")
     expire_minutes: int = 1440
+    app_env: str = Field(default="development", alias="APP_ENV")
+    file_token_secret: str = Field(default="", alias="FILE_TOKEN_SECRET")
+
+
+class AnnotationSettings(BaseSettings):
+
+    model_config = SettingsConfigDict(
+        env_prefix="ANNOTATION_", extra="ignore", env_file=ENV_FILE
+    )
+
+    enabled: bool = False
+    task_deadline_days: int = 7
+    rework_days: int = 5
+    max_pending_rework: int = 0
 
 
 class Settings(BaseSettings):
     model_config = SettingsConfigDict(
-        env_file=(".env", "../.env", "../../.env"),
+        env_file=ENV_FILE,
         env_file_encoding="utf-8",
         extra="ignore",
     )
@@ -68,6 +93,7 @@ class Settings(BaseSettings):
     upload: UploadConfig = UploadConfig()
     search: SearchSettings = SearchSettings()
     auth: AuthSettings = AuthSettings()
+    annotation: AnnotationSettings = Field(default_factory=AnnotationSettings)
 
     cors_allow_origins: str = "http://127.0.0.1:5500,http://localhost:5500,http://127.0.0.1:8080,http://localhost:8080"
 
@@ -75,6 +101,10 @@ class Settings(BaseSettings):
 @lru_cache
 def get_settings() -> Settings:
     return Settings()
+
+
+def get_annotation_config() -> AnnotationSettings:
+    return get_settings().annotation
 
 
 def get_database_config() -> PostgresSettings:

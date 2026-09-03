@@ -14,6 +14,15 @@ class CoreFileRepository:
     def __init__(self, session: AsyncSession) -> None:
         self._session = session
 
+    @property
+    def session(self) -> AsyncSession:
+        """Narrow read-only access to the backing session (for reference checks)."""
+        return self._session
+
+    async def commit(self) -> None:
+        """Explicit commit hook so services never reach into ``_session``."""
+        await self._session.commit()
+
     async def insert(self, core_file: CoreFile) -> CoreFile:
         self._session.add(core_file)
         await self._session.flush()

@@ -8,14 +8,11 @@ from fastapi import APIRouter, HTTPException, Query, Request
 from sqlalchemy.exc import SQLAlchemyError
 
 from app.schemas.graph import (
-    FileUrlResponse,
     GraphExpandResponse,
     NodeDetailResponse,
-    SearchIndexStatusResponse,
-    SearchResponse,
+    NodeSearchResponse,
 )
 from app.services.graph_service import GraphService
-from app.storage import S3Error
 
 LOGGER = logging.getLogger("graph_api")
 
@@ -30,8 +27,8 @@ def _get_service(request: Request) -> GraphService:
 def get_graph_expand(
     request: Request,
     seed_id: str = Query(..., description="Center node id for BFS expansion"),
-    limit: str | None = Query(None, description="Requested top-k edge count, [10, 20]"),
-    depth: str | None = Query("1", description="BFS depth, [1, 3]"),
+    limit: int = Query(10, ge=10, le=20, description="Requested top-k edge count"),
+    depth: int = Query(1, ge=1, le=3, description="BFS depth"),
 ):
     normalized_seed = seed_id.strip()
     if not normalized_seed:
@@ -39,13 +36,7 @@ def get_graph_expand(
 
     service = _get_service(request)
     try:
-        effective_limit = service.clamp_limit(limit)
-        effective_depth = service.clamp_depth(depth)
-    except ValueError as exc:
-        raise HTTPException(status_code=400, detail="limit/depth must be integer") from exc
-
-    try:
-        return service.expand_graph(normalized_seed, effective_limit, effective_depth)
+        return service.expand_graph(normalized_seed, limit, depth)
     except SQLAlchemyError as exc:
         LOGGER.exception("Failed to expand graph for seed_id=%s", normalized_seed)
         raise HTTPException(status_code=500, detail="database query failed") from exc
@@ -93,75 +84,12 @@ def _load_detail_by_file_uuid(request: Request, file_uuid: str, source_type: str
     return payload
 
 
-@router.get("/search", response_model=SearchResponse)
-def search_graph(
+@router.get("/search", response_model=NodeSearchResponse)
+def search_nodes(
     request: Request,
     q: str = Query(..., description="Search keyword"),
     page: int = Query(1, ge=1, description="Page number"),
     size: int = Query(10, ge=1, le=50, description="Page size"),
 ):
-    service = _get_service(request)
-    return service.search_graph(q, page, size)
-
-
-@router.get("/search/index-status", response_model=SearchIndexStatusResponse)
-def search_index_status(request: Request):
-    service = _get_service(request)
-    return service.get_search_index_status()
-
-
-@router.get("/file-url/{node_id}", response_model=FileUrlResponse)
-def get_graph_file_url(
-    request: Request,
-    node_id: str,
-    mode: str = Query("view", description="view | download"),
-):
-    normalized_node_id = node_id.strip()
-    if not normalized_node_id:
-        raise HTTPException(status_code=400, detail="node_id is required")
-
-    normalized_mode = mode.strip().lower()
-    if normalized_mode not in {"view", "download"}:
-        raise HTTPException(status_code=400, detail="mode must be view or download")
-
-    service = _get_service(request)
-    try:
-        return service.get_file_url(node_id=normalized_node_id, download=normalized_mode == "download")
-    except ValueError as exc:
-        raise HTTPException(status_code=404, detail=str(exc)) from exc
-    except RuntimeError as exc:
-        raise HTTPException(status_code=500, detail=str(exc)) from exc
-    except S3Error as exc:
-        LOGGER.exception("Failed to generate presigned URL for node_id=%s", normalized_node_id)
-        raise HTTPException(status_code=502, detail=f"storage error: {exc.code}") from exc
-
-
-@router.get("/file-url-by-uuid", response_model=FileUrlResponse)
-def get_graph_file_url_by_uuid(
-    request: Request,
-    file_uuid: str = Query(..., description="File UUID from core_file"),
-    source_type: str = Query(..., description="Source type: paper"),
-    mode: str = Query("view", description="view | download"),
-):
-    normalized_file_uuid = file_uuid.strip()
-    if not normalized_file_uuid:
-        raise HTTPException(status_code=400, detail="file_uuid is required")
-
-    normalized_mode = mode.strip().lower()
-    if normalized_mode not in {"view", "download"}:
-        raise HTTPException(status_code=400, detail="mode must be view or download")
-
-    service = _get_service(request)
-    try:
-        return service.get_file_url_by_file_uuid(
-            file_uuid=normalized_file_uuid,
-            source_type=source_type.strip(),
-            download=normalized_mode == "download",
-        )
-    except ValueError as exc:
-        raise HTTPException(status_code=404, detail=str(exc)) from exc
-    except RuntimeError as exc:
-        raise HTTPException(status_code=500, detail=str(exc)) from exc
-    except S3Error as exc:
-        LOGGER.exception("Failed to generate presigned URL for file_uuid=%s", normalized_file_uuid)
-        raise HTTPException(status_code=502, detail=f"storage error: {exc.code}") from exc
+    rows = request.app.state.graph_repository.search_nodes(q, size)
+    return NodeSearchResponse(items=rows, total=len(rows), page=page)

@@ -60,3 +60,19 @@ class SearchHistoryItem(BaseModel):
 class SearchHistoryResponse(BaseModel):
     items: list[SearchHistoryItem]
     total: int
+
+
+class SearchIndexTableStatus(BaseModel):
+    name: str
+    required_columns: list[str]
+    indexed_columns: list[str]
+    missing_columns: list[str]
+
+
+class SearchIndexStatusResponse(BaseModel):
+    configured_backend: str
+    effective_backend: str
+    fulltext_ready: bool
+    tables: list[SearchIndexTableStatus]
+    suggested_scripts: list[str]
+    recommendations: list[str]

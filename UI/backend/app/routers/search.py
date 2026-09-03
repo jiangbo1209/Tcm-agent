@@ -3,41 +3,25 @@
 from __future__ import annotations
 
 import math
-import json
 
-from fastapi import APIRouter, Depends, HTTPException, Query
+from fastapi import APIRouter, Depends, HTTPException, Query, Request
 from sqlalchemy import func
 from sqlalchemy.orm import Session
 
-from app.auth.dependencies import get_current_user, require_professional
 from app.core.database import get_db
+from app.dependencies.auth import get_current_user, require_professional
+from app.core.formatting import format_list_field
 from app.models.search_history import SearchHistory
 from app.models.user import User
-from app.repositories import GraphRepository
 from app.schemas.search import (
     SearchHistoryResponse,
+    SearchIndexStatusResponse,
     SearchRequest,
     SearchResponse,
     SearchResultItem,
 )
 
 router = APIRouter(prefix="/api/search", tags=["search"])
-
-
-def _format_list_text(value) -> str | None:
-    if value is None:
-        return None
-    if isinstance(value, (list, tuple, set)):
-        return "、".join(str(item).strip() for item in value if str(item).strip())
-    text = str(value).strip()
-    if text.startswith("[") and text.endswith("]"):
-        try:
-            parsed = json.loads(text)
-        except json.JSONDecodeError:
-            parsed = None
-        if isinstance(parsed, list):
-            return "、".join(str(item).strip() for item in parsed if str(item).strip()) or None
-    return text or None
 
 
 def _parse_year(value) -> int | None:
@@ -49,14 +33,9 @@ def _parse_year(value) -> int | None:
     return None
 
 
-def _get_graph_repo() -> GraphRepository:
-    from app.config import get_database_config, get_search_config
-
-    return GraphRepository(get_database_config(), get_search_config())
-
-
 @router.post("", response_model=SearchResponse)
 def smart_search(
+    request: Request,
     body: SearchRequest,
     current_user: User = Depends(require_professional),
     db: Session = Depends(get_db),
@@ -68,7 +47,7 @@ def smart_search(
     if body.search_type not in ("literature", "case", "both"):
         raise HTTPException(status_code=400, detail="search_type 必须为 literature、case 或 both")
 
-    repo = _get_graph_repo()
+    repo = request.app.state.search_repository
     page = max(1, body.page)
     size = max(1, min(50, body.size))
     offset = (page - 1) * size
@@ -91,9 +70,9 @@ def smart_search(
                 node_id=item.get("node_id"),
                 file_uuid=item.get("file_uuid"),
                 title=item.get("title"),
-                authors=_format_list_text(item.get("authors")),
+                authors=format_list_field(item.get("authors"), sep="、"),
                 publish_year=_parse_year(item.get("publish_year")),
-                keywords=_format_list_text(item.get("keywords")),
+                keywords=format_list_field(item.get("keywords"), sep="、"),
                 abstract=item.get("abstract"),
                 journal=item.get("journal"),
                 tcm_diagnosis=item.get("tcm_diagnosis"),
@@ -137,6 +116,11 @@ def smart_search(
         size=size,
         facets=facets,
     )
+
+
+@router.get("/index-status", response_model=SearchIndexStatusResponse)
+def search_index_status(request: Request):
+    return request.app.state.search_repository.get_search_index_status()
 
 
 @router.get("/history", response_model=SearchHistoryResponse)

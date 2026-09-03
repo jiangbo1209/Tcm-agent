@@ -6,14 +6,17 @@ from fastapi import APIRouter, Depends, HTTPException, status
 from pydantic import BaseModel
 from sqlalchemy.orm import Session
 
-from app.auth.dependencies import require_admin
 from app.auth.service import get_password_hash
+from app.dependencies.auth import require_admin
 from app.core.database import get_db
+from app.models import AnnotationTask, AnnotationTaskItem
 from app.models.user import User
 
 router = APIRouter(prefix="/api/users", tags=["users"])
 
-VALID_ROLES = {"professional", "normal"}
+VALID_ROLES = {"professional", "normal", "annotator"}
+
+_DELETE_GUARD_DETAIL = "该标注员仍有进行中的任务或待返工条目，请先回收后再删除"
 
 
 class UserCreateAdmin(BaseModel):
@@ -29,6 +32,10 @@ class RoleUpdate(BaseModel):
 
 class PasswordReset(BaseModel):
     new_password: str
+
+
+class ActiveUpdate(BaseModel):
+    is_active: bool
 
 
 def _serialize_user(user: User) -> dict:
@@ -127,6 +134,44 @@ def delete_user(
     if user_id == admin.id:
         raise HTTPException(status_code=400, detail="不能删除自己的账号")
     user = _guard_admin_target(db, user_id)
+
+    # F4-V2/A2：占用中的标注员不可删——进行中任务会变孤儿、rejected 条目失去返工人
+    has_active_task = (
+        db.query(AnnotationTask.id)
+        .filter(
+            AnnotationTask.claimed_by == user_id,
+            AnnotationTask.status.in_(("open", "in_progress")),
+        )
+        .first()
+    )
+    has_rework_item = (
+        db.query(AnnotationTaskItem.id)
+        .join(AnnotationTask, AnnotationTask.id == AnnotationTaskItem.task_id)
+        .filter(
+            AnnotationTask.claimed_by == user_id,
+            AnnotationTaskItem.status == "rejected",
+        )
+        .first()
+    )
+    if has_active_task is not None or has_rework_item is not None:
+        raise HTTPException(status_code=409, detail=_DELETE_GUARD_DETAIL)
+
     db.delete(user)
     db.commit()
     return {"detail": "用户已删除"}
+
+
+@router.put("/{user_id}/active")
+def set_active(
+    user_id: int,
+    body: ActiveUpdate,
+    db: Session = Depends(get_db),
+    admin: User = Depends(require_admin),
+):
+    if user_id == admin.id:
+        raise HTTPException(status_code=400, detail="不能修改自己的启用状态")
+    user = _guard_admin_target(db, user_id)
+    user.is_active = body.is_active
+    db.commit()
+    db.refresh(user)
+    return {"user": _serialize_user(user)}

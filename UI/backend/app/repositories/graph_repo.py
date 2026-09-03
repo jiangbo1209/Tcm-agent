@@ -8,8 +8,10 @@ from sqlalchemy import or_
 
 from app.models import Edge, Node
 
+from app.repositories.base import BaseRepository
 
-class GraphRepoMixin:
+
+class GraphRepository(BaseRepository):
     def fetch_edges_by_seed(self, seed_id: str, limit: int) -> list[dict[str, Any]]:
         with self._get_session() as session:
             rows = (
@@ -63,3 +65,24 @@ class GraphRepoMixin:
                 "metric_value": node.metric_value,
                 "top_k_value": float(node.top_k_value) if node.top_k_value is not None else None,
             }
+
+    def search_nodes(self, q: str, limit: int = 20) -> list[dict]:
+        if not q or q.strip() == "":
+            return []
+        with self._get_session() as session:
+            rows = (
+                session.query(Node)
+                .filter(Node.title.ilike(f"%{q}%"))
+                .order_by(Node.title.asc())
+                .limit(limit)
+                .all()
+            )
+            return [
+                {
+                    "node_id": n.id,
+                    "title": n.title,
+                    "source_type": n.node_type,
+                    "node_type": n.node_type,
+                }
+                for n in rows
+            ]

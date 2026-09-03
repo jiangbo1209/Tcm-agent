@@ -2,14 +2,19 @@
 
 from __future__ import annotations
 
+from collections import Counter
 from typing import Any
 
 from sqlalchemy import text
+from sqlalchemy.orm import Session
 
+from app.core.formatting import parse_listish
 from app.models.search_history import SearchBackendMode
 
+from app.repositories.base import BaseRepository
 
-class SearchRepoMixin:
+
+class SearchRepository(BaseRepository):
     def search_graph(
         self,
         keyword: str,
@@ -24,6 +29,7 @@ class SearchRepoMixin:
                 try:
                     return self._search_with_fulltext(session, keyword, limit, offset, source_type, filters)
                 except Exception:
+                    session.rollback()
                     return self._search_with_like(session, keyword, limit, offset, source_type, filters)
             return self._search_with_like(session, keyword, limit, offset, source_type, filters)
 
@@ -46,13 +52,13 @@ class SearchRepoMixin:
                     try:
                         return self._search_facet_rows_with_fulltext(session, keyword, source_type, facet_filters)
                     except Exception:
+                        session.rollback()
                         return self._search_facet_rows_with_like(session, keyword, source_type, facet_filters)
                 return self._search_facet_rows_with_like(session, keyword, source_type, facet_filters)
 
         rows_with_topics = _compute_facets(exclude_topics=False)
         rows_for_topics = _compute_facets(exclude_topics=True) if filters.get("topics") else rows_with_topics
 
-        from collections import Counter
         counters: dict[str, Counter[str]] = {
             "source_types": Counter(),
             "topics": Counter(),
@@ -77,7 +83,7 @@ class SearchRepoMixin:
                 counters["paper_types"][paper_type_label] += 1
 
         for row in rows_for_topics:
-            for topic in self._split_listish_facet(row.get("keywords_text")):
+            for topic in parse_listish(row.get("keywords_text")):
                 counters["topics"][topic] += 1
 
         facets: dict[str, list[dict[str, int | str]]] = {
@@ -354,3 +360,140 @@ class SearchRepoMixin:
         """)
         rows = session.execute(sql, {"like": like_pattern, **filter_params}).mappings().all()
         return [dict(row) for row in rows]
+
+    def _build_search_filter_sql(
+        self,
+        source_type: str | None,
+        filters: dict[str, list[str]] | None,
+    ) -> tuple[str, dict[str, Any]]:
+        clauses = []
+        params: dict[str, Any] = {}
+        filters = filters or {}
+
+        if source_type:
+            clauses.append("source_type = :source_type")
+            params["source_type"] = source_type
+
+        exact_filters = {
+            "source_types": "source_type",
+            "years": "publish_year",
+            "journals": "journal",
+        }
+        for key, column in exact_filters.items():
+            values = self._normalize_filter_values(filters.get(key))
+            if not values:
+                continue
+            placeholders = []
+            for index, value in enumerate(values):
+                param_name = f"{key}_{index}"
+                params[param_name] = value
+                placeholders.append(f":{param_name}")
+            clauses.append(f"{column} IN ({', '.join(placeholders)})")
+
+        paper_type_values = self._normalize_filter_values(filters.get("paper_types"))
+        if paper_type_values:
+            expanded_db_values = []
+            for val in paper_type_values:
+                if val == "期刊论文":
+                    expanded_db_values.extend(["journal", "期刊论文"])
+                elif val == "学位论文":
+                    expanded_db_values.extend(["master", "phd", "硕士论文", "博士论文"])
+            if expanded_db_values:
+                placeholders = []
+                for idx, v in enumerate(expanded_db_values):
+                    pname = f"pt_{idx}"
+                    params[pname] = v
+                    placeholders.append(f":{pname}")
+                clauses.append(f"paper_type IN ({', '.join(placeholders)})")
+
+        contains_filters = {
+            "topics": "topic_text",
+        }
+        for key, column in contains_filters.items():
+            values = self._normalize_filter_values(filters.get(key))
+            if not values:
+                continue
+            subclauses = []
+            for index, value in enumerate(values):
+                param_name = f"{key}_{index}"
+                params[param_name] = f"%{value}%"
+                subclauses.append(f"COALESCE({column}, '') ILIKE :{param_name}")
+            clauses.append(f"({' OR '.join(subclauses)})")
+
+        if not clauses:
+            return "", params
+        return "WHERE " + " AND ".join(clauses), params
+
+    def get_search_index_status(self) -> dict[str, Any]:
+        with self._get_session() as session:
+            paper_indexed = self._fetch_fulltext_columns(
+                session, self.PAPER_SEARCH_INDEX, self.PAPER_FULLTEXT_COLUMNS
+            )
+            record_indexed = self._fetch_fulltext_columns(
+                session, self.RECORD_SEARCH_INDEX, self.RECORD_FULLTEXT_COLUMNS
+            )
+
+            paper_missing = [c for c in self.PAPER_FULLTEXT_COLUMNS if c not in paper_indexed]
+            record_missing = [c for c in self.RECORD_FULLTEXT_COLUMNS if c not in record_indexed]
+            fulltext_ready = not paper_missing and not record_missing
+            effective_backend = self._resolve_search_backend(session).value
+
+            recommendations: list[str] = []
+            if not fulltext_ready:
+                recommendations.append("Create fulltext indexes on lit_metadata and case_metadata tables")
+            if self._search_config.backend_mode == SearchBackendMode.LIKE:
+                recommendations.append("SEARCH_BACKEND_MODE=like is enabled; switch to auto/fulltext after index rollout")
+
+            return {
+                "configured_backend": self._search_config.backend_mode.value,
+                "effective_backend": effective_backend,
+                "fulltext_ready": fulltext_ready,
+                "tables": [
+                    {
+                        "name": "lit_metadata",
+                        "required_columns": list(self.PAPER_FULLTEXT_COLUMNS),
+                        "indexed_columns": sorted(paper_indexed),
+                        "missing_columns": paper_missing,
+                    },
+                    {
+                        "name": "case_metadata",
+                        "required_columns": list(self.RECORD_FULLTEXT_COLUMNS),
+                        "indexed_columns": sorted(record_indexed),
+                        "missing_columns": record_missing,
+                    },
+                ],
+                "suggested_scripts": [],
+                "recommendations": recommendations,
+            }
+
+    def _resolve_search_backend(self, session: Session) -> SearchBackendMode:
+        mode = self._search_config.backend_mode
+        if mode == SearchBackendMode.LIKE:
+            return SearchBackendMode.LIKE
+        if mode == SearchBackendMode.FULLTEXT:
+            return SearchBackendMode.FULLTEXT
+        return SearchBackendMode.FULLTEXT if self._supports_fulltext(session) else SearchBackendMode.LIKE
+
+    def _supports_fulltext(self, session: Session) -> bool:
+        return self._has_fulltext_index(session, self.PAPER_SEARCH_INDEX) and self._has_fulltext_index(
+            session, self.RECORD_SEARCH_INDEX
+        )
+
+    def _fetch_fulltext_columns(
+        self, session: Session, index_name: str, columns: tuple[str, ...]
+    ) -> set[str]:
+        if self._has_fulltext_index(session, index_name):
+            return set(columns)
+        return set()
+
+    def _has_fulltext_index(self, session: Session, index_name: str) -> bool:
+        if index_name in self._fulltext_cache:
+            return self._fulltext_cache[index_name]
+
+        result = session.execute(
+            text("SELECT 1 FROM pg_indexes WHERE schemaname = current_schema() AND indexname = :name LIMIT 1"),
+            {"name": index_name},
+        ).fetchone()
+        supported = result is not None
+        self._fulltext_cache[index_name] = supported
+        return supported

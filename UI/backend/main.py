@@ -3,24 +3,38 @@
 from __future__ import annotations
 
 import logging
+import sys
 from contextlib import asynccontextmanager
 
-from fastapi import FastAPI, HTTPException
+from pathlib import Path
+
+sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
+
+from fastapi import Depends, FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 
 logging.basicConfig(level=logging.INFO)
 
 from app.auth.router import router as auth_router
-from app.config import get_database_config, get_s3_config, get_search_config
+from app.config import (
+    DEFAULT_JWT_SECRET_KEY,
+    get_auth_config,
+    get_database_config,
+    get_s3_config,
+    get_search_config,
+)
 from app.core.database import dispose_async_engine, engine
+from app.dependencies.auth import require_professional
 from app.core.schema_migration import (
     ensure_agent_message_columns,
     ensure_conversation_memory_columns,
     ensure_core_file_uploader_column,
 )
 
-from app.repositories import GraphRepository
+from app.repositories import GraphRepository, DetailRepository, SearchRepository
+from app.routers.annotation import router as annotation_router
+from app.routers.annotation_admin import router as annotation_admin_router
 from app.routers.chat import router as chat_router
 from app.routers.files import router as files_router
 from app.routers.graph import router as graph_router
@@ -30,6 +44,32 @@ from app.routers.admin import router as admin_router
 from app.routers.users import router as users_router
 from app.services.graph_service import GraphService
 from app.storage import S3Client
+
+
+def _validate_production_secrets() -> None:
+    """Refuse to boot in production with default or missing secrets."""
+    auth = get_auth_config()
+    if auth.app_env != "production":
+        logging.warning(
+            "Running with development secrets; set APP_ENV=production and "
+            "configure JWT_SECRET_KEY/FILE_TOKEN_SECRET before deploying"
+        )
+        return
+    missing = [
+        name
+        for name, is_missing in (
+            ("JWT_SECRET_KEY", auth.secret_key == DEFAULT_JWT_SECRET_KEY),
+            ("FILE_TOKEN_SECRET", not auth.file_token_secret),
+        )
+        if is_missing
+    ]
+    if missing:
+        raise RuntimeError(
+            f"Refusing to start in production: missing security config: {', '.join(missing)}"
+        )
+
+
+_validate_production_secrets()
 
 ensure_agent_message_columns(engine)
 ensure_conversation_memory_columns(engine)
@@ -61,8 +101,13 @@ def _build_s3_client() -> S3Client | None:
 # Per-process singletons.
 app.state.s3_client = _build_s3_client()
 
-repository = GraphRepository(get_database_config(), get_search_config())
-app.state.graph_service = GraphService(repository, app.state.s3_client)
+graph_repository = GraphRepository(get_database_config(), get_search_config())
+detail_repository = DetailRepository(get_database_config(), get_search_config())
+search_repository = SearchRepository(get_database_config(), get_search_config())
+app.state.graph_repository = graph_repository
+app.state.detail_repository = detail_repository
+app.state.search_repository = search_repository
+app.state.graph_service = GraphService(graph_repository, detail_repository)
 
 app.add_middleware(
     CORSMiddleware,
@@ -76,10 +121,14 @@ app.include_router(auth_router)
 app.include_router(chat_router)
 app.include_router(search_router)
 app.include_router(history_router)
-app.include_router(graph_router)
+app.include_router(
+    graph_router, dependencies=[Depends(require_professional)]
+)
 app.include_router(admin_router)
 app.include_router(users_router)
 app.include_router(files_router)
+app.include_router(annotation_router)
+app.include_router(annotation_admin_router)
 
 
 @app.exception_handler(HTTPException)

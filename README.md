@@ -27,7 +27,7 @@ cd UI/frontend && npm install
 ### 初始化数据库
 
 ```bash
-python scripts/init_db.py
+python UI/backend/scripts/init_db.py
 ```
 
 ### 启动后端
@@ -52,10 +52,10 @@ npm run dev
 
 ```bash
 # 1. 初始化数据库表
-python scripts/init_db.py
+python UI/backend/scripts/init_db.py
 
 # 2. 批量导入用户（参考 scripts/users.csv.example 准备 CSV）
-python scripts/import_users.py scripts/users.csv
+python UI/backend/scripts/import_users.py scripts/users.csv
 ```
 
 ## 核心业务数据流
@@ -253,7 +253,7 @@ graph TD
 数据库表结构初始化（业务表 + 图谱表）：
 
 ```bash
-python scripts/init_db.py
+python UI/backend/scripts/init_db.py
 ```
 
 离线生成图谱底表 `nodes` / `edges`：
@@ -279,7 +279,7 @@ python data_process/pdf_upload/pdf_manager_tui.py
 所有表均位于同一 PostgreSQL 数据库，按功能域分为三组。
 
 **初始化方式**：
-- 所有表通过 `python scripts/init_db.py` 统一创建（幂等，可重复执行）
+- 所有表通过 `python UI/backend/scripts/init_db.py` 统一创建（幂等，可重复执行）
 - 图谱数据需额外通过 `python -m data_process.graph_builder.main` 离线构建填充
 
 ### 1. 用户与对话
@@ -508,3 +508,7 @@ erDiagram
 | `S3_BUCKET_NAME` | tcm-documents-xxx | COS 存储桶名 |
 | `S3_REGION` | ap-beijing | COS 地域 |
 | `SEARCH_BACKEND_MODE` | auto | 搜索后端（auto/fulltext/like） |
+| `ANNOTATION_ENABLED` | false | 数据标注功能总闸 |
+| `ANNOTATION_TASK_DEADLINE_DAYS` | 7 | 任务超期天数 |
+| `ANNOTATION_REWORK_DAYS` | 5 | 返工期限天数 |
+| `ANNOTATION_MAX_PENDING_REWORK` | 0（不限） | 待返工领取上限 |

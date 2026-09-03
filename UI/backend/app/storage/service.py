@@ -3,6 +3,8 @@
 Used by the :class:`UploadService` in the same package.
 """
 
+# allow: SIZE_OK — 单一 UploadService 聚合上传/查询/删除流；FileReferencedError
+# 与引用检查按 security-p0p1-hardening todo 9 要求定义于本文件，拆分留待专门重构任务。
 from __future__ import annotations
 
 import asyncio
@@ -10,7 +12,9 @@ import logging
 import uuid
 from datetime import datetime, timezone
 
-from ..models import CoreFile
+from sqlalchemy import func, select
+
+from ..models import CoreFile, GuidelineMetadata, LitMetadata, MedCase
 from .repository import CoreFileRepository
 from .s3_client import S3Client
 
@@ -21,6 +25,25 @@ DOCUMENT_TYPE_PREFIX = {
     1: "case",
     2: "guideline",
 }
+
+# 引用检查覆盖的子表：file_uuid 外键均无 CASCADE（Fork B 决策：阻止而非级联）。
+_REFERENCE_MODELS = (
+    ("lit_metadata", LitMetadata),
+    ("med_case", MedCase),
+    ("guideline_metadata", GuidelineMetadata),
+)
+
+
+class FileReferencedError(Exception):
+    """Files are still referenced by lit/case/guideline metadata rows.
+
+    ``detail`` maps table name -> referencing row count so the API can tell
+    the admin exactly which cleanup flow owns the file.
+    """
+
+    def __init__(self, detail: dict[str, int]) -> None:
+        self.detail = detail
+        super().__init__(str(detail))
 
 
 class UploadService:
@@ -203,17 +226,48 @@ class UploadService:
             "total_pages": total_pages,
         }
 
+    async def _ensure_unreferenced(
+        self, session, file_uuids: list[str]
+    ) -> None:
+        """Raise :class:`FileReferencedError` if any file has child rows.
+
+        已知限制（计划内记录）：仅被 guideline_metadata 引用的文件当前没有
+        API 删除通道（AdminService 只有 lit/case 级联）——detail 里的表名
+        明细用于帮助管理员识别该情形。
+        """
+        referenced: dict[str, int] = {}
+        for table, model in _REFERENCE_MODELS:
+            stmt = select(func.count()).select_from(model).where(
+                model.file_uuid.in_(file_uuids)
+            )
+            count = (await session.execute(stmt)).scalar() or 0
+            if count > 0:
+                referenced[table] = count
+        if referenced:
+            raise FileReferencedError(detail=referenced)
+
     async def delete_file(self, file_uuid: str) -> bool:
+        # 并发竞态注记：引用 COUNT 与 DELETE 之间的窗口若被并发子行插入命中，
+        # delete_by_uuid 将抛 IntegrityError → 500（事务回滚、无数据损坏），属已接受行为。
+        await self._ensure_unreferenced(self._repository.session, [file_uuid])
         core_file = await self._repository.get_by_uuid(file_uuid)
         if not core_file:
+            return False
+        deleted = await self._repository.delete_by_uuid(file_uuid)
+        # 显式提交必须先于 S3 删除：先落库再删对象；S3 失败仅产生孤儿对象
+        # （与批删语义一致），反之则会出现库行指向已删对象的窗口。
+        await self._repository.commit()
+        if not deleted:
             return False
         try:
             await self._s3.remove_object_async(core_file.storage_path)
         except Exception:
-            LOGGER.exception("S3 deletion failed for %s, proceeding with DB cleanup", file_uuid)
-        return await self._repository.delete_by_uuid(file_uuid)
+            LOGGER.exception("S3 deletion failed for %s, orphan object acceptable", file_uuid)
+        return True
 
     async def delete_files(self, file_uuids: list[str]) -> dict:
+        # 批删任一被引用 → 整批 409，不做部分成功。
+        await self._ensure_unreferenced(self._repository.session, file_uuids)
         files_map = await self._repository.delete_by_uuids(file_uuids)
 
         results: list[dict] = []
@@ -264,16 +318,17 @@ class UploadService:
             "failed": failed_count,
         }
 
-    async def get_download_url(self, file_uuid: str) -> dict | None:
+    async def get_download_url(self, file_uuid: str, mode: str = "download") -> dict | None:
         core_file = await self._repository.get_by_uuid(file_uuid)
         if not core_file:
             return None
         from app.storage.file_token import generate_file_token
 
+        disposition = "inline" if mode == "view" else "attachment"
         token = generate_file_token(
             storage_path=core_file.storage_path,
             file_name=core_file.original_name,
-            disposition="attachment",
+            disposition=disposition,
         )
         return {
             "file_uuid": file_uuid,

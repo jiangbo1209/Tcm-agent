@@ -2,20 +2,12 @@
 
 from __future__ import annotations
 
-from pathlib import Path
-import sys
 from collections.abc import Iterable
 from typing import Any
 
-
-PROJECT_ROOT = Path(__file__).resolve().parents[4]
-project_root_text = str(PROJECT_ROOT)
-if project_root_text not in sys.path:
-    sys.path.insert(0, project_root_text)
-
-from agent.dependencies import build_agent  # noqa: E402
-from agent.schemas.chat import ChatRequest  # noqa: E402
-from agent.schemas.stream import StreamEvent  # noqa: E402
+from agent.dependencies import build_agent
+from agent.schemas.chat import ChatRequest
+from agent.schemas.stream import StreamEvent
 
 
 class AgentChatService:

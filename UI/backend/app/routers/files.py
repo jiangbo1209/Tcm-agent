@@ -4,6 +4,8 @@ All endpoints require JWT authentication; the uploader's ``User.id`` is
 written to ``core_file.uploader_id`` for audit purposes.
 """
 
+# allow: SIZE_OK — /api/files 单一路由模块（FastAPI 惯例聚合端点），拆分需改
+# main.py include 结构（本计划禁触），留待专门重构任务。
 from __future__ import annotations
 
 import logging
@@ -22,7 +24,7 @@ from fastapi import (
 from fastapi.responses import Response
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.auth.dependencies import get_current_user
+from app.dependencies.auth import get_current_user, require_admin
 from app.dependencies.files import get_upload_service
 from app.storage import S3Client, S3Error
 from app.models.user import User
@@ -38,6 +40,7 @@ from app.storage import (
     UploadService,
 )
 from app.storage.file_token import validate_file_token
+from app.storage.service import FileReferencedError
 
 LOGGER = logging.getLogger("file_upload")
 
@@ -244,11 +247,14 @@ async def get_file(
 @router.get("/{file_uuid}/download-url", response_model=DownloadUrlResponse)
 async def get_download_url(
     file_uuid: str,
+    mode: str = Query("download", description="view | download"),
     current_user: User = Depends(get_current_user),
     service: UploadService = Depends(get_upload_service),
 ):
+    if mode not in ("view", "download"):
+        raise HTTPException(status_code=400, detail="mode must be view or download")
     try:
-        result = await service.get_download_url(file_uuid)
+        result = await service.get_download_url(file_uuid, mode=mode)
     except S3Error as exc:
         LOGGER.exception("Failed to generate presigned URL")
         raise HTTPException(status_code=502, detail=f"Storage error: {exc.code}") from exc
@@ -257,13 +263,23 @@ async def get_download_url(
     return result
 
 
+def _referenced_conflict(exc: FileReferencedError) -> HTTPException:
+    return HTTPException(
+        status_code=409,
+        detail=f"文件仍被引用: {exc.detail}，请通过管理端删除流程处理",
+    )
+
+
 @router.delete("/{file_uuid}", response_model=DeleteResponse)
 async def delete_file(
     file_uuid: str,
-    current_user: User = Depends(get_current_user),
+    current_user: User = Depends(require_admin),
     service: UploadService = Depends(get_upload_service),
 ):
-    deleted = await service.delete_file(file_uuid)
+    try:
+        deleted = await service.delete_file(file_uuid)
+    except FileReferencedError as exc:
+        raise _referenced_conflict(exc) from exc
     if not deleted:
         raise HTTPException(status_code=404, detail="File not found")
     return DeleteResponse(deleted=True, file_uuid=file_uuid)
@@ -272,13 +288,16 @@ async def delete_file(
 @router.post("/batch-delete", response_model=BatchDeleteResponse)
 async def batch_delete_files(
     request: BatchDeleteRequest,
-    current_user: User = Depends(get_current_user),
+    current_user: User = Depends(require_admin),
     service: UploadService = Depends(get_upload_service),
 ):
     if not request.file_uuids:
         raise HTTPException(status_code=400, detail="file_uuids cannot be empty")
 
-    result = await service.delete_files(request.file_uuids)
+    try:
+        result = await service.delete_files(request.file_uuids)
+    except FileReferencedError as exc:
+        raise _referenced_conflict(exc) from exc
     return BatchDeleteResponse(
         items=result["items"],
         total=result["total"],

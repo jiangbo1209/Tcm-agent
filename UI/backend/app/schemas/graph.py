@@ -31,41 +31,16 @@ class GraphExpandResponse(BaseModel):
     edges: list[GraphEdge]
 
 
-class SearchItem(BaseModel):
-    source_type: str
+class NodeSearchItem(BaseModel):
     node_id: str | None
     title: str | None
-    authors: str | None = None
-    publish_year: int | None = None
-    keywords: str | None = None
-    abstract: str | None = None
-    tcm_diagnosis: str | None = None
-    western_diagnosis: str | None = None
-    score: float | None = None
+    source_type: str | None
 
 
-class SearchResponse(BaseModel):
-    items: list[SearchItem]
+class NodeSearchResponse(BaseModel):
+    items: list[NodeSearchItem]
     total: int
-    total_pages: int
     page: int
-    size: int
-
-
-class SearchIndexTableStatus(BaseModel):
-    name: str
-    required_columns: list[str]
-    indexed_columns: list[str]
-    missing_columns: list[str]
-
-
-class SearchIndexStatusResponse(BaseModel):
-    configured_backend: str
-    effective_backend: str
-    fulltext_ready: bool
-    tables: list[SearchIndexTableStatus]
-    suggested_scripts: list[str]
-    recommendations: list[str]
 
 
 class RecordField(BaseModel):
@@ -86,15 +61,5 @@ class NodeDetailResponse(BaseModel):
     paper: dict[str, Any] | None = None
     record_fields: list[RecordField] | None = None
     record: RecordSummary | None = None
-
-
-class FileUrlResponse(BaseModel):
-    node_id: str
-    node_type: str
-    bucket: str
-    object_name: str
-    file_name: str
-    download: bool
-    url: str
 
 

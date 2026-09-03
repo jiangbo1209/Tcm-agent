@@ -6,10 +6,12 @@ from typing import Any
 
 from sqlalchemy import case, or_
 
-from app.models import CoreFile, LitMetadata, MedCase, Node
+from app.models import LitMetadata, MedCase
+
+from app.repositories.base import BaseRepository
 
 
-class DetailRepoMixin:
+class DetailRepository(BaseRepository):
     def fetch_paper_detail_by_title(self, title: str) -> dict[str, Any] | None:
         with self._get_session() as session:
             order_case = case(
@@ -51,64 +53,6 @@ class DetailRepoMixin:
                 .first()
             )
             return self._lit_to_dict(row) if row else None
-
-    def get_file_reference_by_node_id(self, node_id: str) -> dict[str, Any] | None:
-        with self._get_session() as session:
-            node = session.query(Node).filter(Node.id == node_id).first()
-            if not node:
-                return None
-
-            title = node.title
-            order_case = case(
-                (LitMetadata.title == title, 0),
-                (LitMetadata.matched_title == title, 1),
-                (LitMetadata.cleaned_title == title, 2),
-                (LitMetadata.original_name == title, 3),
-                else_=4,
-            )
-
-            lm = (
-                session.query(LitMetadata)
-                .filter(
-                    or_(
-                        LitMetadata.title == title,
-                        LitMetadata.matched_title == title,
-                        LitMetadata.cleaned_title == title,
-                        LitMetadata.original_name == title,
-                    )
-                )
-                .order_by(order_case, LitMetadata.updated_at.desc())
-                .first()
-            )
-
-            file_name = None
-            file_key = None
-            if lm:
-                cf = session.query(CoreFile).filter(CoreFile.file_uuid == lm.file_uuid).first()
-                if cf:
-                    file_name = cf.original_name
-                    file_key = cf.storage_path
-
-            return {
-                "node_id": node.id,
-                "node_type": node.node_type,
-                "node_title": node.title,
-                "file_name": file_name,
-                "file_key": file_key,
-            }
-
-    def get_file_reference_by_file_uuid(self, file_uuid: str) -> dict[str, Any] | None:
-        with self._get_session() as session:
-            cf = session.query(CoreFile).filter(CoreFile.file_uuid == file_uuid).first()
-            if not cf:
-                return None
-            return {
-                "node_id": file_uuid,
-                "node_type": "paper",
-                "node_title": cf.original_name,
-                "file_name": cf.original_name,
-                "file_key": cf.storage_path,
-            }
 
     def fetch_record_detail_by_title(self, title: str) -> dict[str, Any] | None:
         with self._get_session() as session:
@@ -173,3 +117,59 @@ class DetailRepoMixin:
             if mc:
                 return self._record_to_dict((mc, None))
             return None
+
+    @staticmethod
+    def _lit_to_dict(row: LitMetadata) -> dict[str, Any]:
+        return {
+            "id": row.id,
+            "file_uuid": row.file_uuid,
+            "original_name": row.original_name,
+            "storage_path": row.storage_path,
+            "cleaned_title": row.cleaned_title,
+            "title": row.title,
+            "authors": row.authors,
+            "abstract": row.abstract,
+            "keywords": row.keywords,
+            "paper_type": row.paper_type,
+            "source_site": row.source_site,
+            "source_url": row.source_url,
+            "journal": row.journal,
+            "pub_year": row.pub_year,
+            "matched_title": row.matched_title,
+            "is_exact_match": row.is_exact_match,
+            "crawl_status": row.crawl_status,
+            "error_message": row.error_message,
+            "created_at": row.created_at,
+            "updated_at": row.updated_at,
+        }
+
+    @staticmethod
+    def _record_to_dict(row) -> dict[str, Any]:
+        mc = row[0]
+        return {
+            "id": mc.id,
+            "file_uuid": mc.file_uuid,
+            "age": mc.age,
+            "bmi": mc.bmi,
+            "menstruation": mc.menstruation,
+            "infertility": mc.infertility,
+            "lifestyle": mc.lifestyle,
+            "present_symptoms": mc.present_symptoms,
+            "medical_history": mc.medical_history,
+            "lab_tests": mc.lab_tests,
+            "ultrasound": mc.ultrasound,
+            "followup": mc.followup,
+            "western_diagnosis": mc.western_diagnosis,
+            "tcm_diagnosis": mc.tcm_diagnosis,
+            "treatment_principle": mc.treatment_principle,
+            "prescription": mc.prescription,
+            "acupoints": mc.acupoints,
+            "assisted_reproduction": mc.assisted_reproduction,
+            "western_medicine": mc.western_medicine,
+            "efficacy": mc.efficacy,
+            "adverse_reactions": mc.adverse_reactions,
+            "commentary": mc.commentary,
+            "created_at": mc.created_at,
+            "updated_at": mc.updated_at,
+            "literature_title": row[1] if len(row) > 1 else None,
+        }

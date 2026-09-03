@@ -6,6 +6,14 @@ All canonical models live in :mod:`app.models`. Other code (including
 """
 
 from .agent_tool_run import AgentToolRun
+from .annotation import (
+    AnnotationLog,
+    AnnotationPool,
+    AnnotationPoolItem,
+    AnnotationSubmission,
+    AnnotationTask,
+    AnnotationTaskItem,
+)
 from .base import Base
 from .conversation_memory import ConversationMemory
 from .core_file import CoreFile
@@ -19,6 +27,12 @@ from .med_case import MedCase
 __all__ = [
     "Base",
     "AgentToolRun",
+    "AnnotationLog",
+    "AnnotationPool",
+    "AnnotationPoolItem",
+    "AnnotationSubmission",
+    "AnnotationTask",
+    "AnnotationTaskItem",
     "ConversationMemory",
     "CoreFile",
     "Edge",

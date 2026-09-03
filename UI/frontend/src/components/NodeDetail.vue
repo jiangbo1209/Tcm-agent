@@ -46,7 +46,8 @@
 
 <script setup>
 import { ref, computed, watch } from "vue";
-import { getNodeDetail, getFileUrl } from "../api/graph";
+import { getNodeDetail } from "../api/graph";
+import { getFileUrlByUuid } from "../api/file";
 
 const props = defineProps({ nodeId: { type: String, default: "" } });
 
@@ -91,7 +92,7 @@ watch(() => props.nodeId, async (id) => {
 async function viewFile() {
   if (!props.nodeId) return;
   try {
-    const { data } = await getFileUrl(props.nodeId, "view");
+    const { data } = await getFileUrlByUuid(detail.value.paper.file_uuid, "view");
     window.open(data.url, "_blank");
   } catch { error.value = "暂未挂载原始文献文件"; }
 }
@@ -99,7 +100,7 @@ async function viewFile() {
 async function downloadFile() {
   if (!props.nodeId) return;
   try {
-    const { data } = await getFileUrl(props.nodeId, "download");
+    const { data } = await getFileUrlByUuid(detail.value.paper.file_uuid, "download");
     const a = document.createElement("a"); a.href = data.url; a.download = data.file_name || ""; a.click();
   } catch { error.value = "暂未挂载原始文献文件"; }
 }
