@@ -33,12 +33,12 @@ core_file.status_metadata = true
 本模块不读取 PDF 正文，只根据文件名清洗出标题，然后到外部学术站点检索基础信息：
 
 1. 清洗 `core_file.original_name`
-2. 默认依次检索 `e读`、`NSTL`
+2. 按 `CRAWLER_ORDER` 配置的顺序检索站点
 3. 只接受标题严格匹配的结果
 4. 写入 `lit_metadata`
 5. 更新 `core_file.status_metadata=true`
 
-CNKI 默认关闭，后续确实需要时再手动开启。
+未设置 `CRAWLER_ORDER` 时，代码默认值为 `nstl,cnki,yidu,wanfang`；模块自带的 `.env.example` 示例为 `nstl,yidu,wanfang`，因此是否启用 CNKI 由该列表中是否包含 `cnki` 决定。
 
 提取字段包括：
 
@@ -113,8 +113,7 @@ CORE_FILE_PENDING_LIMIT=10
 CRAWLER_CONCURRENCY=1
 REQUEST_DELAY_MIN=2.0
 REQUEST_DELAY_MAX=5.0
-ENABLE_NSTL=true
-ENABLE_CNKI=false
+CRAWLER_ORDER=nstl,yidu,wanfang
 LOG_LEVEL=INFO
 ```
 
@@ -123,8 +122,7 @@ LOG_LEVEL=INFO
 | 参数 | 说明 |
 |------|------|
 | `CORE_FILE_PENDING_LIMIT` | 本次最多处理多少条，`0` 表示不限制 |
-| `ENABLE_CNKI` | 是否启用知网检索，默认关闭 |
-| `ENABLE_NSTL` | 是否启用 NSTL 检索 |
+| `CRAWLER_ORDER` | 爬虫启用列表和尝试顺序；可用值包括 `nstl`、`cnki`、`yidu`、`wanfang` |
 | `CRAWLER_CONCURRENCY` | 并发数，建议先用 `1` |
 
 ## 安装依赖
@@ -133,10 +131,10 @@ LOG_LEVEL=INFO
 
 ```bash
 conda activate Tcm-agent
-pip install -r data_process/lit_metadata/requirements.txt
+# 本模块依赖统一包含在项目根目录 environment.yml 中
 ```
 
-CNKI 默认不启用，所以正常测试不需要安装浏览器。只有手动开启 CNKI 时，首次才可能需要浏览器支持。Windows 推荐使用系统 Edge：
+上面的推荐测试配置不包含 CNKI，因此正常测试不需要安装浏览器。将 `cnki` 加入 `CRAWLER_ORDER` 后，首次运行才可能需要浏览器支持。Windows 推荐使用系统 Edge：
 
 ```bash
 playwright install msedge
@@ -167,20 +165,20 @@ python main.py
 
 ## CNKI 首次运行说明
 
-如果启用了 CNKI：
+如果要启用 CNKI，请将 `cnki` 加入 `CRAWLER_ORDER`：
 
 ```env
-ENABLE_CNKI=true
+CRAWLER_ORDER=nstl,cnki,yidu,wanfang
 CNKI_HEADLESS_BOOTSTRAP=false
 CNKI_BROWSER_CHANNEL=msedge
 ```
 
 首次运行可能会弹出浏览器窗口。请等待页面正常加载，如果出现验证，需要手动完成。完成后程序会保存 cookie，后续短时间内会自动复用。
 
-如果你只想先快速跑通流程，可以临时关闭 CNKI：
+如果你只想先快速跑通流程，可以从列表中移除 CNKI：
 
 ```env
-ENABLE_CNKI=false
+CRAWLER_ORDER=nstl,yidu,wanfang
 ```
 
 ## 查看处理结果

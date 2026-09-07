@@ -4,16 +4,16 @@
 
 ## 模块说明
 
-- [data_process/graph_builder/models.py](data_process/graph_builder/models.py)：`GraphNode`、`GraphEdge`、`BuildGraphOptions` 数据类（节点/边是 builder 内部工作数据，区别于 ORM 的 `Node`/`Edge`）。
-- [data_process/graph_builder/processor.py](data_process/graph_builder/processor.py)：文本清洗、分词、Jaccard 相似度、边生成、`top_k_value` 计算。包含 CPU 与 GPU（cuPy）两种实现，由 `--device` 选择。
-- [data_process/graph_builder/database.py](data_process/graph_builder/database.py)：数据库连接、Schema 创建、源表读取、分批写入。
-- [data_process/graph_builder/engine.py](data_process/graph_builder/engine.py)：建图流程编排。
-- [data_process/graph_builder/main.py](data_process/graph_builder/main.py)：命令行入口（argparse）与 `.env` 读取。
-- [data_process/graph_builder/builder.py](data_process/graph_builder/builder.py)：兼容导出层，保留旧 import 路径。
+- [models.py](models.py)：`GraphNode`、`GraphEdge`、`BuildGraphOptions` 数据类（节点/边是 builder 内部工作数据，区别于 ORM 的 `Node`/`Edge`）。
+- [processor.py](processor.py)：文本清洗、分词、Jaccard 相似度、边生成、`top_k_value` 计算。包含 CPU 与 GPU（cuPy）两种实现，由 `--device` 选择。
+- [database.py](database.py)：数据库连接、Schema 创建、源表读取、分批写入。
+- [engine.py](engine.py)：建图流程编排。
+- [main.py](main.py)：命令行入口（argparse）与 `.env` 读取。
+- [builder.py](builder.py)：兼容导出层，保留旧 import 路径。
 
 ## 流程概览
 
-1. `main.py` 读取 `.env`（优先 `DB_*`，其次 `POSTGRES_*`）与命令行参数。
+1. `main.py` 从项目根目录 `.env` 读取 `POSTGRES_*`、`GRAPH_BUILDER_*` 与命令行参数。
 2. `engine.py` 连接数据库并应用 Schema。
 3. `database.py` 拉取 `lit_metadata` 与 `case_metadata`，构建节点。
 4. `processor.py` 计算相似度边与 `top_k_value`。
@@ -84,7 +84,7 @@
 # GPU（若环境装了 cuPy 且有 CUDA 设备）—— 推荐用于大数据量
 python -m data_process.graph_builder.main --device cuda
 
-# CPU 参考实现（默认）
+# 强制使用 CPU 参考实现
 python -m data_process.graph_builder.main --device cpu
 
 # 自动选择：可用时用 GPU，否则回退到 CPU
@@ -94,7 +94,7 @@ python -m data_process.graph_builder.main             # 等价 --device auto
 python -m data_process.graph_builder.main --device cuda --strategy upsert
 ```
 
-默认读取项目根目录 `.env`，并按 `DB_*` 优先、`POSTGRES_*` 兜底的顺序读取数据库配置。
+默认读取项目根目录 `.env`。当前配置类读取 `POSTGRES_HOST`、`POSTGRES_PORT`、`POSTGRES_USER`、`POSTGRES_PASSWORD`、`POSTGRES_DB`，不读取 `DB_*` 别名。
 
 ## 命令行参数
 
@@ -105,6 +105,7 @@ python -m data_process.graph_builder.main --device cuda --strategy upsert
 
 ## 环境变量
 
+- `POSTGRES_HOST` / `POSTGRES_PORT` / `POSTGRES_USER` / `POSTGRES_PASSWORD` / `POSTGRES_DB`
 - `GRAPH_BUILDER_STRATEGY`：写入策略，支持 `truncate` / `upsert`
 - `GRAPH_BUILDER_PAPER_TOP_K` / `GRAPH_BUILDER_RECORD_TOP_K`
 - `GRAPH_BUILDER_PAPER_MIN_SCORE` / `GRAPH_BUILDER_RECORD_MIN_SCORE`

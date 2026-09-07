@@ -2,18 +2,17 @@
 
 ## 功能
 
-从已上传的 PDF 论文中，调用 Gemini 大模型提取中医病案结构化数据，写入 `case_metadata` 表，并更新 `core_file.status_case` 标记。
+从已上传的病案 PDF 中，调用 Gemini-compatible 大模型提取中医病案结构化数据，写入 `case_metadata` 表，并更新 `core_file.status_case` 标记。
 
-处理流程：查询待处理记录 → 从对象存储 COS 下载 PDF → Gemini API 提取 → JSON 解析校验 → 入库 → 更新状态
+处理流程：查询待处理记录 → 从 S3-compatible 对象存储下载 PDF → Gemini API 提取 → JSON 解析校验 → 入库 → 更新状态
 
 ## 运行
 
 ```bash
 # 激活环境
-conda activate tcm-agent
+conda activate Tcm-agent
 
 # 从项目根目录运行
-cd D:\SleepPause\Program\python\Tcm-agent
 python -m data_process.case_metadata.run_extraction
 
 # 只处理 20 条待处理病案
@@ -32,7 +31,7 @@ python -m data_process.case_metadata.run_extraction --limit 20
 run_extraction.py 启动
   → 查询 core_file WHERE document_type=1 AND status_case=false
   → 对每条记录：
-    1. 从对象存储 COS 下载 PDF
+    1. 从 S3-compatible 对象存储下载 PDF
     2. base64 编码 PDF，连同 prompt 一起发送给 Gemini
     3. 解析 Gemini 返回的 JSON（20 个中文键名字段）
     4. 校验字段完整性，缺失字段补 null
@@ -95,7 +94,7 @@ LLM 输出中文键名（语义更准确），入库时映射为英文：
 |------|------|
 | `prompt.md` | 发送给 Gemini 的提取指令（中文键名，20 字段） |
 | `schema.json` | JSON Schema，用于校验 LLM 输出 + 生成 Gemini responseSchema |
-| `models.py` | MedCase SQLAlchemy 模型 |
+| `../../UI/backend/app/models/med_case.py` | 共用的 MedCase SQLAlchemy ORM 模型 |
 | `llm_client.py` | Gemini SSE 流式调用、payload 构建、JSON 解析 |
 | `schemas.py` | 中文→英文映射、Pydantic 校验模型 |
 | `service.py` | 核心业务逻辑（下载→提取→入库→更新状态） |
@@ -103,11 +102,16 @@ LLM 输出中文键名（语义更准确），入库时映射为英文：
 
 ## 环境变量
 
-| 变量 | 默认值 | 说明 |
+配置按 `DATA_PROCESS_GEMINI_*` → `CASE_METADATA_LLM_*` → 旧版 `RELAY_*`/`GEMINI_*` 的顺序读取：
+
+| 变量 | 代码回退值 | 说明 |
 |------|--------|------|
-| RELAY_BASE_URL | https://x666.me/v1beta/... | Gemini 中转站端点 |
-| RELAY_API_KEY | - | API 密钥 |
-| GEMINI_MODEL | gemini-3-flash-preview | 使用的模型 |
+| `DATA_PROCESS_GEMINI_BASE_URL` | 继续读取 `CASE_METADATA_LLM_BASE_URL`、`RELAY_BASE_URL`，最后为 `https://runanytime.hxi.me` | Gemini-compatible 服务地址 |
+| `DATA_PROCESS_GEMINI_API_KEY` | 继续读取 `CASE_METADATA_LLM_API_KEY`、`RELAY_API_KEY` | API 密钥 |
+| `DATA_PROCESS_GEMINI_MODEL` | 继续读取 `CASE_METADATA_LLM_MODEL`、`GEMINI_MODEL`，最后为 `gemini-3.5-flash` | 模型名 |
+| `DATA_PROCESS_GEMINI_AUTH_HEADER` | 继续读取兼容变量，最后为 `x-goog-api-key` | 鉴权请求头名称 |
+
+项目根目录 `.env.example` 可以覆盖这些代码回退值。
 
 ## 验证
 

@@ -43,9 +43,14 @@ RAGFLOW_DOMAIN=DOR infertility
 
 ## 安装依赖
 
+从项目根目录执行：
+
 ```bash
-pip install -r data_process/ragflow_sync/requirements.txt
+conda env create -f environment.yml
+conda activate Tcm-agent
 ```
+
+本模块没有独立的 `requirements.txt`；依赖统一声明在项目根目录 `environment.yml`。
 
 ## Dry-run 预览
 
