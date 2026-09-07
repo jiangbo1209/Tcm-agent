@@ -1,185 +1,150 @@
 # TCM Agent 后端
 
-FastAPI 后端，提供用户认证、对话管理、智能搜索和知识图谱 API。
+`UI/backend` 是平台唯一的 HTTP 服务。它使用 FastAPI，提供认证、Agent 对话、搜索、图谱、文件、用户管理、元数据管理和数据标注 API。全部业务数据存储在 PostgreSQL，PDF 存储在 S3-compatible 对象存储中。
 
 ## 目录结构
 
-```
-backend/
-├── main.py                     # FastAPI 入口，注册路由、初始化数据库
-├── requirements.txt            # Python 依赖
-├── create_professional_user.py # 创建专业用户脚本
-├── tcm.db                      # SQLite 数据库（运行时自动生成）
-└── app/
-    ├── config.py               # 环境变量配置（PostgreSQL、S3/COS、搜索策略）
-    ├── database.py             # SQLite 引擎 & Session 管理
-    ├── database_pg.py          # PostgreSQL 引擎 & Session 管理
-    ├── auth/
-    │   ├── service.py          # 密码哈希（bcrypt）、JWT 生成/验证
-    │   ├── dependencies.py     # FastAPI 依赖注入（get_current_user、require_professional）
-    │   └── router.py           # POST /api/auth/register、POST /api/auth/login
-    ├── models/
-    │   ├── base.py             # SQLite SQLAlchemy Base
-    │   ├── user.py             # users 表
-    │   ├── conversation.py     # conversations 表
-    │   ├── message.py          # messages 表
-    │   ├── search_history.py   # search_history 表
-    │   └── graph.py            # PostgreSQL ORM（Node、Edge、LitMetadata、MedCase、CoreFile）
-    ├── schemas/
-    │   ├── user.py             # 用户 Pydantic 模型
-    │   ├── conversation.py     # 对话 Pydantic 模型
-    │   ├── message.py          # 消息 Pydantic 模型
-    │   ├── search.py           # 搜索请求/响应 Pydantic 模型
-    │   └── graph.py            # 图谱 Pydantic 模型（保留）
-    ├── routers/
-    │   ├── auth.py             # 认证路由
-    │   ├── chat.py             # 对话路由（含 SSE 流式输出占位）
-    │   ├── search.py           # 智能搜索路由（需专业用户权限）
-    │   ├── history.py          # 历史记录路由
-    │   └── graph.py            # 图谱 API 路由（保留）
-    ├── services/
-    │   └── graph_service.py    # 图谱业务逻辑（BFS 扩展、详情聚合）
-    ├── repositories/
-    │   ├── base.py              # 公共工具方法与基类
-    │   ├── graph_repo.py        # 图谱节点/边查询
-    │   ├── detail_repo.py       # 文献/病案详情查询
-    │   ├── search_repo.py       # 搜索与 facet 统计
-    │   └── fulltext_checker.py  # 全文索引检测
-    ├── storage/                # 对象存储 (S3 / 腾讯云 COS) 客户端 + 上传服务
-    │   ├── s3_client.py
-    │   ├── service.py
-    │   ├── repository.py
-    │   ├── schemas.py
-    │   └── config.py
-    └── search/
-        └── settings.py         # 搜索后端策略枚举
+```text
+UI/backend/
+├── main.py                     # FastAPI 入口、路由注册、应用级服务实例
+├── app/
+│   ├── auth/                   # 登录、注册、JWT 与密码哈希
+│   ├── core/                   # PostgreSQL 引擎、格式化、schema 兼容处理
+│   ├── dependencies/           # 权限和上传服务依赖
+│   ├── models/                 # 业务表与图谱表 ORM
+│   ├── repositories/           # 管理、详情、图谱和搜索数据访问
+│   ├── routers/                # HTTP API
+│   ├── schemas/                # Pydantic 请求/响应模型
+│   ├── services/               # Agent、图谱、管理和标注业务逻辑
+│   └── storage/                # S3-compatible 客户端、文件 token 和上传服务
+├── scripts/
+│   ├── init_db.py              # 初始化全部 PostgreSQL 表
+│   ├── import_users.py         # 通过 CSV 创建或更新用户
+│   └── users.csv.example
+└── tests/                      # pytest 测试
 ```
 
-## 启动
+Python 依赖统一声明在项目根目录的 `environment.yml`；本目录没有独立的 `requirements.txt`。当前后端不使用 SQLite，也不会创建 `tcm.db`。
+
+## 配置与启动
+
+从项目根目录执行：
 
 ```bash
+conda env create -f environment.yml
+conda activate Tcm-agent
+# UserCreate 使用 Pydantic EmailStr；当前 environment.yml 未显式包含该可选包
+python -m pip install email-validator
+cp .env.example .env
+
+docker compose up -d postgresql
+python UI/backend/scripts/init_db.py
+
 cd UI/backend
-
-# 安装依赖
-pip install -r requirements.txt
-
-# 启动服务（默认端口 8011）
 uvicorn main:app --reload --host 0.0.0.0 --port 8011
 ```
 
-启动后自动创建 SQLite 数据库文件 `tcm.db`。
+启动后可访问：
 
-## API 文档
+- OpenAPI：<http://127.0.0.1:8011/docs>
+- 健康检查：<http://127.0.0.1:8011/health>
 
-启动后访问 http://127.0.0.1:8011/docs 查看 Swagger 交互式文档。
+`main.py` 导入时会执行部分兼容性列迁移，但完整建表仍应显式运行 `scripts/init_db.py`。
 
-### 认证接口
+## API 与权限
 
-| 方法 | 路径 | 说明 | 权限 |
-|------|------|------|------|
-| POST | `/api/auth/register` | 注册新用户 | 公开 |
-| POST | `/api/auth/login` | 登录，返回 JWT token | 公开 |
+| 模块 | 方法与路径 | 权限 |
+| --- | --- | --- |
+| 认证 | `POST /api/auth/register`、`POST /api/auth/login` | 公开 |
+| 对话 | `GET/POST /api/chat/conversations` | 登录 |
+| 对话 | `GET/POST /api/chat/conversations/{id}/messages` | 登录且只能访问自己的对话 |
+| 对话 | `DELETE /api/chat/conversations/{id}` | 登录且只能删除自己的对话 |
+| 搜索 | `POST /api/search` | professional / admin |
+| 搜索 | `GET /api/search/index-status` | 公开（当前代码行为） |
+| 搜索历史 | `GET /api/search/history` | 登录 |
+| 聚合历史 | `GET /api/history` | 登录 |
+| 图谱 | `GET /api/graph/expand`、`/node-detail`、`/search` | professional / admin |
+| 文件 | 上传、列表、详情、下载 URL | 登录 |
+| 文件 | `GET /api/files/stream?token=...` | 有效文件签名 token |
+| 文件 | 单个/批量删除 | admin |
+| 元数据管理 | `/api/admin...` | admin |
+| 用户管理 | `/api/users...` | admin |
+| 标注工作台 | `/api/annotation...` | annotator + `ANNOTATION_ENABLED=true` |
+| 标注管理 | `/api/annotation/admin...` | admin + `ANNOTATION_ENABLED=true` |
 
-### 对话接口
+文件查看/下载入口是：
 
-| 方法 | 路径 | 说明 | 权限 |
-|------|------|------|------|
-| GET | `/api/chat/conversations` | 获取对话列表 | 登录用户 |
-| POST | `/api/chat/conversations` | 创建新对话 | 登录用户 |
-| GET | `/api/chat/conversations/{id}/messages` | 获取对话消息 | 登录用户 |
-| POST | `/api/chat/conversations/{id}/messages` | 发送消息（SSE 流式响应） | 登录用户 |
-| DELETE | `/api/chat/conversations/{id}` | 删除对话 | 登录用户 |
+```text
+GET /api/files/{file_uuid}/download-url?mode=view|download
+```
 
-### 搜索接口
-
-| 方法 | 路径 | 说明 | 权限 |
-|------|------|------|------|
-| POST | `/api/search` | 智能搜索（文献/病案/全部） | 专业用户 |
-| GET | `/api/search/history` | 搜索历史 | 登录用户 |
-
-### 历史接口
-
-| 方法 | 路径 | 说明 | 权限 |
-|------|------|------|------|
-| GET | `/api/history` | 对话+搜索历史聚合 | 登录用户 |
-
-### 图谱接口（保留）
-
-| 方法 | 路径 | 说明 |
-|------|------|------|
-| GET | `/api/graph/expand` | BFS 图谱扩展 |
-| GET | `/api/graph/node-detail` | 节点详情 |
-| GET | `/api/graph/search` | 关键词搜索 |
-| GET | `/api/graph/file-url/{node_id}` | 文献预签名链接 |
-| GET | `/health` | 健康检查 |
-
-### 文件接口（需登录）
-
-上传到对象存储（S3 兼容：腾讯云 COS / AWS S3 / MinIO）。所有端点需要 JWT。
-
-| 方法 | 路径 | 说明 |
-|------|------|------|
-| POST | `/api/files/upload` | 单文件上传（multipart） |
-| POST | `/api/files/batch-upload` | 批量上传（multipart） |
-| GET | `/api/files/?page&size` | 分页列表 |
-| GET | `/api/files/{file_uuid}` | 详情 |
-| GET | `/api/files/{file_uuid}/download-url` | 预签名下载 URL (1h 过期) |
-| DELETE | `/api/files/{file_uuid}` | 单文件删除 |
-| POST | `/api/files/batch-delete` | 批量删除 |
+旧接口 `/api/graph/file-url/{node_id}` 已不存在。
 
 ## 数据库
 
-### SQLite（用户/对话/搜索）
+同步路由使用 `psycopg2` 引擎；文件路由使用懒加载的 `asyncpg` 引擎。二者连接同一个 `POSTGRES_*` 数据库。
 
-自动创建，无需手动操作。
+主要表组：
 
-**users 表**：用户信息、角色（normal/professional）
+- 账号与对话：`users`、`conversations`、`messages`、`conversation_memories`、`agent_tool_runs`、`search_history`。
+- 文件与元数据：`core_file`、`lit_metadata`、`case_metadata`、`guideline_metadata`。
+- 图谱：`nodes`、`edges`。
+- 标注：`annotation_pools`、`annotation_pool_items`、`annotation_tasks`、`annotation_task_items`、`annotation_submissions`、`annotation_logs`。
 
-**conversations 表**：对话记录，关联 user_id
+## 创建用户
 
-**messages 表**：消息记录，关联 conversation_id，role 为 user 或 assistant
-
-**search_history 表**：搜索历史，记录查询词、搜索类型、结果数
-
-### PostgreSQL（文献/病案/图谱）
-
-需通过 `data_process.db_init` 初始化，配置在 `.env` 中：
-
-```
-POSTGRES_HOST=localhost
-POSTGRES_PORT=5432
-POSTGRES_USER=postgres
-POSTGRES_PASSWORD=your_password
-POSTGRES_DB=papers_records
-```
-
-## 创建测试用户
+公开注册只创建 `normal` 用户：
 
 ```bash
-# 创建普通用户（通过 API）
 curl -X POST http://127.0.0.1:8011/api/auth/register \
   -H "Content-Type: application/json" \
-  -d '{"username": "test", "email": "test@tcm.com", "password": "123456"}'
-
-# 创建专业用户（脚本）
-python create_professional_user.py
-# 默认: admin / admin123
-# 自定义: PRO_USERNAME=myuser PRO_PASSWORD=mypass python create_professional_user.py
+  -d '{"username":"test","email":"test@tcm.com","password":"123456"}'
 ```
 
-## 环境变量
+其他角色通过 CSV 导入脚本创建或更新：
 
-| 变量 | 默认值 | 说明 |
-|------|--------|------|
-| `JWT_SECRET_KEY` | tcm-agent-secret-key... | JWT 签名密钥 |
-| `JWT_EXPIRE_MINUTES` | 1440 | Token 过期时间（分钟） |
-| `POSTGRES_HOST` | 127.0.0.1 | PostgreSQL 地址 |
-| `POSTGRES_PORT` | 5432 | PostgreSQL 端口 |
-| `POSTGRES_USER` | postgres | PostgreSQL 用户名 |
-| `POSTGRES_PASSWORD` | (空) | PostgreSQL 密码 |
-| `POSTGRES_DB` | postgres | PostgreSQL 数据库名 |
-| `S3_ENDPOINT` | https://cos.ap-beijing.myqcloud.com | 对象存储地址 |
-| `S3_ACCESS_KEY` | (空) | SecretId |
-| `S3_SECRET_KEY` | (空) | SecretKey |
-| `S3_BUCKET_NAME` | tcm-documents-1387425381 | COS 存储桶名 |
-| `S3_REGION` | ap-beijing | COS 地域 |
+```bash
+cp UI/backend/scripts/users.csv.example /tmp/tcm-users.csv
+python UI/backend/scripts/import_users.py /tmp/tcm-users.csv
+```
+
+CSV 无表头，格式为：
+
+```text
+username,email,password,role
+```
+
+可用角色为 `normal`、`professional`、`annotator`、`admin`。
+
+## 主要环境变量
+
+| 变量 | 代码默认值 | 说明 |
+| --- | --- | --- |
+| `POSTGRES_HOST` | `127.0.0.1` | PostgreSQL 地址 |
+| `POSTGRES_PORT` | `5432` | PostgreSQL 端口 |
+| `POSTGRES_USER` | `postgres` | 用户名 |
+| `POSTGRES_PASSWORD` | 空 | 密码 |
+| `POSTGRES_DB` | `postgres` | 数据库名；根目录示例覆盖为 `papers_records` |
+| `APP_ENV` | `development` | 设为 `production` 时启用密钥检查 |
+| `JWT_SECRET_KEY` | 开发默认密钥 | JWT 签名密钥 |
+| `JWT_EXPIRE_MINUTES` | `1440` | token 有效期（分钟） |
+| `FILE_TOKEN_SECRET` | 空 | 文件流签名密钥；生产环境必填 |
+| `S3_ENDPOINT` | 腾讯云北京 COS 地址 | S3-compatible 地址 |
+| `S3_ACCESS_KEY` / `S3_SECRET_KEY` | 空 | 对象存储凭证 |
+| `S3_BUCKET_NAME` | `tcm-documents` | 存储桶 |
+| `S3_REGION` | `ap-beijing` | 区域 |
+| `UPLOAD_MAX_FILE_SIZE_MB` | `100` | 单文件限制 |
+| `UPLOAD_ALLOWED_EXTENSIONS` | `.pdf` | 允许扩展名，逗号分隔 |
+| `UPLOAD_BATCH_CONCURRENCY` | `5` | 批量上传并发数 |
+| `SEARCH_BACKEND_MODE` | `auto` | `auto` / `fulltext` / `like` |
+| `ANNOTATION_ENABLED` | `false` | 标注功能总闸 |
+
+完整配置以项目根目录 `.env.example` 和代码中的 Settings 类为准。生产模式下若 JWT 仍使用开发默认值，或 `FILE_TOKEN_SECRET` 为空，应用会拒绝启动。
+
+## 测试
+
+后端测试位于 `UI/backend/tests/`。在依赖和测试数据库配置完整的环境中，可从项目根目录运行：
+
+```bash
+python -m pytest UI/backend/tests -q
+```

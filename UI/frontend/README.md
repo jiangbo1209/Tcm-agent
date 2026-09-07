@@ -1,120 +1,88 @@
 # TCM Agent 前端
 
-Vue 3 单页应用，提供对话助手、智能搜索和历史记录功能。
+Vue 3 单页应用，使用 Vite、Vue Router、Pinia、Axios 和 AntV G6。前端只访问 UI 后端，不直接连接 PostgreSQL、对象存储、RAGFlow 或 LLM。
 
 ## 目录结构
 
-```
-frontend/
-├── index.html              # 入口 HTML
-├── package.json            # 依赖配置
-├── vite.config.js          # Vite 配置（开发代理、端口）
+```text
+UI/frontend/
+├── index.html
+├── package.json
+├── package-lock.json
+├── vite.config.js
 └── src/
-    ├── main.js             # Vue 应用入口
-    ├── App.vue             # 根组件
-    ├── router/
-    │   └── index.js        # 路由配置（登录守卫、角色守卫）
-    ├── stores/             # Pinia 状态管理
-    │   ├── auth.js         # 认证状态（token、user、角色）
-    │   ├── chat.js         # 对话状态（对话列表、消息）
-    │   └── search.js       # 搜索状态（结果、历史）
-    ├── api/                # Axios API 封装
-    │   ├── request.js      # Axios 实例（JWT 拦截器）
-    │   ├── auth.js         # 登录/注册
-    │   ├── chat.js         # 对话 CRUD + SSE 流式消息
-    │   ├── search.js       # 智能搜索
-    │   └── history.js      # 历史记录
-    ├── views/              # 页面组件
-    │   ├── Login.vue       # 登录页
-    │   ├── Register.vue    # 注册页
-    │   ├── Chat.vue        # 对话主页（SSE 流式输出）
-    │   ├── Search.vue      # 智能搜索入口
-    │   └── SearchResults.vue # 搜索结果页
-    ├── components/         # 通用组件
-    │   ├── Layout.vue      # 主布局（侧边栏 + 内容区）
-    │   ├── Sidebar.vue     # 左侧导航栏
-    │   ├── ChatMessage.vue # 消息气泡
-    │   └── ChatInput.vue   # 输入框
-    └── styles/
-        └── global.css      # 全局样式（teal 配色方案）
+    ├── api/                    # Axios API 与聊天 fetch/SSE 客户端
+    ├── components/             # 布局、侧栏、聊天、图谱、详情组件
+    ├── router/index.js         # 路由和角色守卫
+    ├── stores/                 # auth、chat、search Pinia store
+    ├── styles/global.css
+    └── views/
+        ├── auth/               # 登录、注册
+        ├── chat/               # Agent 对话
+        ├── professional/       # 搜索、图谱、详情
+        ├── annotator/          # 标注工作台与历史
+        └── admin/              # 成员管理与标注管理
 ```
 
-## 启动
+## 启动与构建
 
 ```bash
 cd UI/frontend
-
-# 安装依赖
 npm install
-
-# 开发模式（默认端口 5500）
 npm run dev
-
-# 生产构建
-npm run build
 ```
 
-访问 http://localhost:5500
-
-## 页面说明
-
-### 登录/注册
-
-- `/login` — 登录页，已有账号登录
-- `/register` — 注册页，创建新账号（默认 normal 角色）
-
-### 对话助手（`/`）
-
-- 左侧栏：新建对话、对话历史列表
-- 主区域：聊天消息流，支持 SSE 流式输出
-- 输入框：Enter 发送消息
-
-### 智能搜索（`/search`）
-
-- 仅专业用户可见
-- 支持勾选：搜索文献 / 搜索病案 / 全部
-- 搜索结果页：卡片式展示，支持分页
-- 搜索历史：首页展示历史查询词
-
-### 历史记录
-
-- 左侧栏展示对话历史和搜索历史
-- 点击对话历史可恢复对话
-
-## 角色权限
-
-| 功能 | normal | professional |
-|------|--------|--------------|
-| 登录/注册 | ✓ | ✓ |
-| 对话助手 | ✓ | ✓ |
-| 智能搜索 | ✗（菜单隐藏） | ✓ |
-| 搜索历史 | ✗ | ✓ |
-
-## 开发代理
-
-`vite.config.js` 配置了 API 代理，开发时自动将 `/api` 请求转发到后端：
-
-```js
-server: {
-  port: 5500,
-  proxy: {
-    "/api": {
-      target: "http://127.0.0.1:8011",
-      changeOrigin: true,
-    },
-  },
-},
-```
-
-## 构建部署
+开发服务器默认监听 <http://localhost:5500>。
 
 ```bash
 npm run build
+npm run preview
 ```
 
-构建产物输出到 `dist/` 目录，可部署到 Nginx 等静态服务器。
+`vite.config.js` 将 `/api` 代理到 `VITE_API_TARGET`；未设置时使用 `http://127.0.0.1:8011`：
 
-Nginx 配置示例：
+```bash
+VITE_API_TARGET=http://127.0.0.1:8011 npm run dev
+```
+
+## 当前路由
+
+| 路径 | 页面 | 权限 |
+| --- | --- | --- |
+| `/login` | 登录 | 访客 |
+| `/register` | 注册 | 访客 |
+| `/` | Agent 对话 | 登录；admin/annotator 会转到各自工作区 |
+| `/search` | 搜索条件 | professional/admin |
+| `/search/results` | 搜索结果 | professional/admin |
+| `/graph` | 知识图谱 | professional/admin |
+| `/detail/:nodeId` | 图谱节点详情 | professional/admin |
+| `/detail-by-file/:fileUuid` | 文件关联详情 | professional/admin |
+| `/users` | 成员管理 | admin |
+| `/annotate` | 标注工作台 | annotator |
+| `/annotate/history` | 标注历史 | annotator |
+| `/admin/annotation/pools` | 标注池管理 | admin |
+| `/admin/annotation/review` | 审核队列 | admin |
+| `/admin/annotation/board` | 标注看板 | admin |
+| `/admin/annotation/export` | 标注导出 | admin |
+| `/admin/annotation/logs` | 操作日志 | admin |
+| `/admin` | 元数据管理路由 | admin |
+
+角色信息来自登录 JWT 的 `sub` 和 `role`，与 token 一起保存在 `localStorage`。Axios 请求拦截器为普通 API 自动添加 Bearer token；聊天流使用 `fetch` 读取后端 SSE。
+
+## 角色可见功能
+
+| 功能 | normal | professional | annotator | admin |
+| --- | --- | --- | --- | --- |
+| 对话 | ✓ | ✓ | ✗ | ✗ |
+| 专业搜索、图谱 | ✗ | ✓ | ✗ | 菜单不展示，但路由守卫和后端允许 |
+| 标注工作台 | ✗ | ✗ | ✓ | ✗ |
+| 成员、标注管理 | ✗ | ✗ | ✗ | ✓ |
+
+后端文件 API 已有实现，但当前侧栏没有独立文件管理页面；PDF 链接主要从聊天引用和详情组件进入。
+
+## 开发代理与生产部署
+
+开发服务器把 `/api` 请求代理到 UI 后端。生产部署需要让 SPA 路由回退到 `index.html`，并反向代理 `/api`：
 
 ```nginx
 server {
@@ -134,9 +102,6 @@ server {
 }
 ```
 
-## 技术要点
+聊天接口使用流式响应；生产代理还应关闭该接口的响应缓冲，并配置足够的读取超时。
 
-- **JWT 认证**：登录后 token 存储在 localStorage，Axios 拦截器自动携带
-- **SSE 流式输出**：对话消息通过 `fetch` + `ReadableStream` 实现逐字输出
-- **路由守卫**：未登录自动跳转登录页，普通用户无法访问搜索页
-- **配色方案**：主色调 teal (#00796b)，深色侧边栏 (#1a1a2e)
+当前 `package.json` 只有 `dev`、`build`、`preview`，没有 lint 或前端测试脚本。

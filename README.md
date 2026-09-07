@@ -13,9 +13,12 @@
 项目需要 **Python 3.10+**。当前推荐使用 `Tcm-agent` conda 环境。
 
 ```bash
-# 创建环境（包含所有依赖）
+# 创建项目环境
 conda env create -f environment.yml
 conda activate Tcm-agent
+
+# 当前 environment.yml 未显式声明 EmailStr 所需的可选包
+python -m pip install email-validator
 
 # 安装 Playwright 浏览器（如需使用爬虫功能）
 playwright install chromium
@@ -54,8 +57,9 @@ npm run dev
 # 1. 初始化数据库表
 python UI/backend/scripts/init_db.py
 
-# 2. 批量导入用户（参考 scripts/users.csv.example 准备 CSV）
-python UI/backend/scripts/import_users.py scripts/users.csv
+# 2. 复制模板并编辑（CSV 无表头：username,email,password,role）
+cp UI/backend/scripts/users.csv.example /tmp/tcm-users.csv
+python UI/backend/scripts/import_users.py /tmp/tcm-users.csv
 ```
 
 ## 核心业务数据流
@@ -149,7 +153,7 @@ graph LR
 
 ### 阶段三：Agent 对话系统（Agent Dialogue System）
 
-基于 LLM 的智能问答系统，通过多工具协同实现中医领域的语义理解与知识检索。
+基于 LLM 的智能问答系统，通过问题分析、RAGFlow 检索、证据整理和流式生成实现中医领域问答。Agent 作为 UI 后端进程内模块运行，不是独立服务，也不调用图谱 API。
 
 ```mermaid
 graph TD
@@ -157,37 +161,31 @@ graph TD
     classDef user fill:#e3f2fd,stroke:#1565c0,color:#0d47a1;
     classDef agent fill:#f3e5f5,stroke:#7b1fa2,color:#4a148c;
     classDef tool fill:#e8f5e9,stroke:#2e7d32,color:#1b5e20;
-    classDef db fill:#fff9c4,stroke:#fbc02d,color:#f57f17;
+    classDef external fill:#fff9c4,stroke:#fbc02d,color:#f57f17;
 
-    User[("👤 用户提问")]:::user --> Router[routing.py<br/>路由分析]:::agent
-
-    Router -->|文献/病案检索| SearchTool[search_tool<br/>智能搜索]:::tool
-    Router -->|图谱查询| GraphTool[graph_tool<br/>图谱扩展]:::tool
-    Router -->|通用问答| LLM[LLM 直接回答]:::agent
-    Router -->|多步推理| Orchestrator[orchestrator/<br/>多步编排]:::agent
-
-    SearchTool --> Repo[GraphRepository<br/>PostgreSQL 搜索]:::db
-    GraphTool --> Repo
-
-    Orchestrator --> Analyzer[analyzers/<br/>意图分解]:::agent
-    Analyzer --> SubQuery[子查询分发]:::agent
-    SubQuery --> SearchTool
-    SubQuery --> GraphTool
-
-    SearchTool --> Result[结果聚合]:::agent
-    GraphTool --> Result
-    Orchestrator --> Result
-    LLM --> Result
-    Result --> Answer[("💬 最终回答")]:::user
+    User[("👤 用户提问")]:::user --> Backend[UI 后端<br/>chat router]:::agent
+    Backend --> Analyzer[QueryAnalyzer<br/>问题初步理解]:::agent
+    Analyzer --> Router[routing.py<br/>任务路由校正]:::agent
+    Router -->|需要检索| Retrieval[KnowledgeRetrievalTool<br/>知识检索]:::tool
+    Router -->|来源追问/无需检索| Generator[AnswerGenerator<br/>Prompt 与流式回答]:::agent
+    Retrieval --> RAGFlow[(RAGFlow<br/>文献/病案知识库)]:::external
+    RAGFlow --> Evidence[EvidenceProcessor<br/>整理、去重、引用编号]:::tool
+    Evidence --> Generator
+    Generator -->|可选| Validation[指南检索与回答校验]:::tool
+    Generator --> Response[ResponseBuilder<br/>组装最终响应]:::agent
+    Validation --> Response
+    Response --> Backend
+    Backend -->|SSE| User
 ```
 
 **对话流程说明**：
 1. 用户输入自然语言问题
-2. `routing.py` 分析问题意图，路由到对应工具
-3. **search_tool**：对 PostgreSQL 执行全文/模糊搜索，返回匹配的文献和病案
-4. **graph_tool**：查询知识图谱节点，获取关联路径
-5. **orchestrator**：复杂问题拆分为多步子查询，逐步推理
-6. 所有工具结果汇集到 LLM，生成最终回答
+2. UI 后端读取会话记忆并调用进程内 Agent
+3. `QueryAnalyzer` 生成初始 `QueryPlan`，`routing.py` 进行任务路由校正
+4. 需要检索时，`KnowledgeRetrievalTool` 调用 RAGFlow 文献库、病案库或指南库
+5. `EvidenceProcessor` 对证据去重、补充来源信息并分配引用编号
+6. `AnswerGenerator` 根据任务和证据状态选择 Prompt，通过 LLM 流式生成回答
+7. 可选执行指南检索与回答校验，最后由 `ResponseBuilder` 组装响应并经 UI 后端 SSE 返回
 
 **对话管理**：
 - `conversations` 表维护多轮对话上下文
@@ -478,16 +476,19 @@ erDiagram
 | 对话 | `GET/POST /api/chat/conversations/{id}/messages` | 消息读写 | 登录 |
 | 搜索 | `POST /api/search` | 智能搜索（全文+筛选+Facet） | 专业用户 |
 | 搜索 | `GET /api/search/history` | 搜索历史 | 登录 |
-| 图谱 | `GET /api/graph/expand` | BFS 扩展 | 登录 |
-| 图谱 | `GET /api/graph/node-detail` | 节点详情 | 登录 |
-| 图谱 | `GET /api/graph/search` | 图谱节点搜索 | 登录 |
-| 图谱 | `GET /api/graph/file-url/{node_id}` | PDF 访问链接 | 登录 |
+| 图谱 | `GET /api/graph/expand` | BFS 扩展 | 专业用户/管理员 |
+| 图谱 | `GET /api/graph/node-detail` | 节点详情 | 专业用户/管理员 |
+| 图谱 | `GET /api/graph/search` | 图谱节点搜索 | 专业用户/管理员 |
 | 文件 | `POST /api/files/upload` | 单文件上传 | 登录 |
 | 文件 | `POST /api/files/batch-upload` | 批量上传 | 登录 |
-| 文件 | `DELETE /api/files/{file_uuid}` | 文件删除 | 登录 |
+| 文件 | `GET /api/files/{file_uuid}/download-url` | PDF 查看/下载链接 | 登录 |
+| 文件 | `DELETE /api/files/{file_uuid}`、`POST /api/files/batch-delete` | 文件删除 | 管理员 |
 | 管理 | `GET/PUT /api/admin/{table}/{id}` | 元数据编辑 | 管理员 |
 | 管理 | `DELETE /api/admin/lit/{id}` | 删除文献（级联删除病案+文件） | 管理员 |
 | 管理 | `DELETE /api/admin/case/{id}` | 删除病案（不影响文献） | 管理员 |
+| 用户 | `/api/users` | 成员创建、角色、密码、状态和删除 | 管理员 |
+| 标注 | `/api/annotation` | 标注任务、草稿、提交与历史 | 标注员且 `ANNOTATION_ENABLED=true` |
+| 标注管理 | `/api/annotation/admin` | 任务池、审核、统计、导出和日志 | 管理员且 `ANNOTATION_ENABLED=true` |
 
 ---
 
