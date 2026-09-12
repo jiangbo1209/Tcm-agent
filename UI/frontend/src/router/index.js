@@ -121,34 +121,34 @@ const router = createRouter({
   routes,
 });
 
-router.beforeEach((to, from, next) => {
+router.beforeEach((to) => {
   const authStore = useAuthStore();
 
   if (to.meta.requiresAuth && !authStore.isLoggedIn) {
-    return next("/login");
+    return "/login";
   }
 
   if (to.path === "/" && authStore.user?.role === "admin") {
-    return next("/admin");
+    return "/admin";
   }
 
   if (to.meta.guest && authStore.isLoggedIn) {
-    return next("/");
+    return "/";
   }
 
   if (
     to.meta.requiresProfessional &&
     !["professional", "admin"].includes(authStore.user?.role)
   ) {
-    return next("/");
+    return "/";
   }
 
   if (to.meta.requiresAdmin && authStore.user?.role !== "admin") {
-    return next("/");
+    return "/";
   }
 
   if (to.meta.requiresAnnotator && authStore.user?.role !== "annotator") {
-    return next("/");
+    return "/";
   }
 
   if (
@@ -156,10 +156,8 @@ router.beforeEach((to, from, next) => {
     !to.path.startsWith("/annotate") &&
     to.path !== "/login"
   ) {
-    return next("/annotate");
+    return "/annotate";
   }
-
-  next();
 });
 
 export default router;

@@ -66,6 +66,11 @@ def test_search_nodes_hit(monkeypatch):
         assert set(item.keys()) == expected_keys
         assert item["source_type"] in ("paper", "record")
 
+    page, total = repo.search_nodes_page("肺癌", limit=1, offset=1)
+    assert total == 2
+    assert len(page) == 1
+    assert page[0]["node_id"] == res[1]["node_id"]
+
 
 @pytest.mark.skip(reason="search_graph 需 PostgreSQL tsvector，本环境无 PG")
 def test_search_graph_requires_postgres():

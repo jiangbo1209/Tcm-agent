@@ -66,18 +66,35 @@ class GraphRepository(BaseRepository):
                 "top_k_value": float(node.top_k_value) if node.top_k_value is not None else None,
             }
 
-    def search_nodes(self, q: str, limit: int = 20) -> list[dict]:
+    def search_nodes(
+        self,
+        q: str,
+        limit: int = 20,
+        offset: int = 0,
+    ) -> list[dict[str, Any]]:
+        rows, _ = self.search_nodes_page(q, limit=limit, offset=offset)
+        return rows
+
+    def search_nodes_page(
+        self,
+        q: str,
+        limit: int = 20,
+        offset: int = 0,
+    ) -> tuple[list[dict[str, Any]], int]:
         if not q or q.strip() == "":
-            return []
+            return [], 0
+
+        normalized_q = q.strip()
         with self._get_session() as session:
+            query = session.query(Node).filter(Node.title.ilike(f"%{normalized_q}%"))
+            total = query.count()
             rows = (
-                session.query(Node)
-                .filter(Node.title.ilike(f"%{q}%"))
-                .order_by(Node.title.asc())
+                query.order_by(Node.title.asc(), Node.id.asc())
+                .offset(offset)
                 .limit(limit)
                 .all()
             )
-            return [
+            items = [
                 {
                     "node_id": n.id,
                     "title": n.title,
@@ -86,3 +103,4 @@ class GraphRepository(BaseRepository):
                 }
                 for n in rows
             ]
+            return items, total

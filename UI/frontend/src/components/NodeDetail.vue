@@ -54,6 +54,7 @@ const props = defineProps({ nodeId: { type: String, default: "" } });
 const loading = ref(false);
 const error = ref("");
 const detail = ref(null);
+let detailRequestId = 0;
 
 const title = computed(() => detail.value?.node?.title || "节点详情");
 const meta = computed(() => {
@@ -77,15 +78,23 @@ const coreFields = computed(() => {
 });
 
 watch(() => props.nodeId, async (id) => {
-  if (!id) { detail.value = null; return; }
+  const requestId = ++detailRequestId;
+  if (!id) {
+    detail.value = null;
+    error.value = "";
+    loading.value = false;
+    return;
+  }
   loading.value = true; error.value = ""; detail.value = null;
   try {
     const { data } = await getNodeDetail(id);
+    if (requestId !== detailRequestId) return;
     detail.value = data;
   } catch (e) {
-    error.value = e.response?.data?.error || "加载失败";
+    if (requestId !== detailRequestId) return;
+    error.value = e.response?.data?.detail || "加载失败";
   } finally {
-    loading.value = false;
+    if (requestId === detailRequestId) loading.value = false;
   }
 });
 
@@ -93,7 +102,7 @@ async function viewFile() {
   if (!props.nodeId) return;
   try {
     const { data } = await getFileUrlByUuid(detail.value.paper.file_uuid, "view");
-    window.open(data.url, "_blank");
+    window.open(data.url, "_blank", "noopener,noreferrer");
   } catch { error.value = "暂未挂载原始文献文件"; }
 }
 

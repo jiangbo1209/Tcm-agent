@@ -7,11 +7,13 @@ get_db；require_annotator/require_admin 走真实依赖链（真实 JWT + DB �
 抽取的并发安全在 sqlite 上以「rowcount 对账 + 重试一次」路径覆盖：
 test_claim_retry_after_contention 用带毒的候选列表制造首次对账失败，
 断言重试路径真的被执行（而非静默成功）；PG FOR UPDATE SKIP LOCKED
-路径由 skipif 保护的 8 线程并发测试覆盖（无 PG 时本地跳过）。
+路径由仅接受显式 TEST_POSTGRES_DSN 的 8 线程隔离并发测试覆盖。
 """
 
 from __future__ import annotations
 
+import os
+import uuid
 from datetime import datetime, timedelta, timezone
 
 import pytest
@@ -473,45 +475,47 @@ def test_claim_gives_up_after_two_poisoned_attempts(client, db, monkeypatch):
 # --- (g-pg) SKIP LOCKED 并发：8 线程同时 claim，恰 1 成功 7×409 ------------
 
 
-def _pg_reachable() -> bool:
-    import socket
-
-    from app.config import get_database_config
-
-    cfg = get_database_config()
-    try:
-        with socket.create_connection((cfg.host, cfg.port), timeout=2):
-            return True
-    except OSError:
-        return False
+# 必须由测试调用方显式注入；禁止回退到项目 .env 的业务数据库。
+TEST_POSTGRES_DSN = os.environ.get("TEST_POSTGRES_DSN", "").strip()
+requires_test_pg = pytest.mark.skipif(
+    not TEST_POSTGRES_DSN,
+    reason="未显式设置隔离测试库 TEST_POSTGRES_DSN",
+)
 
 
-requires_pg = pytest.mark.skipif(not _pg_reachable(), reason="PostgreSQL 不可用")
-
-
-@requires_pg
+@requires_test_pg
 def test_pg_concurrent_claims_exactly_one_winner():
     import concurrent.futures
 
-    from sqlalchemy import create_engine
+    from sqlalchemy import create_engine, text
     from sqlalchemy.orm import sessionmaker
 
     import app.models.conversation  # noqa: F401
     import app.models.message  # noqa: F401
     from app.auth.service import create_access_token
-    from app.config import get_database_config
     from app.core.database import get_db
     from app.models import Base, AnnotationPool, AnnotationPoolItem
     from app.models.user import User
     from app.routers.annotation import router as annotation_router
 
-    engine = create_engine(
-        get_database_config().dsn, connect_args={"connect_timeout": 3}
+    # 每次测试使用随机 schema。即使 TEST_POSTGRES_DSN 误指向共享数据库，
+    # 建表、写入和清理也只发生在本次测试创建的 schema 内。
+    schema_name = f"test_annotation_claim_{uuid.uuid4().hex}"
+    admin_engine = create_engine(
+        TEST_POSTGRES_DSN, connect_args={"connect_timeout": 3}
     )
-    # 只 create（幂等）不 drop：目标可能是共享 PG，销毁性清理不可接受；
-    # 本测试产生的少量行留在测试库中由 CI 环境自行回收。
-    Base.metadata.create_all(engine)
+    with admin_engine.begin() as connection:
+        connection.execute(text(f'CREATE SCHEMA "{schema_name}"'))
+
+    engine = create_engine(
+        TEST_POSTGRES_DSN,
+        connect_args={
+            "connect_timeout": 3,
+            "options": f"-csearch_path={schema_name}",
+        },
+    )
     try:
+        Base.metadata.create_all(engine)
         SessionLocal = sessionmaker(bind=engine)
 
         seed = SessionLocal()
@@ -586,5 +590,9 @@ def test_pg_concurrent_claims_exactly_one_winner():
         finally:
             check.close()
     finally:
-        Base.metadata.drop_all(engine)
         engine.dispose()
+        try:
+            with admin_engine.begin() as connection:
+                connection.execute(text(f'DROP SCHEMA "{schema_name}" CASCADE'))
+        finally:
+            admin_engine.dispose()

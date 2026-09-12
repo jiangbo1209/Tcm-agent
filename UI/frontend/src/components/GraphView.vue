@@ -1,5 +1,5 @@
 <template>
-  <div class="graph-container" ref="containerRef">
+  <div class="graph-container">
     <div ref="graphRef" class="graph-canvas"></div>
     <div class="graph-overlay">
       <div class="zoom-controls">
@@ -22,6 +22,10 @@
       <div class="taiji-spinner"><span class="taiji-dot"></span></div>
       <div class="loading-text">正在演算中医关系网络...</div>
     </div>
+    <div v-if="errorMessage && !loading" class="graph-error" role="alert">
+      <span>{{ errorMessage }}</span>
+      <button type="button" @click="errorMessage = ''">关闭</button>
+    </div>
     <div v-if="!loading && nodeCount === 0" class="graph-empty">
       <div class="empty-art"><span class="empty-ring"></span><span class="empty-dot"></span><span class="empty-wave"></span></div>
     </div>
@@ -30,7 +34,7 @@
 
 <script setup>
 import { ref, onMounted, onBeforeUnmount } from "vue";
-import { Graph, NodeEvent, GraphEvent } from "@antv/g6";
+import { Graph, NodeEvent } from "@antv/g6";
 import { expandGraph } from "../api/graph";
 
 const YEAR_DOMAIN = [1963, 2024];
@@ -43,20 +47,24 @@ const HOVER_NODE_STROKE = "#4f46e5";
 const EDGE_BASE_COLOR = "#aeb7c2";
 const LABEL_MAX_CHARS = 16;
 
-const emit = defineEmits(["nodeClick", "nodeHover"]);
+const emit = defineEmits(["nodeClick"]);
 const props = defineProps({ maxExpansions: { type: Number, default: 3 } });
-const containerRef = ref(null);
 const graphRef = ref(null);
 const loading = ref(false);
+const errorMessage = ref("");
 const nodeCount = ref(0);
+const visibleNodeList = ref([]);
 
 let graph = null;
 let activeSeedNodeId = null;
 const nodeMap = new Map();
 const edgeMap = new Map();
-const inFlightSeeds = new Set();
+const inFlightSeeds = new Map();
+const expandedSeeds = new Set();
 const expansionHistory = [];
 let visibleLimit = 3;
+let graphGeneration = 0;
+let layoutGeneration = 0;
 
 function clamp(v, min, max) { return Math.max(min, Math.min(max, v)); }
 function normalize(v, d) { const s = Number.isFinite(v) ? v : d[0]; return d[0] === d[1] ? 0.5 : (clamp(s, d[0], d[1]) - d[0]) / (d[1] - d[0]); }
@@ -82,8 +90,8 @@ function mapNode(raw) {
   const node = {
     id: String(raw.id),
     type: nt === "paper" ? "circle" : "rect",
-    size: nt === "paper" ? size : [size, size],
     data: {
+      id: String(raw.id),
       node_type: nt, title: raw.title || String(raw.id),
       full_label: full, short_label: short,
       metric_value: Number(raw.metric_value),
@@ -93,6 +101,7 @@ function mapNode(raw) {
     },
     style: {
       fill: mapNodeColor(nt, py, age),
+      size: nt === "paper" ? size : [size, size],
       stroke: DEFAULT_NODE_STROKE,
       lineWidth: 1,
       cursor: "pointer",
@@ -218,17 +227,21 @@ function applyHover(focusNodeId) {
 
 function markSeed(id) {
   if (!graph) return;
+  const normalizedId = String(id);
+  const previousSeedId = activeSeedNodeId;
+  activeSeedNodeId = normalizedId;
+
   // Clear old seed style
-  if (activeSeedNodeId && activeSeedNodeId !== id) {
-    const prevData = graph.getNodeData(activeSeedNodeId);
+  if (previousSeedId && previousSeedId !== normalizedId && graph.hasNode(previousSeedId)) {
+    const prevData = graph.getNodeData(previousSeedId);
     if (prevData) {
       const updates = applyNodeBaseStyle(prevData);
       graph.updateNodeData([updates]);
     }
   }
-  activeSeedNodeId = id;
+
   // Apply seed style
-  const curData = graph.getNodeData(id);
+  const curData = graph.hasNode(normalizedId) ? graph.getNodeData(normalizedId) : null;
   if (curData) {
     const updates = applyNodeBaseStyle(curData);
     graph.updateNodeData([updates]);
@@ -241,7 +254,6 @@ function markSeed(id) {
 function mergeGraph(payload) {
   const inN = Array.isArray(payload.nodes) ? payload.nodes.map(mapNode) : [];
   const inE = Array.isArray(payload.edges) ? payload.edges.map(mapEdge) : [];
-  const newN = inN.filter(n => !nodeMap.has(n.id));
   inN.forEach(n => {
     const existing = nodeMap.get(n.id);
     if (existing) {
@@ -253,14 +265,8 @@ function mergeGraph(payload) {
     nodeMap.set(n.id, n);
   });
   const validE = inE.filter(e => nodeMap.has(e.source) && nodeMap.has(e.target));
-  const newE = validE.filter(e => !edgeMap.has(e.id));
   validE.forEach(e => edgeMap.set(e.id, e));
 
-  // v5: use addData instead of addItem
-  if (newN.length) graph.addData({ nodes: newN });
-  if (newE.length) graph.addData({ edges: newE });
-
-  nodeCount.value = nodeMap.size;
   return {
     nodeIds: inN.map(n => n.id),
     edgeIds: validE.map(e => e.id),
@@ -295,7 +301,7 @@ function getVisibleIds(limit) {
   return { nodeIds, edgeIds };
 }
 
-function renderCurrentGraph({ relayout = false } = {}) {
+async function renderCurrentGraph({ relayout = false } = {}) {
   if (!graph) return;
   syncNodePositions();
 
@@ -307,31 +313,46 @@ function renderCurrentGraph({ relayout = false } = {}) {
 
   // v5: setData + draw instead of changeData
   graph.setData({ nodes: visibleNodes, edges: visibleEdges });
-  graph.draw();
+  await graph.draw();
   nodeCount.value = visibleNodes.length;
+  visibleNodeList.value = visibleNodes.map((node) => ({
+    id: node.id,
+    ...(node.data || {}),
+  }));
 
-  if (activeSeedNodeId && nodeMap.has(activeSeedNodeId)) {
+  if (activeSeedNodeId && graph.hasNode(activeSeedNodeId)) {
     const nd = graph.getNodeData(activeSeedNodeId);
     if (nd) {
       const updates = applyNodeBaseStyle(nd);
       graph.updateNodeData([updates]);
-      graph.draw();
+      await graph.draw();
     }
   }
-  if (relayout) graph.layout();
+  if (relayout) await runLayout();
 }
 
-function applyExpansionLimit({ relayout = false } = {}) {
+async function applyExpansionLimit({ relayout = false } = {}) {
   visibleLimit = Math.max(0, Number(props.maxExpansions) || 0);
-  renderCurrentGraph({ relayout });
+  await renderCurrentGraph({ relayout });
 }
 
 async function fetchAndExpand(seedId) {
-  if (inFlightSeeds.has(seedId)) return;
+  const normalizedSeedId = String(seedId || "").trim();
+  if (!normalizedSeedId || expandedSeeds.has(normalizedSeedId)) return true;
+  if (inFlightSeeds.has(normalizedSeedId)) return inFlightSeeds.get(normalizedSeedId).promise;
+
+  const requestGeneration = graphGeneration;
+  const requestToken = Symbol(normalizedSeedId);
+  let resolveRequest;
+  const requestPromise = new Promise(resolve => { resolveRequest = resolve; });
+  inFlightSeeds.set(normalizedSeedId, { token: requestToken, promise: requestPromise });
+  loading.value = inFlightSeeds.size > 0;
+  errorMessage.value = "";
+
+  let succeeded = false;
   try {
-    inFlightSeeds.add(seedId);
-    loading.value = true;
-    const { data } = await expandGraph(seedId);
+    const { data } = await expandGraph(normalizedSeedId);
+    if (requestGeneration !== graphGeneration || !graph) return false;
 
     const centerX = graphRef.value?.clientWidth / 2 || 400;
     const centerY = graphRef.value?.clientHeight / 2 || 300;
@@ -353,54 +374,80 @@ async function fetchAndExpand(seedId) {
     expansionHistory.push({ seedId: String(seedId), nodeIds: new Set(nodeIds), edgeIds: new Set(edgeIds) });
 
     // Place seed node at center
-    const seedNode = nodeMap.get(seedId);
+    const seedNode = nodeMap.get(normalizedSeedId);
     if (seedNode && seedNode.style) {
       seedNode.style.x = centerX;
       seedNode.style.y = centerY;
     }
-    const seedData = graph.getNodeData(seedId);
-    if (seedData) {
-      graph.updateNodeData([{ id: seedId, style: { x: centerX, y: centerY } }]);
+
+    await applyExpansionLimit();
+    if (requestGeneration !== graphGeneration || !graph) return false;
+
+    // Run one settled layout. Duplicate clicks do not restart the simulation.
+    await runLayout();
+    if (requestGeneration !== graphGeneration || !graph) return false;
+    if (nodeMap.has(normalizedSeedId)) markSeed(normalizedSeedId);
+
+    await graph.fitView({ when: "always", direction: "both" }, { easing: "easeCubic", duration: 260 });
+    expandedSeeds.add(normalizedSeedId);
+    succeeded = true;
+    return true;
+  } catch (error) {
+    console.error("Failed to expand graph", error);
+    if (requestGeneration === graphGeneration) {
+      errorMessage.value = error?.response?.data?.detail || "图谱加载失败，请稍后重试";
     }
-
-    applyExpansionLimit();
-
-    // Run one-time layout
-    graph.layout();
-    if (nodeMap.has(String(seedId))) markSeed(String(seedId));
-
-    // Fit view after layout settles
-    setTimeout(() => graph.fitView(), 500);
+    return false;
   } finally {
-    inFlightSeeds.delete(seedId);
-    loading.value = false;
+    const currentRequest = inFlightSeeds.get(normalizedSeedId);
+    if (currentRequest?.token === requestToken) inFlightSeeds.delete(normalizedSeedId);
+    loading.value = inFlightSeeds.size > 0;
+    resolveRequest(succeeded);
   }
 }
 
-function zoomIn() { graph?.zoom(1.12); }
-function zoomOut() { graph?.zoom(0.9); }
-function fitView() { graph?.fitView(); }
-function focusNode(id) {
-  if (graph) graph.focusItem(id, true, { easing: "easeCubic", duration: 400 });
+async function runLayout() {
+  if (!graph || graph.getNodeData().length === 0) return;
+  const currentLayoutGeneration = ++layoutGeneration;
+  graph.stopLayout();
+  await graph.layout();
+  if (currentLayoutGeneration === layoutGeneration) syncNodePositions();
+}
+
+function zoomIn() { return graph?.zoomBy(1.12, { easing: "easeCubic", duration: 160 }); }
+function zoomOut() { return graph?.zoomBy(0.9, { easing: "easeCubic", duration: 160 }); }
+function fitView() { return graph?.fitView({ when: "always", direction: "both" }, { easing: "easeCubic", duration: 220 }); }
+async function focusNode(id) {
+  const normalizedId = String(id || "").trim();
+  if (!graph || !normalizedId || !graph.hasNode(normalizedId)) return false;
+  await graph.focusElement(normalizedId, { easing: "easeCubic", duration: 300 });
+  return true;
 }
 function clearGraph() {
+  graphGeneration += 1;
+  layoutGeneration += 1;
+  graph?.stopLayout();
   activeSeedNodeId = null;
   nodeMap.clear();
   edgeMap.clear();
   inFlightSeeds.clear();
+  expandedSeeds.clear();
   expansionHistory.length = 0;
   nodeCount.value = 0;
-  visibleLimit = 3;
+  visibleNodeList.value = [];
+  visibleLimit = Math.max(0, Number(props.maxExpansions) || 0);
+  errorMessage.value = "";
   if (graph) {
     graph.setData({ nodes: [], edges: [] });
-    graph.draw();
+    void graph.draw();
   }
 }
-function applyMaxExpansions() { applyExpansionLimit({ relayout: true }); }
+function applyMaxExpansions() { return applyExpansionLimit({ relayout: true }); }
+function handleWindowResize() { if (graph) graph.resize(); }
 
 /* ── lifecycle ────────────────────────────────────────────── */
 
-onMounted(() => {
+onMounted(async () => {
   const container = graphRef.value;
   if (!container) return;
 
@@ -435,51 +482,61 @@ onMounted(() => {
     behaviors: ["zoom-canvas", "drag-canvas", "drag-element"],
     layout: {
       type: "force",
+      animation: false,
+      iterations: 220,
       preventOverlap: true,
       linkDistance: (edge) => mapDistance(edge.data?.similarity_score),
-      nodeStrength: -80,
-      edgeStrength: 0.6,
+      nodeSize: (node) => {
+        const size = node.style?.size;
+        return Array.isArray(size) ? Math.max(...size) : Number(size) || 30;
+      },
+      nodeStrength: 800,
+      edgeStrength: 50,
       collideStrength: 0.8,
-      alphaDecay: 0.05,
-      alphaMin: 0.01,
+      damping: 0.82,
+      minMovement: 0.8,
     },
   });
 
-  graph.render();
+  await graph.render();
 
   // v5 events: NodeEvent.CLICK replaces "node:click"
-  graph.on(NodeEvent.CLICK, async (evt) => {
+  graph.on(NodeEvent.CLICK, (evt) => {
     const { target } = evt;
     const nodeId = target?.id;
     if (!nodeId) return;
     const nodeData = graph.getNodeData(nodeId);
     if (!nodeData) return;
     markSeed(nodeId);
-    emit("nodeClick", nodeData.data || nodeData);
-    await fetchAndExpand(nodeId);
+    emit("nodeClick", { id: nodeData.id, ...(nodeData.data || {}) });
+    void fetchAndExpand(nodeId);
   });
 
-  graph.on(NodeEvent.POINTER_OVER, (evt) => {
+  graph.on(NodeEvent.POINTER_ENTER, (evt) => {
     const { target } = evt;
     const nodeId = target?.id;
     if (!nodeId) return;
     applyHover(nodeId);
-    const nodeData = graph.getNodeData(nodeId);
-    emit("nodeHover", nodeData?.data || nodeData || null);
   });
 
   graph.on(NodeEvent.POINTER_LEAVE, () => {
     resetHover();
-    emit("nodeHover", null);
   });
 
   // v5: resize() instead of changeSize()
-  window.addEventListener("resize", () => { if (graph) graph.resize(); });
+  window.addEventListener("resize", handleWindowResize);
 });
 
-onBeforeUnmount(() => { graph?.destroy(); graph = null; });
+onBeforeUnmount(() => {
+  graphGeneration += 1;
+  layoutGeneration += 1;
+  window.removeEventListener("resize", handleWindowResize);
+  graph?.stopLayout();
+  graph?.destroy();
+  graph = null;
+});
 
-defineExpose({ fetchAndExpand, focusNode, clearGraph, setSeedNode: markSeed, applyMaxExpansions, nodeMap, nodeCount });
+defineExpose({ fetchAndExpand, focusNode, clearGraph, setSeedNode: markSeed, applyMaxExpansions, nodeCount, visibleNodeList });
 </script>
 
 <style scoped>
@@ -496,6 +553,8 @@ defineExpose({ fetchAndExpand, focusNode, clearGraph, setSeedNode: markSeed, app
 .year-bar { width: 100%; height: 4px; border-radius: 999px; background: linear-gradient(90deg, #c9f4ee, #00796b); }
 .graph-loading, .graph-empty { position: absolute; inset: 0; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 12px; pointer-events: none; }
 .graph-loading { background: rgba(248,249,250,0.78); }
+.graph-error { position: absolute; left: 50%; top: 16px; z-index: 8; transform: translateX(-50%); display: flex; align-items: center; gap: 12px; max-width: min(520px, calc(100% - 32px)); padding: 9px 12px; border: 1px solid rgba(185,28,28,0.2); border-radius: 10px; background: rgba(255,247,247,0.96); color: #991b1b; font-size: 12px; box-shadow: 0 8px 20px rgba(80,20,20,0.12); }
+.graph-error button { border: 0; background: transparent; color: inherit; cursor: pointer; font-size: 12px; }
 .taiji-spinner { position: relative; width: 56px; height: 56px; border-radius: 50%; background: linear-gradient(90deg, #0f2f2a 50%, #f4f0e6 50%); box-shadow: 0 10px 20px rgba(15,25,22,0.18); animation: taiji-spin 1.6s linear infinite; }
 .taiji-spinner::before, .taiji-spinner::after { content: ""; position: absolute; left: 50%; width: 28px; height: 28px; border-radius: 50%; transform: translateX(-50%); }
 .taiji-spinner::before { top: 0; background: #f4f0e6; }

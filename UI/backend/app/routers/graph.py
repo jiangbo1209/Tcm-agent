@@ -87,9 +87,22 @@ def _load_detail_by_file_uuid(request: Request, file_uuid: str, source_type: str
 @router.get("/search", response_model=NodeSearchResponse)
 def search_nodes(
     request: Request,
-    q: str = Query(..., description="Search keyword"),
+    q: str = Query(..., min_length=1, max_length=200, description="Search keyword"),
     page: int = Query(1, ge=1, description="Page number"),
     size: int = Query(10, ge=1, le=50, description="Page size"),
 ):
-    rows = request.app.state.graph_repository.search_nodes(q, size)
-    return NodeSearchResponse(items=rows, total=len(rows), page=page)
+    normalized_q = q.strip()
+    if not normalized_q:
+        return NodeSearchResponse(items=[], total=0, page=page)
+
+    repository = request.app.state.graph_repository
+    try:
+        rows, total = repository.search_nodes_page(
+            normalized_q,
+            limit=size,
+            offset=(page - 1) * size,
+        )
+    except SQLAlchemyError as exc:
+        LOGGER.exception("Failed to search graph nodes for q=%r", normalized_q)
+        raise HTTPException(status_code=500, detail="database query failed") from exc
+    return NodeSearchResponse(items=rows, total=total, page=page)

@@ -44,61 +44,78 @@ function scrollToBottom() {
 }
 
 async function handleSend(content) {
-  if (!chatStore.currentConversationId) {
-    await chatStore.newConversation();
-  }
-
-  const convId = chatStore.currentConversationId;
-
-  chatStore.addMessage({
-    id: Date.now(),
-    conversation_id: convId,
-    role: "user",
-    content,
-    created_at: new Date().toISOString(),
-  });
-
+  if (streaming.value) return;
   streaming.value = true;
-
-  chatStore.addMessage({
-    id: Date.now() + 1,
-    conversation_id: convId,
-    role: "assistant",
-    content: "",
-    streaming: true,
-    agent_steps: [],
-    created_at: new Date().toISOString(),
-  });
+  let assistantMessageId = null;
 
   try {
-    await sendMessageStream(
+    if (!chatStore.currentConversationId) {
+      await chatStore.newConversation();
+    }
+
+    const convId = chatStore.currentConversationId;
+    chatStore.addMessage({
+      id: `user-${crypto.randomUUID()}`,
+      conversation_id: convId,
+      role: "user",
+      content,
+      created_at: new Date().toISOString(),
+    });
+
+    assistantMessageId = `assistant-${crypto.randomUUID()}`;
+    chatStore.addMessage({
+      id: assistantMessageId,
+      conversation_id: convId,
+      role: "assistant",
+      content: "",
+      streaming: true,
+      agent_steps: [],
+      created_at: new Date().toISOString(),
+    });
+
+    const streamResult = await sendMessageStream(
       convId,
       content,
       (chunk) => {
         if (!chunk) return;
-        chatStore.appendToLastAssistant(chunk);
+        chatStore.appendToAssistant(assistantMessageId, chunk);
         nextTick(() => scrollToBottom());
       },
       (data) => {
         if (data.conversation) {
           chatStore.upsertConversation(data.conversation);
         }
-        chatStore.replaceLastAssistant({ ...(data.message || data), streaming: false });
-        streaming.value = false;
+        chatStore.replaceAssistant(assistantMessageId, { ...(data.message || data), streaming: false });
         nextTick(() => scrollToBottom());
       },
       (event, payload) => {
-        handleAgentEvent(event, payload);
+        handleAgentEvent(event, payload, assistantMessageId);
       }
     );
+    if (!streamResult.done) {
+      chatStore.appendToAssistant(assistantMessageId, "\n\n[响应连接已中断，请重试]");
+    }
   } catch {
+    if (assistantMessageId) {
+      chatStore.appendToAssistant(assistantMessageId, "\n\n[消息发送失败，请重试]");
+    } else {
+      chatStore.addMessage({
+        id: `error-${crypto.randomUUID()}`,
+        role: "assistant",
+        content: "[无法创建对话，请稍后重试]",
+        streaming: false,
+        created_at: new Date().toISOString(),
+      });
+    }
+  } finally {
     streaming.value = false;
-    chatStore.mergeLastAssistantMeta({ streaming: false });
-    chatStore.appendToLastAssistant("\n\n[消息发送失败，请重试]");
+    if (assistantMessageId) {
+      chatStore.mergeAssistantMeta(assistantMessageId, { streaming: false });
+    }
   }
 }
 
-function handleAgentEvent(event, payload) {
+function handleAgentEvent(event, payload, assistantMessageId) {
   if (event === "conversation_updated") {
     chatStore.upsertConversation(payload);
     return;
@@ -114,7 +131,7 @@ function handleAgentEvent(event, payload) {
     error: "处理过程出现错误",
   };
 
-  chatStore.addStepToLastAssistant({
+  chatStore.addStepToAssistant(assistantMessageId, {
     event,
     label: stepMap[event] || event,
     detail: buildStepDetail(event, payload),
@@ -122,13 +139,13 @@ function handleAgentEvent(event, payload) {
   });
 
   if (event === "query_plan") {
-    chatStore.mergeLastAssistantMeta({
+    chatStore.mergeAssistantMeta(assistantMessageId, {
       query_plan: payload,
       intent: payload.intent,
       retrieval_query: payload.rewritten_query,
     });
   } else if (event === "retrieval_done") {
-    chatStore.mergeLastAssistantMeta({
+    chatStore.mergeAssistantMeta(assistantMessageId, {
       retrieval_used: true,
       retrieval_total: payload.total,
       evidence_status: payload.evidence_status,
@@ -136,9 +153,9 @@ function handleAgentEvent(event, payload) {
       warnings: payload.warnings || [],
     });
   } else if (event === "validation_done") {
-    chatStore.mergeLastAssistantMeta({ validation_result: payload });
+    chatStore.mergeAssistantMeta(assistantMessageId, { validation_result: payload });
   } else if (event === "done") {
-    chatStore.mergeLastAssistantMeta({
+    chatStore.mergeAssistantMeta(assistantMessageId, {
       query_plan: payload.query_plan,
       intent: payload.query_plan?.intent,
       retrieval_query: payload.query_plan?.rewritten_query,

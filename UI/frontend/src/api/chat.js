@@ -34,6 +34,26 @@ export async function sendMessageStream(conversationId, content, onChunk, onDone
   const reader = response.body.getReader();
   const decoder = new TextDecoder();
   let buffer = "";
+  let receivedDone = false;
+
+  function processLine(line) {
+    if (!line.startsWith("data:")) return;
+    const raw = line.slice(5).trimStart();
+    if (!raw) return;
+    try {
+      const data = JSON.parse(raw);
+      if (data.done) {
+        receivedDone = true;
+        onDone?.(data);
+      } else if (data.event && data.event !== "answer_delta") {
+        onEvent?.(data.event, data.payload || {});
+      } else {
+        onChunk?.(data.content || "");
+      }
+    } catch (error) {
+      console.warn("忽略无法解析的流式响应", error);
+    }
+  }
 
   while (true) {
     const { done, value } = await reader.read();
@@ -43,19 +63,10 @@ export async function sendMessageStream(conversationId, content, onChunk, onDone
     const lines = buffer.split("\n");
     buffer = lines.pop();
 
-    for (const line of lines) {
-      if (line.startsWith("data: ")) {
-        try {
-          const data = JSON.parse(line.slice(6));
-          if (data.done) {
-            onDone?.(data);
-          } else if (data.event && data.event !== "answer_delta") {
-            onEvent?.(data.event, data.payload || {});
-          } else {
-            onChunk?.(data.content || "");
-          }
-        } catch {}
-      }
-    }
+    lines.forEach(processLine);
   }
+
+  buffer += decoder.decode();
+  if (buffer.trim()) processLine(buffer);
+  return { done: receivedDone };
 }

@@ -59,8 +59,18 @@ class StubGraphService:
 
 
 class StubGraphRepository:
-    def search_nodes(self, keyword: str, size: int) -> list[dict]:
-        return [{"node_id": "n1", "title": "中医证候研究", "source_type": "paper"}]
+    def search_nodes_page(
+        self, keyword: str, limit: int, offset: int
+    ) -> tuple[list[dict], int]:
+        rows = [
+            {
+                "node_id": f"n{index}",
+                "title": f"中医证候研究{index}",
+                "source_type": "paper",
+            }
+            for index in range(1, 4)
+        ]
+        return rows[offset : offset + limit], len(rows)
 
 
 def _build_app() -> FastAPI:
@@ -116,6 +126,21 @@ def test_professional_gets_200(path):
 def test_admin_gets_200(path):
     resp = _client(_build_app(), "admin").get(path)
     assert resp.status_code == 200
+
+
+def test_search_applies_page_offset_and_returns_full_total():
+    resp = _client(_build_app(), "professional").get(
+        "/api/graph/search?q=%E8%AF%81%E5%80%99&page=2&size=1"
+    )
+
+    assert resp.status_code == 200
+    assert resp.json() == {
+        "items": [
+            {"node_id": "n2", "title": "中医证候研究2", "source_type": "paper"}
+        ],
+        "total": 3,
+        "page": 2,
+    }
 
 
 # --- wiring 守卫：main.py 的 graph include 必须自带鉴权 ---------------------------

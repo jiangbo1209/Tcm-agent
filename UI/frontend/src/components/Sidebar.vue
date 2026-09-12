@@ -141,6 +141,7 @@
       <div class="history-header">
         <span>历史记录</span>
       </div>
+      <div v-if="historyError" class="history-error">{{ historyError }}</div>
       <div class="history-list">
         <div
           v-for="conv in chatStore.conversations"
@@ -193,6 +194,7 @@ const router = useRouter();
 const authStore = useAuthStore();
 const chatStore = useChatStore();
 const isCollapsed = ref(false);
+const historyError = ref("");
 
 const avatarLetter = computed(() => "U");
 
@@ -206,25 +208,36 @@ const userRoleLabel = computed(() => {
 });
 
 onMounted(() => {
-  chatStore.fetchConversations();
+  runChatAction(() => chatStore.fetchConversations(), "对话记录加载失败");
 });
 
+async function runChatAction(action, fallbackMessage) {
+  historyError.value = "";
+  try {
+    await action();
+    return true;
+  } catch (error) {
+    historyError.value = error.response?.data?.detail || fallbackMessage;
+    return false;
+  }
+}
+
 async function handleNewChat() {
-  await chatStore.newConversation();
-  if (router.currentRoute.value.path !== "/") {
-    router.push("/");
+  const succeeded = await runChatAction(() => chatStore.newConversation(), "新建对话失败");
+  if (succeeded && router.currentRoute.value.path !== "/") {
+    await router.push("/");
   }
 }
 
 async function handleSelectConversation(id) {
-  await chatStore.selectConversation(id);
-  if (router.currentRoute.value.path !== "/") {
-    router.push("/");
+  const succeeded = await runChatAction(() => chatStore.selectConversation(id), "对话加载失败");
+  if (succeeded && router.currentRoute.value.path !== "/") {
+    await router.push("/");
   }
 }
 
 async function handleDeleteConversation(id) {
-  await chatStore.removeConversation(id);
+  await runChatAction(() => chatStore.removeConversation(id), "删除对话失败");
 }
 
 function toggleSidebar() {
@@ -414,6 +427,16 @@ function handleLogout() {
   flex: 1;
   overflow-y: auto;
   padding: 0 8px 8px;
+}
+
+.history-error {
+  margin: 0 12px 8px;
+  padding: 7px 9px;
+  border-radius: 6px;
+  background: rgba(239, 83, 80, 0.14);
+  color: #ffcdd2;
+  font-size: 12px;
+  line-height: 1.4;
 }
 
 .history-item {

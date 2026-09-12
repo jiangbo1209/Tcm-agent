@@ -12,6 +12,7 @@ export const useChatStore = defineStore("chat", () => {
   const currentConversationId = ref(null);
   const messages = ref([]);
   const loading = ref(false);
+  let conversationRequestId = 0;
 
   async function fetchConversations() {
     const { data } = await getConversations();
@@ -19,21 +20,35 @@ export const useChatStore = defineStore("chat", () => {
   }
 
   async function newConversation(title) {
+    const requestId = ++conversationRequestId;
+    loading.value = false;
     const { data } = await createConversation(title);
     conversations.value.unshift(data);
-    currentConversationId.value = data.id;
-    messages.value = [];
+    if (requestId === conversationRequestId) {
+      currentConversationId.value = data.id;
+      messages.value = [];
+    }
     return data;
   }
 
   async function selectConversation(id) {
+    const requestId = ++conversationRequestId;
+    const previousConversationId = currentConversationId.value;
+    const previousMessages = messages.value;
     currentConversationId.value = id;
     loading.value = true;
     try {
       const { data } = await getMessages(id);
+      if (requestId !== conversationRequestId || currentConversationId.value !== id) return;
       messages.value = data.items || [];
+    } catch (error) {
+      if (requestId === conversationRequestId && currentConversationId.value === id) {
+        currentConversationId.value = previousConversationId;
+        messages.value = previousMessages;
+      }
+      throw error;
     } finally {
-      loading.value = false;
+      if (requestId === conversationRequestId) loading.value = false;
     }
   }
 
@@ -41,8 +56,10 @@ export const useChatStore = defineStore("chat", () => {
     await deleteConversation(id);
     conversations.value = conversations.value.filter((c) => c.id !== id);
     if (currentConversationId.value === id) {
+      conversationRequestId += 1;
       currentConversationId.value = null;
       messages.value = [];
+      loading.value = false;
     }
   }
 
@@ -50,24 +67,28 @@ export const useChatStore = defineStore("chat", () => {
     messages.value.push(msg);
   }
 
-  function appendToLastAssistant(content) {
-    const last = messages.value[messages.value.length - 1];
-    if (last && last.role === "assistant") {
-      last.content += content;
+  function findAssistant(messageId) {
+    return messages.value.find((message) => message.id === messageId && message.role === "assistant");
+  }
+
+  function appendToAssistant(messageId, content) {
+    const message = findAssistant(messageId);
+    if (message) {
+      message.content += content;
     }
   }
 
-  function addStepToLastAssistant(step) {
-    const last = messages.value[messages.value.length - 1];
-    if (last && last.role === "assistant") {
-      last.agent_steps = [...(last.agent_steps || []), step];
+  function addStepToAssistant(messageId, step) {
+    const message = findAssistant(messageId);
+    if (message) {
+      message.agent_steps = [...(message.agent_steps || []), step];
     }
   }
 
-  function mergeLastAssistantMeta(meta) {
-    const last = messages.value[messages.value.length - 1];
-    if (last && last.role === "assistant") {
-      Object.assign(last, meta);
+  function mergeAssistantMeta(messageId, meta) {
+    const message = findAssistant(messageId);
+    if (message) {
+      Object.assign(message, meta);
     }
   }
 
@@ -88,8 +109,8 @@ export const useChatStore = defineStore("chat", () => {
     conversations.value.unshift(conversation);
   }
 
-  function replaceLastAssistant(savedMessage) {
-    const index = messages.value.length - 1;
+  function replaceAssistant(messageId, savedMessage) {
+    const index = messages.value.findIndex((message) => message.id === messageId);
     const current = messages.value[index];
     if (index >= 0 && current?.role === "assistant" && savedMessage) {
       messages.value[index] = {
@@ -109,10 +130,10 @@ export const useChatStore = defineStore("chat", () => {
     selectConversation,
     removeConversation,
     addMessage,
-    appendToLastAssistant,
-    addStepToLastAssistant,
-    mergeLastAssistantMeta,
+    appendToAssistant,
+    addStepToAssistant,
+    mergeAssistantMeta,
     upsertConversation,
-    replaceLastAssistant,
+    replaceAssistant,
   };
 });
