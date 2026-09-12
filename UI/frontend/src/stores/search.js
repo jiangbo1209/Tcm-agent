@@ -12,27 +12,31 @@ export const useSearchStore = defineStore("search", () => {
   const history = ref([]);
   const error = ref("");
   const facets = ref({});
+  let searchRequestId = 0;
 
   async function search(query, type = "both", pageNum = 1, size = 10, filters = {}) {
+    const requestId = ++searchRequestId;
     loading.value = true;
     error.value = "";
     searchType.value = type;
     page.value = pageNum;
     try {
       const { data } = await smartSearch(query, type, pageNum, size, filters);
+      if (requestId !== searchRequestId) return;
       results.value = data.items || [];
       total.value = data.total || 0;
       totalPages.value = data.total_pages || 0;
       page.value = data.page || 1;
       facets.value = data.facets || {};
     } catch (err) {
+      if (requestId !== searchRequestId) return;
       results.value = [];
       total.value = 0;
       totalPages.value = 0;
       facets.value = {};
       error.value = err.response?.data?.error || err.response?.data?.detail || "搜索失败，请稍后重试";
     } finally {
-      loading.value = false;
+      if (requestId === searchRequestId) loading.value = false;
     }
   }
 

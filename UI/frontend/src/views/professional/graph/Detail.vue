@@ -68,6 +68,7 @@ const loading = ref(false);
 const error = ref("");
 const fileError = ref("");
 const detail = ref(null);
+let detailRequestId = 0;
 
 const nodeId = computed(() => route.params.nodeId);
 const fileUuid = computed(() => route.params.fileUuid);
@@ -106,7 +107,13 @@ const recordRows = computed(() =>
 );
 
 async function loadDetail(id, fid, stype) {
-  if (!id && !(fid && stype)) return;
+  const requestId = ++detailRequestId;
+  if (!id && !(fid && stype)) {
+    detail.value = null;
+    error.value = "";
+    loading.value = false;
+    return;
+  }
   loading.value = true;
   error.value = "";
   fileError.value = "";
@@ -118,11 +125,13 @@ async function loadDetail(id, fid, stype) {
     } else {
       resp = await getNodeDetail(id);
     }
+    if (requestId !== detailRequestId) return;
     detail.value = resp.data;
   } catch (e) {
+    if (requestId !== detailRequestId) return;
     error.value = e.response?.data?.error || e.response?.data?.detail || "详情加载失败";
   } finally {
-    loading.value = false;
+    if (requestId === detailRequestId) loading.value = false;
   }
 }
 
@@ -131,7 +140,7 @@ async function viewFile() {
   try {
     const uuid = hasFileUuid.value ? fileUuid.value : detail.value?.paper?.file_uuid;
     const resp = await getFileUrlByUuid(uuid, "view");
-    window.open(resp.data.url, "_blank");
+    window.open(resp.data.url, "_blank", "noopener,noreferrer");
   } catch {
     fileError.value = "暂未挂载原始文献文件";
   }

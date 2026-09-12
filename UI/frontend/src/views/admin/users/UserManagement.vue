@@ -19,6 +19,8 @@
 
     <div v-if="loading" class="loading">加载中...</div>
 
+    <div v-else-if="loadError" class="loading">{{ loadError }}</div>
+
     <div v-else class="user-table-wrap">
       <table class="user-table">
         <thead>
@@ -72,7 +74,7 @@
           </div>
           <div class="form-field">
             <label>密码</label>
-            <input v-model="form.password" type="text" placeholder="密码" />
+            <input v-model="form.password" type="password" placeholder="密码" />
           </div>
           <div v-if="activeTab !== 'annotators'" class="form-field">
             <label>角色</label>
@@ -99,7 +101,7 @@
         <div class="modal-body">
           <div class="form-field">
             <label>新密码</label>
-            <input v-model="resetPassword" type="text" placeholder="输入新密码" />
+            <input v-model="resetPassword" type="password" placeholder="输入新密码" />
           </div>
           <p v-if="resetError" class="form-error">{{ resetError }}</p>
         </div>
@@ -134,6 +136,7 @@ const router = useRouter();
 
 const users = ref([]);
 const loading = ref(false);
+const loadError = ref("");
 
 const showCreate = ref(false);
 const form = ref({ username: "", email: "", password: "", role: "normal" });
@@ -174,11 +177,14 @@ function formatDate(iso) {
 
 async function loadUsers() {
   loading.value = true;
+  loadError.value = "";
   try {
     const res = await fetchUsers();
     users.value = res.data.users;
   } catch (e) {
     console.error("Failed to load users:", e);
+    users.value = [];
+    loadError.value = e.response?.data?.detail || "成员列表加载失败，请稍后重试";
   } finally {
     loading.value = false;
   }

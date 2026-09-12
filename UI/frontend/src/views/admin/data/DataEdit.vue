@@ -62,6 +62,8 @@
 
     <div v-if="loading" class="loading">加载中...</div>
 
+    <div v-else-if="loadError" class="empty">{{ loadError }}</div>
+
     <div v-else-if="records.length === 0" class="empty">暂无数据</div>
 
     <div v-else class="record-list">
@@ -181,6 +183,7 @@ const activeTable = ref("lit");
 const records = ref([]);
 const editableFields = ref([]);
 const loading = ref(false);
+const loadError = ref("");
 const searchQuery = ref("");
 const page = ref(1);
 const total = ref(0);
@@ -194,6 +197,7 @@ const yearSliderMin = ref(0);
 const yearSliderMax = ref(0);
 const yearSliderDirty = ref(false);
 let yearSliderTimer = null;
+let dataRequestId = 0;
 
 const editingRecord = ref(null);
 const editForm = ref({});
@@ -205,6 +209,8 @@ const fieldErrors = ref({});
 const pdfUrl = ref("");
 const pdfLoading = ref(false);
 const pdfError = ref("");
+let pdfRequestId = 0;
+let saveCloseTimer = null;
 
 const leftWidth = ref((5 / 7) * 100); // 默认 PDF:编辑栏 = 5:2
 const resizing = ref(false);
@@ -282,22 +288,32 @@ function hasUnsavedChanges() {
 }
 
 async function loadPdf(fileUuid) {
+  const requestId = ++pdfRequestId;
   pdfUrl.value = "";
-  pdfLoading.value = true;
   pdfError.value = "";
+  if (!fileUuid) {
+    pdfLoading.value = false;
+    pdfError.value = "该记录没有关联 PDF 文件";
+    return;
+  }
+  pdfLoading.value = true;
   try {
     const res = await fetchFileUrl(fileUuid);
+    if (requestId !== pdfRequestId) return;
     pdfUrl.value = res.data.url || "";
     if (!pdfUrl.value) pdfError.value = "获取文件地址为空";
   } catch (e) {
+    if (requestId !== pdfRequestId) return;
     pdfError.value = "获取 PDF 预览失败: " + (e.response?.data?.detail || e.message);
   } finally {
-    pdfLoading.value = false;
+    if (requestId === pdfRequestId) pdfLoading.value = false;
   }
 }
 
 async function loadData() {
+  const requestId = ++dataRequestId;
   loading.value = true;
+  loadError.value = "";
   try {
     const params = { page: page.value, q: searchQuery.value };
     if (filterCrawlStatus.value) params.crawlStatus = filterCrawlStatus.value;
@@ -307,6 +323,7 @@ async function loadData() {
     }
 
     const res = await fetchAdminList(activeTable.value, params);
+    if (requestId !== dataRequestId) return;
     records.value = res.data.records;
     total.value = res.data.total;
     editableFields.value = res.data.editable_fields || [];
@@ -317,9 +334,13 @@ async function loadData() {
     }
     tabs.find(t => t.key === activeTable.value).count = res.data.total;
   } catch (e) {
+    if (requestId !== dataRequestId) return;
     console.error("Failed to load records:", e);
+    records.value = [];
+    total.value = 0;
+    loadError.value = e.response?.data?.detail || "数据加载失败，请稍后重试";
   } finally {
-    loading.value = false;
+    if (requestId === dataRequestId) loading.value = false;
   }
 }
 
@@ -360,6 +381,7 @@ function toggleExpand(id) {
 }
 
 function startEdit(record) {
+  clearTimeout(saveCloseTimer);
   editingRecord.value = record;
   editForm.value = {};
   editFormOriginal.value = {};
@@ -386,12 +408,17 @@ function handleCloseEdit() {
     if (!confirm("有未保存的修改，确定关闭吗？")) return;
   }
   editingRecord.value = null;
+  clearTimeout(saveCloseTimer);
+  saveCloseTimer = null;
+  pdfRequestId += 1;
   editForm.value = {};
   editFormOriginal.value = {};
   editUpdatedAt.value = "";
   fieldErrors.value = {};
   saveStatus.value = "";
   pdfUrl.value = "";
+  pdfLoading.value = false;
+  pdfError.value = "";
   leftWidth.value = (5 / 7) * 100;
 }
 
@@ -473,7 +500,11 @@ async function saveEdit() {
     editFormOriginal.value = { ...editForm.value };
     editUpdatedAt.value = updated.updated_at || "";
     saveStatus.value = "已保存";
-    setTimeout(() => { saveStatus.value = ""; handleCloseEdit(); }, 1500);
+    saveCloseTimer = setTimeout(() => {
+      saveCloseTimer = null;
+      saveStatus.value = "";
+      handleCloseEdit();
+    }, 1500);
   } catch (e) {
     if (e.response?.status === 409) {
       saveStatus.value = "冲突：该记录已被其他人修改，请关闭后刷新重试";
@@ -497,6 +528,10 @@ onMounted(() => {
 });
 
 onBeforeUnmount(() => {
+  dataRequestId += 1;
+  pdfRequestId += 1;
+  clearTimeout(yearSliderTimer);
+  clearTimeout(saveCloseTimer);
   window.removeEventListener("keydown", handleKeydown);
 });
 </script>

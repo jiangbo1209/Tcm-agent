@@ -7,6 +7,7 @@
       </div>
       <div class="graph-search-wrap">
         <input v-model="searchQuery" class="input-field" placeholder="搜索关键词..." @keydown.enter="handleSearch" />
+        <div v-if="searchError" class="search-error">{{ searchError }}</div>
         <div v-if="suggestItems.length" class="suggest-dropdown">
           <button v-for="item in suggestItems" :key="item.node_id" class="suggest-item" @click="handleSuggestClick(item)">
             <span class="suggest-title">{{ item.title || "未命名" }}</span>
@@ -24,7 +25,7 @@
       <div class="graph-sidebar-resizer" @pointerdown="startNodeSidebarResize"></div>
     </aside>
     <section class="graph-main">
-      <GraphView ref="graphRef" :maxExpansions="maxExpansions" @nodeClick="handleNodeClick" @nodeHover="handleNodeHover" />
+      <GraphView ref="graphRef" :maxExpansions="maxExpansions" @nodeClick="handleNodeClick" />
     </section>
     <aside class="graph-detail-panel">
       <div class="detail-controls">
@@ -51,19 +52,19 @@ const route = useRoute();
 const graphRef = ref(null);
 const searchQuery = ref("");
 const suggestItems = ref([]);
+const searchError = ref("");
 const selectedNodeId = ref("");
 const maxExpansions = ref(3);
 const nodeSidebarWidth = ref(240);
 let suggestTimer = null;
 let resizeStartX = 0;
 let resizeStartWidth = 240;
+let suggestRequestId = 0;
+let suppressNextSuggest = false;
 
 const nodeList = computed(() => {
   if (!graphRef.value) return [];
-  const count = graphRef.value.nodeCount || 0;
-  if (count === 0) return [];
-  const map = graphRef.value.nodeMap || new Map();
-  return Array.from(map.values()).sort((a, b) => {
+  return [...(graphRef.value.visibleNodeList || [])].sort((a, b) => {
     if (a.node_type !== b.node_type) return a.node_type.localeCompare(b.node_type);
     return String(a.title || a.id).localeCompare(String(b.title || b.id));
   });
@@ -72,29 +73,46 @@ const nodeList = computed(() => {
 async function handleSearch() {
   const q = searchQuery.value.trim();
   if (!q) return;
+  clearTimeout(suggestTimer);
+  const requestId = ++suggestRequestId;
   suggestItems.value = [];
-  if (graphRef.value) {
-    graphRef.value.clearGraph();
-    await graphRef.value.fetchAndExpand(q);
+  searchError.value = "";
+  try {
+    const { data } = await searchGraph(q, 1, 1);
+    if (requestId !== suggestRequestId) return;
+    const match = data.items?.[0];
+    if (!match?.node_id) {
+      searchError.value = "没有找到匹配节点";
+      return;
+    }
+    await openSearchResult(match, { replaceGraph: true });
+  } catch (error) {
+    if (requestId !== suggestRequestId) return;
+    searchError.value = error?.response?.data?.detail || "搜索失败，请稍后重试";
   }
 }
 
-function handleSuggestClick(item) {
+async function openSearchResult(item, { replaceGraph = false } = {}) {
+  if (!graphRef.value || !item?.node_id) return;
+  const nodeId = String(item.node_id);
+  if (replaceGraph) graphRef.value.clearGraph();
+  selectedNodeId.value = nodeId;
+  const loaded = await graphRef.value.fetchAndExpand(nodeId);
+  if (loaded) await graphRef.value.focusNode(nodeId);
+}
+
+async function handleSuggestClick(item) {
+  clearTimeout(suggestTimer);
+  suggestRequestId += 1;
   suggestItems.value = [];
+  searchError.value = "";
+  suppressNextSuggest = true;
   searchQuery.value = item.title || "";
-  if (graphRef.value && item.node_id) {
-    graphRef.value.fetchAndExpand(item.node_id);
-    graphRef.value.focusNode(item.node_id);
-    selectedNodeId.value = item.node_id;
-  }
+  await openSearchResult(item, { replaceGraph: true });
 }
 
 function handleNodeClick(model) {
-  selectedNodeId.value = model.id;
-}
-
-function handleNodeHover(model) {
-  // Could add hover preview if needed
+  selectedNodeId.value = String(model.id || "");
 }
 
 function handleNodeSelect(node) {
@@ -110,16 +128,17 @@ function scheduleSuggest() {
   const q = searchQuery.value.trim();
   if (q.length < 2) { suggestItems.value = []; return; }
   clearTimeout(suggestTimer);
+  const requestId = ++suggestRequestId;
   suggestTimer = setTimeout(async () => {
     try {
       const { data } = await searchGraph(q, 1, 6);
-      suggestItems.value = data.items || [];
-    } catch { suggestItems.value = []; }
+      if (requestId === suggestRequestId && q === searchQuery.value.trim()) {
+        suggestItems.value = data.items || [];
+      }
+    } catch {
+      if (requestId === suggestRequestId) suggestItems.value = [];
+    }
   }, 280);
-}
-
-function onSearchInput() {
-  scheduleSuggest();
 }
 
 function onMaxExpansionsChange() {
@@ -156,7 +175,14 @@ function startNodeSidebarResize(event) {
 }
 
 // Watch searchQuery for suggest
-watch(searchQuery, () => onSearchInput());
+watch(searchQuery, () => {
+  searchError.value = "";
+  if (suppressNextSuggest) {
+    suppressNextSuggest = false;
+    return;
+  }
+  scheduleSuggest();
+});
 
 // Auto-expand from route query seed
 onMounted(() => {
@@ -176,6 +202,7 @@ watch(() => route.query.seed, (seed) => {
 
 onBeforeUnmount(() => {
   clearTimeout(suggestTimer);
+  suggestRequestId += 1;
   stopNodeSidebarResize();
 });
 </script>
@@ -190,6 +217,7 @@ onBeforeUnmount(() => {
 .graph-sidebar-sub { margin: 4px 0 0; font-size: 12px; color: var(--ink-500); }
 .graph-search-wrap { padding: 10px 12px; position: relative; }
 .graph-search-wrap .input-field { font-size: 13px; padding: 8px 12px; }
+.search-error { margin-top: 6px; padding: 0 2px; color: #b42318; font-size: 12px; }
 .suggest-dropdown { position: absolute; left: 12px; right: 12px; top: 100%; z-index: 20; background: var(--panel); border: 1px solid var(--border); border-radius: 10px; box-shadow: 0 8px 20px rgba(15,25,22,0.12); padding: 4px; }
 .suggest-item { display: flex; align-items: center; gap: 8px; width: 100%; padding: 8px 10px; border: none; background: transparent; text-align: left; cursor: pointer; border-radius: 8px; font-size: 13px; }
 .suggest-item:hover { background: rgba(0,121,107,0.08); }

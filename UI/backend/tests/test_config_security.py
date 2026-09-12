@@ -45,8 +45,8 @@ def test_non_production_app_env_stays_dev(monkeypatch):
 
 
 # --- 生产 fail-fast 守卫（todo 3）---
-# import main 在模块顶层即执行 ensure_* 列迁移并连接 PostgreSQL；本机无可用 PG，
-# 故经子进程以 POSTGRES_HOST=127.0.0.1（立即拒连）驱动真实启动路径。
+# import main 在模块顶层即执行 ensure_* 列迁移并连接 PostgreSQL；测试使用本机
+# 保留低位端口 1（应用不会在此端口运行）来稳定驱动拒连路径，避免受开发机 PG 影响。
 # 守卫位于 ensure_* 之前：生产态拒绝先于任何 DB 访问，与 PG 是否可达无关。
 
 
@@ -54,7 +54,7 @@ def _run_import_main(extra_env: dict[str, str]) -> subprocess.CompletedProcess[s
     env = {
         **os.environ,
         "POSTGRES_HOST": "127.0.0.1",
-        "POSTGRES_PORT": "5432",
+        "POSTGRES_PORT": "1",
         **extra_env,
     }
     return subprocess.run(
@@ -89,7 +89,7 @@ def test_production_with_both_secrets_passes_guard_then_hits_db():
             "FILE_TOKEN_SECRET": "real-file-secret",
         }
     )
-    # 本机无 PG：守卫放行后进程死于数据库连接，而非密钥守卫。
+    # 守卫放行后进程死于测试指定的不可用数据库端口，而非密钥守卫。
     assert "RuntimeError" not in proc.stderr
     assert "OperationalError" in proc.stderr
 

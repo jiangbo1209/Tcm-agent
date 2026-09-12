@@ -55,6 +55,15 @@ const password = ref("");
 const error = ref("");
 const loading = ref(false);
 
+function decodeJwtPayload(token) {
+  const encoded = token.split(".")[1];
+  if (!encoded) throw new Error("登录凭证格式无效");
+  const normalized = encoded.replace(/-/g, "+").replace(/_/g, "/");
+  const padded = normalized.padEnd(Math.ceil(normalized.length / 4) * 4, "=");
+  const bytes = Uint8Array.from(atob(padded), (char) => char.charCodeAt(0));
+  return JSON.parse(new TextDecoder().decode(bytes));
+}
+
 async function handleLogin() {
   error.value = "";
   loading.value = true;
@@ -62,7 +71,7 @@ async function handleLogin() {
     const { data } = await login(username.value, password.value);
     const token = data.access_token;
 
-    const payload = JSON.parse(atob(token.split(".")[1]));
+    const payload = decodeJwtPayload(token);
     const user = { id: payload.sub, role: payload.role };
 
     authStore.setAuth(token, user);

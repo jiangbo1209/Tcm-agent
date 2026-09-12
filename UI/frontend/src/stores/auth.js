@@ -2,8 +2,20 @@ import { defineStore } from "pinia";
 import { ref, computed } from "vue";
 
 export const useAuthStore = defineStore("auth", () => {
-  const token = ref(localStorage.getItem("token") || "");
-  const user = ref(JSON.parse(localStorage.getItem("user") || "null"));
+  const storedToken = localStorage.getItem("token") || "";
+  let storedUser = null;
+  try {
+    storedUser = JSON.parse(localStorage.getItem("user") || "null");
+  } catch {
+    storedUser = null;
+  }
+  if (!storedToken || !storedUser) {
+    localStorage.removeItem("token");
+    localStorage.removeItem("user");
+  }
+
+  const token = ref(storedToken && storedUser ? storedToken : "");
+  const user = ref(storedToken && storedUser ? storedUser : null);
 
   const isLoggedIn = computed(() => !!token.value);
   const isProfessional = computed(() => user.value?.role === "professional");
