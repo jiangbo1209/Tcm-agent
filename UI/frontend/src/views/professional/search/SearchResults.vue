@@ -42,35 +42,55 @@
       <div v-if="searchStore.loading" class="results-loading">搜索中...</div>
 
       <div v-else class="results-list">
-        <component
-          :is="item.node_id || item.file_uuid ? 'a' : 'div'"
+        <div
           v-for="item in searchStore.results"
           :key="`${item.source_type}-${item.node_id || item.file_uuid || item.title}`"
-          :href="item.node_id ? detailHref(item) : (item.file_uuid ? fileDetailHref(item) : undefined)"
-          :target="item.node_id || item.file_uuid ? '_blank' : undefined"
-          :rel="item.node_id || item.file_uuid ? 'noopener noreferrer' : undefined"
           class="result-card"
           :class="{ disabled: !item.node_id && !item.file_uuid }"
         >
-          <div class="result-type-badge" :class="item.source_type">
-            {{ item.source_type === "record" ? "病案" : "文献" }}
-          </div>
-          <h3 class="result-title">{{ item.title || "未命名" }}</h3>
-          <p class="result-meta-text">
-            <template v-if="item.source_type === 'paper'">
-              {{ item.authors || "未知作者" }}
-              <span v-if="item.journal"> · {{ item.journal }}</span>
-              <span v-if="item.publish_year"> · {{ item.publish_year }}</span>
-            </template>
-            <template v-else>
-              {{ item.tcm_diagnosis || item.western_diagnosis || "暂无诊断信息" }}
-            </template>
-          </p>
-          <p v-if="item.abstract" class="result-abstract">{{ item.abstract }}</p>
-          <div v-if="item.keywords" class="result-keywords">
-            <span v-for="kw in splitKeywords(item.keywords)" :key="kw" class="keyword-tag">{{ kw }}</span>
-          </div>
-        </component>
+          <button
+            type="button"
+            class="btn-ghost result-graph-btn"
+            :disabled="!item.node_id"
+            :title="item.node_id ? '以该条目为起点绘制知识图谱' : '该条目暂无图谱节点'"
+            @click="openGraph(item)"
+          >
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+              <circle cx="5" cy="12" r="3"></circle>
+              <circle cx="19" cy="5" r="3"></circle>
+              <circle cx="19" cy="19" r="3"></circle>
+              <line x1="8" y1="11" x2="16" y2="6"></line>
+              <line x1="8" y1="13" x2="16" y2="18"></line>
+            </svg>
+            知识图谱
+          </button>
+          <component
+            :is="item.node_id || item.file_uuid ? 'a' : 'div'"
+            :href="item.node_id ? detailHref(item) : (item.file_uuid ? fileDetailHref(item) : undefined)"
+            :target="item.node_id || item.file_uuid ? '_blank' : undefined"
+            :rel="item.node_id || item.file_uuid ? 'noopener noreferrer' : undefined"
+            class="result-card-body"
+          >
+            <div class="result-type-badge" :class="item.source_type">
+              {{ item.source_type === "record" ? "病案" : "文献" }}
+            </div>
+            <h3 class="result-title">{{ item.title || "未命名" }}</h3>
+            <p class="result-meta-text">
+              <template v-if="item.source_type === 'paper'">
+                {{ item.authors || "未知作者" }}
+                <span v-if="item.journal"> · {{ item.journal }}</span>
+                <span v-if="item.publish_year"> · {{ item.publish_year }}</span>
+              </template>
+              <template v-else>
+                {{ item.tcm_diagnosis || item.western_diagnosis || "暂无诊断信息" }}
+              </template>
+            </p>
+            <p v-if="item.abstract" class="result-abstract">{{ item.abstract }}</p>
+            <div v-if="item.keywords" class="result-keywords">
+              <span v-for="kw in splitKeywords(item.keywords)" :key="kw" class="keyword-tag">{{ kw }}</span>
+            </div>
+          </component>
+        </div>
 
         <div v-if="searchStore.error" class="results-empty error">
           {{ searchStore.error }}
@@ -271,6 +291,11 @@ function fileDetailHref(item) {
   }).href;
 }
 
+function openGraph(item) {
+  if (!item?.node_id) return;
+  router.push({ name: "Graph", query: { seed: item.node_id } });
+}
+
 function formatOptionLabel(key, value) {
   if (key === "source_types") return sourceLabels[value] || value;
   if (key === "paper_types") return paperTypeLabels[value] || value;
@@ -300,10 +325,15 @@ function formatOptionLabel(key, value) {
 .results-count { margin-left: 10px; font-size: 13px; color: var(--ink-500); }
 .results-loading { text-align: center; padding: 40px; color: var(--ink-500); }
 .results-list { display: flex; flex-direction: column; gap: 12px; }
-.result-card { display: block; padding: 16px 20px; background: var(--panel); border: 1px solid var(--border); border-radius: var(--radius-lg); color: inherit; text-decoration: none; cursor: pointer; transition: border-color 0.2s ease, box-shadow 0.2s ease, transform 0.2s ease; }
+.result-card { position: relative; background: var(--panel); border: 1px solid var(--border); border-radius: var(--radius-lg); transition: border-color 0.2s ease, box-shadow 0.2s ease, transform 0.2s ease; }
 .result-card:hover { border-color: rgba(0, 121, 107, 0.35); box-shadow: var(--shadow); transform: translateY(-1px); }
-.result-card.disabled { cursor: default; opacity: 0.72; }
+.result-card.disabled { opacity: 0.72; }
 .result-card.disabled:hover { border-color: var(--border); box-shadow: none; transform: none; }
+.result-card-body { display: block; padding: 16px 20px; color: inherit; text-decoration: none; cursor: pointer; }
+.result-card.disabled .result-card-body { cursor: default; }
+.result-graph-btn { position: absolute; top: 12px; right: 14px; z-index: 1; padding: 4px 10px; font-size: 12px; background: var(--panel); }
+.result-graph-btn:disabled { opacity: 0.45; cursor: not-allowed; }
+.result-graph-btn:disabled:hover { border-color: var(--border); color: var(--ink-700); }
 .result-type-badge { display: inline-block; padding: 2px 8px; border-radius: 999px; font-size: 11px; font-weight: 600; margin-bottom: 8px; }
 .result-type-badge.paper { background: rgba(0, 121, 107, 0.1); color: var(--teal); }
 .result-type-badge.record { background: rgba(199, 124, 2, 0.15); color: #b06a00; }

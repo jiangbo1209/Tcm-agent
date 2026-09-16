@@ -26,6 +26,7 @@
           <p class="detail-abstract">{{ detail.paper.abstract }}</p>
         </section>
         <div class="detail-actions">
+          <button class="btn-ghost" @click="openGraph" :disabled="!graphNodeId">知识图谱</button>
           <button class="btn-ghost" @click="viewFile" :disabled="!canAccessFile">查看原文</button>
           <button class="btn-ghost" @click="downloadFile" :disabled="!canAccessFile">下载</button>
         </div>
@@ -58,22 +59,25 @@
 
 <script setup>
 import { ref, computed, onMounted, watch } from "vue";
-import { useRoute } from "vue-router";
-import { getNodeDetail, getDetailByFile } from "../../../api/graph";
+import { useRoute, useRouter } from "vue-router";
+import { getNodeDetail, getDetailByFile, searchGraph } from "../../../api/graph";
 import { getFileUrlByUuid } from "../../../api/file";
 
 const route = useRoute();
+const router = useRouter();
 
 const loading = ref(false);
 const error = ref("");
 const fileError = ref("");
 const detail = ref(null);
+const resolvedNodeId = ref("");
 let detailRequestId = 0;
 
 const nodeId = computed(() => route.params.nodeId);
 const fileUuid = computed(() => route.params.fileUuid);
 const sourceType = computed(() => route.query.source_type);
 const hasFileUuid = computed(() => !!fileUuid.value && !!sourceType.value);
+const graphNodeId = computed(() => nodeId.value || resolvedNodeId.value);
 
 const canAccessFile = computed(() => !!detail.value?.paper?.file_name);
 
@@ -106,8 +110,23 @@ const recordRows = computed(() =>
     .filter(f => f.value != null && String(f.value).trim() !== "")
 );
 
+async function resolveNodeIdByTitle(title, nodeType, requestId) {
+  if (!title) return;
+  try {
+    const { data } = await searchGraph(title, 1, 10);
+    if (requestId !== detailRequestId) return;
+    const match = (data.items || []).find(
+      item => item.node_id && item.source_type === nodeType && item.title === title
+    );
+    if (match) resolvedNodeId.value = match.node_id;
+  } catch {
+    resolvedNodeId.value = "";
+  }
+}
+
 async function loadDetail(id, fid, stype) {
   const requestId = ++detailRequestId;
+  resolvedNodeId.value = "";
   if (!id && !(fid && stype)) {
     detail.value = null;
     error.value = "";
@@ -127,12 +146,20 @@ async function loadDetail(id, fid, stype) {
     }
     if (requestId !== detailRequestId) return;
     detail.value = resp.data;
+    if (!id && detail.value?.detail_type === "paper") {
+      resolveNodeIdByTitle(detail.value.paper?.title || detail.value.node?.title, "paper", requestId);
+    }
   } catch (e) {
     if (requestId !== detailRequestId) return;
     error.value = e.response?.data?.error || e.response?.data?.detail || "详情加载失败";
   } finally {
     if (requestId === detailRequestId) loading.value = false;
   }
+}
+
+function openGraph() {
+  if (!graphNodeId.value) return;
+  router.push({ name: "Graph", query: { seed: graphNodeId.value } });
 }
 
 async function viewFile() {
