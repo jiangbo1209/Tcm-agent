@@ -3,7 +3,7 @@
 ## Services
 
 - frontend: Vue production build + Nginx
-- backend: FastAPI + Uvicorn
+- backend: FastAPI + Uvicorn + in-process Agent
 
 ## Ports
 
@@ -32,18 +32,6 @@ docker compose -f docker/docker-compose.app.yml down
 ## Rebuild
 
 docker compose -f docker/docker-compose.app.yml up -d --build
-
-## Playwright
-
-If Chromium is required, change:
-
-INSTALL_PLAYWRIGHT: "false"
-
-to:
-
-INSTALL_PLAYWRIGHT: "true"
-
-in docker/docker-compose.app.yml and rebuild.
 
 ## External service addresses
 

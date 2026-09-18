@@ -3,16 +3,13 @@ services:
     build:
       context: ..
       dockerfile: docker/Dockerfile.backend
-      args:
-        INSTALL_PLAYWRIGHT: "false"
-
     container_name: tcm-agent-backend
 
     env_file:
       - ../.env
 
     ports:
-      - "8011:8011"
+      - "${BACKEND_HOST_PORT:-8011}:8011"
 
     extra_hosts:
       - "host.docker.internal:host-gateway"
@@ -35,7 +32,7 @@ services:
         condition: service_healthy
 
     ports:
-      - "5500:80"
+      - "${FRONTEND_HOST_PORT:-5500}:80"
 
     restart: unless-stopped
 

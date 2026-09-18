@@ -1,33 +1,24 @@
-FROM python:3.10-slim
+FROM continuumio/miniconda3:latest
 
 ENV PYTHONDONTWRITEBYTECODE=1 \
     PYTHONUNBUFFERED=1 \
-    PIP_NO_CACHE_DIR=1
+    PIP_NO_CACHE_DIR=1 \
+    PYTHONPATH=/app
 
 WORKDIR /app
 
-# Basic runtime dependencies
-RUN apt-get update \
-    && apt-get install -y --no-install-recommends \
-       ca-certificates \
-       gcc \
-       libpq5 \
-    && rm -rf /var/lib/apt/lists/*
+# Use the project's existing environment.yml as the single dependency source.
+COPY environment.yml /tmp/environment.yml
 
-COPY docker/requirements.backend.txt /tmp/requirements.txt
+RUN conda env create -f /tmp/environment.yml \
+    && conda clean -afy
 
-RUN python -m pip install --upgrade pip \
-    && python -m pip install -r /tmp/requirements.txt
+# Make the Tcm-agent conda environment the default runtime environment.
+ENV PATH=/opt/conda/envs/Tcm-agent/bin:$PATH
 
-# Optional Playwright Chromium installation.
-# Build with INSTALL_PLAYWRIGHT=true if browser automation is required.
-ARG INSTALL_PLAYWRIGHT=false
-
-RUN if [ "$INSTALL_PLAYWRIGHT" = "true" ]; then \
-        python -m playwright install --with-deps chromium; \
-    fi
-
-COPY . /app
+# UI backend and Agent run in the same process/container.
+COPY UI/backend /app/UI/backend
+COPY agent /app/agent
 
 WORKDIR /app/UI/backend
 
