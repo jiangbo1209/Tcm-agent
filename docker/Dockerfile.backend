@@ -1,0 +1,39 @@
+FROM python:3.10-slim
+
+ENV PYTHONDONTWRITEBYTECODE=1 \
+    PYTHONUNBUFFERED=1 \
+    PIP_NO_CACHE_DIR=1
+
+WORKDIR /app
+
+# Basic runtime dependencies
+RUN apt-get update \
+    && apt-get install -y --no-install-recommends \
+       ca-certificates \
+       gcc \
+       libpq5 \
+    && rm -rf /var/lib/apt/lists/*
+
+COPY docker/requirements.backend.txt /tmp/requirements.txt
+
+RUN python -m pip install --upgrade pip \
+    && python -m pip install -r /tmp/requirements.txt
+
+# Optional Playwright Chromium installation.
+# Build with INSTALL_PLAYWRIGHT=true if browser automation is required.
+ARG INSTALL_PLAYWRIGHT=false
+
+RUN if [ "$INSTALL_PLAYWRIGHT" = "true" ]; then \
+        python -m playwright install --with-deps chromium; \
+    fi
+
+COPY . /app
+
+WORKDIR /app/UI/backend
+
+EXPOSE 8011
+
+HEALTHCHECK --interval=30s --timeout=5s --start-period=20s --retries=3 \
+    CMD python -c "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8011/health', timeout=3)" || exit 1
+
+CMD ["uvicorn", "main:app", "--host", "0.0.0.0", "--port", "8011"]

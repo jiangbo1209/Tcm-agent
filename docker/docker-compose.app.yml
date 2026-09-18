@@ -1,0 +1,48 @@
+services:
+  backend:
+    build:
+      context: ..
+      dockerfile: docker/Dockerfile.backend
+      args:
+        INSTALL_PLAYWRIGHT: "false"
+
+    container_name: tcm-agent-backend
+
+    env_file:
+      - ../.env
+
+    ports:
+      - "8011:8011"
+
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+
+    restart: unless-stopped
+
+    networks:
+      - tcm-agent-network
+
+
+  frontend:
+    build:
+      context: ..
+      dockerfile: docker/Dockerfile.frontend
+
+    container_name: tcm-agent-frontend
+
+    depends_on:
+      backend:
+        condition: service_healthy
+
+    ports:
+      - "5500:80"
+
+    restart: unless-stopped
+
+    networks:
+      - tcm-agent-network
+
+
+networks:
+  tcm-agent-network:
+    driver: bridge
