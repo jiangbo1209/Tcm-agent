@@ -1,0 +1,30 @@
+FROM continuumio/miniconda3:latest
+
+ENV PYTHONDONTWRITEBYTECODE=1 \
+    PYTHONUNBUFFERED=1 \
+    PIP_NO_CACHE_DIR=1 \
+    PYTHONPATH=/app
+
+WORKDIR /app
+
+# Use the project's existing environment.yml as the single dependency source.
+COPY environment.yml /tmp/environment.yml
+
+RUN conda env create -f /tmp/environment.yml \
+    && conda clean -afy
+
+# Make the Tcm-agent conda environment the default runtime environment.
+ENV PATH=/opt/conda/envs/Tcm-agent/bin:$PATH
+
+# UI backend and Agent run in the same process/container.
+COPY UI/backend /app/UI/backend
+COPY agent /app/agent
+
+WORKDIR /app/UI/backend
+
+EXPOSE 8011
+
+HEALTHCHECK --interval=30s --timeout=5s --start-period=20s --retries=3 \
+    CMD python -c "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8011/health', timeout=3)" || exit 1
+
+CMD ["uvicorn", "main:app", "--host", "0.0.0.0", "--port", "8011"]

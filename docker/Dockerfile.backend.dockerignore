@@ -1,0 +1,14 @@
+.git
+.git/**
+.env
+.env.*
+**/node_modules
+**/dist
+**/__pycache__
+**/*.pyc
+**/.pytest_cache
+docker/data
+data
+backups
+.vscode
+.claude
