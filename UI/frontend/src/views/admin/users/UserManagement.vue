@@ -1,8 +1,8 @@
 <template>
   <div class="admin-page">
     <div class="admin-header">
-      <h1>成员管理</h1>
-      <button class="btn-create" @click="openCreate">添加成员</button>
+      <h1>用户与权限</h1>
+      <button class="btn-create" @click="openCreate">新增用户</button>
     </div>
 
     <div class="role-tabs">
@@ -60,7 +60,7 @@
     <div v-if="showCreate" class="modal-overlay" @click.self="showCreate = false">
       <div class="modal-box">
         <div class="modal-header">
-          <h2>添加成员</h2>
+          <h2>新增用户</h2>
           <button class="modal-close" @click="showCreate = false">&times;</button>
         </div>
         <div class="modal-body">
