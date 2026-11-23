@@ -1,6 +1,14 @@
 import { defineStore } from "pinia";
 import { ref, computed } from "vue";
 
+export const ROLE_LABELS = {
+  normal: "普通用户",
+  professional: "专业用户",
+  annotator: "数据标注员",
+  admin: "超级管理员",
+  super_admin: "超级管理员",
+};
+
 export const useAuthStore = defineStore("auth", () => {
   const storedToken = localStorage.getItem("token") || "";
   let storedUser = null;
@@ -19,8 +27,13 @@ export const useAuthStore = defineStore("auth", () => {
 
   const isLoggedIn = computed(() => !!token.value);
   const isProfessional = computed(() => user.value?.role === "professional");
-  const isAdmin = computed(() => user.value?.role === "admin");
+  // 四角色体系：normal / professional / annotator / super_admin（存量数据值为 admin）
+  const isSuperAdmin = computed(
+    () => user.value?.role === "admin" || user.value?.role === "super_admin",
+  );
+  const isAdmin = computed(() => isSuperAdmin.value);
   const isAnnotator = computed(() => user.value?.role === "annotator");
+  const roleLabel = computed(() => ROLE_LABELS[user.value?.role] || user.value?.role || "");
 
   function setAuth(tokenValue, userValue) {
     token.value = tokenValue;
@@ -36,5 +49,5 @@ export const useAuthStore = defineStore("auth", () => {
     localStorage.removeItem("user");
   }
 
-  return { token, user, isLoggedIn, isProfessional, isAdmin, isAnnotator, setAuth, logout };
+  return { token, user, isLoggedIn, isProfessional, isAdmin, isSuperAdmin, isAnnotator, roleLabel, setAuth, logout };
 });

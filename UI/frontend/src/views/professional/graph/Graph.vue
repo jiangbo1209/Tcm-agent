@@ -5,6 +5,22 @@
         <h2>节点列表</h2>
         <p class="graph-sidebar-sub">{{ graphRef?.nodeCount || 0 }} 个节点</p>
       </div>
+      <!-- 实体图谱图例（原型）：节点类型 + 边类型 -->
+      <div class="entity-legend">
+        <div class="legend-title">实体图谱</div>
+        <div class="legend-group">
+          <span class="legend-chip paper">文献</span>
+          <span class="legend-chip record">病案</span>
+          <span class="legend-chip keyword">关键词</span>
+          <span class="legend-chip herb">药物</span>
+          <span class="legend-chip formula">方剂</span>
+          <span class="legend-chip pattern">证型</span>
+        </div>
+        <div class="legend-edges">
+          <span>ref 关联</span><span>similar 相似</span><span>MENTIONS 提及</span>
+          <span>CONTAINS 组成</span><span>TREATS 证治</span><span>HAS_OUTCOME 结局</span>
+        </div>
+      </div>
       <div class="graph-search-wrap">
         <input v-model="searchQuery" class="input-field" placeholder="搜索关键词..." @keydown.enter="handleSearch" />
         <div v-if="searchError" class="search-error">{{ searchError }}</div>
@@ -214,6 +230,19 @@ onBeforeUnmount(() => {
 .graph-sidebar-resizer:hover { background: rgba(0,121,107,0.12); }
 .graph-sidebar-header { padding: 14px 16px; border-bottom: 1px solid var(--border); }
 .graph-sidebar-header h2 { margin: 0; font-size: 14px; color: var(--ink-900); }
+
+/* 实体图谱图例（原型） */
+.entity-legend { padding: 12px 16px; border-bottom: 1px solid var(--border); background: #fafcfc; }
+.legend-title { font-size: 12px; font-weight: 600; color: #00796b; margin-bottom: 8px; letter-spacing: 1px; }
+.legend-group { display: flex; flex-wrap: wrap; gap: 6px; margin-bottom: 8px; }
+.legend-chip { font-size: 11px; padding: 2px 8px; border-radius: 999px; border: 1px solid transparent; }
+.legend-chip.paper { background: #e0f2f1; color: #00695c; border-color: #b2dfdb; }
+.legend-chip.record { background: #fff8e1; color: #b86a00; border-color: #ffe082; }
+.legend-chip.keyword { background: #e3f2fd; color: #1565c0; border-color: #bbdefb; }
+.legend-chip.herb { background: #e8f5e9; color: #2e7d32; border-color: #c8e6c9; }
+.legend-chip.formula { background: #f3e5f5; color: #6a1b9a; border-color: #e1bee7; }
+.legend-chip.pattern { background: #fce4ec; color: #ad1457; border-color: #f8bbd0; }
+.legend-edges { display: flex; flex-wrap: wrap; gap: 4px 10px; font-size: 10px; color: #888; }
 .graph-sidebar-sub { margin: 4px 0 0; font-size: 12px; color: var(--ink-500); }
 .graph-search-wrap { padding: 10px 12px; position: relative; }
 .graph-search-wrap .input-field { font-size: 13px; padding: 8px 12px; }

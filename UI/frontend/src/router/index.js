@@ -49,6 +49,24 @@ const routes = [
         meta: { requiresAdmin: true },
       },
       {
+        path: "admin/dor/literature",
+        name: "AdminDorLiterature",
+        component: () => import("../views/admin/dor/LiteratureLibrary.vue"),
+        meta: { requiresAdmin: true },
+      },
+      {
+        path: "admin/dor/cases",
+        name: "AdminDorCases",
+        component: () => import("../views/admin/dor/CaseLibrary.vue"),
+        meta: { requiresAdmin: true },
+      },
+      {
+        path: "admin/etl",
+        name: "AdminEtlQuality",
+        component: () => import("../views/admin/etl/QualityDashboard.vue"),
+        meta: { requiresAdmin: true },
+      },
+      {
         path: "users",
         name: "Users",
         component: () => import("../views/admin/users/UserManagement.vue"),
@@ -123,12 +141,14 @@ const router = createRouter({
 
 router.beforeEach((to) => {
   const authStore = useAuthStore();
+  const role = authStore.user?.role;
 
   if (to.meta.requiresAuth && !authStore.isLoggedIn) {
     return "/login";
   }
 
-  if (to.path === "/" && authStore.user?.role === "admin") {
+  // 超级管理员登录后直达管理端点
+  if (to.path === "/" && (role === "admin" || role === "super_admin")) {
     return "/admin";
   }
 
@@ -138,24 +158,21 @@ router.beforeEach((to) => {
 
   if (
     to.meta.requiresProfessional &&
-    !["professional", "admin"].includes(authStore.user?.role)
+    !["professional", "admin", "super_admin"].includes(role)
   ) {
     return "/";
   }
 
-  if (to.meta.requiresAdmin && authStore.user?.role !== "admin") {
+  if (to.meta.requiresAdmin && !["admin", "super_admin"].includes(role)) {
     return "/";
   }
 
-  if (to.meta.requiresAnnotator && authStore.user?.role !== "annotator") {
-    return "/";
+  if (to.meta.requiresAnnotator && role !== "annotator") {
+    // 标注员专属操作台：管理员走管理端，普通/专业用户回首页
+    return role === "admin" || role === "super_admin" ? "/admin" : "/";
   }
 
-  if (
-    authStore.user?.role === "annotator" &&
-    !to.path.startsWith("/annotate") &&
-    to.path !== "/login"
-  ) {
+  if (role === "annotator" && !to.path.startsWith("/annotate") && to.path !== "/login") {
     return "/annotate";
   }
 });

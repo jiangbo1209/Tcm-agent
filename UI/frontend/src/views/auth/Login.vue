@@ -6,6 +6,12 @@
         <h1>TCM Agent</h1>
       </div>
       <p class="auth-subtitle">中医文献与病案智能平台</p>
+      <div class="role-hint">
+        <span><b>普通用户</b> 智能问答</span>
+        <span><b>专业用户</b> 问答 + 搜索</span>
+        <span><b>数据标注员</b> 标注工作台</span>
+        <span><b>超级管理员</b> 平台管理</span>
+      </div>
 
       <form @submit.prevent="handleLogin" class="auth-form">
         <div class="form-group">
@@ -134,8 +140,23 @@ async function handleLogin() {
 .auth-subtitle {
   color: var(--ink-500);
   font-size: 14px;
-  margin-bottom: 28px;
+  margin-bottom: 16px;
 }
+
+.role-hint {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 6px 12px;
+  margin-bottom: 22px;
+  padding: 10px 12px;
+  border: 1px dashed #cfdedd;
+  border-radius: 8px;
+  background: #f7fbfa;
+  font-size: 11px;
+  color: #5c6b6a;
+}
+.role-hint span { white-space: nowrap; }
+.role-hint b { color: #00796b; font-weight: 600; }
 
 .auth-form {
   display: flex;

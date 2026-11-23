@@ -81,6 +81,7 @@
             <select v-model="form.role">
               <option value="normal">普通用户</option>
               <option value="professional">专业用户</option>
+              <option value="admin">超级管理员</option>
             </select>
           </div>
           <p v-if="formError" class="form-error">{{ formError }}</p>
@@ -126,9 +127,10 @@ import {
 } from "../../../api/users";
 
 const TABS = [
-  { key: "normal", label: "普通", role: "normal" },
-  { key: "professional", label: "专业", role: "professional" },
-  { key: "annotators", label: "标注员", role: "annotator" },
+  { key: "normal", label: "普通用户", role: "normal" },
+  { key: "professional", label: "专业用户", role: "professional" },
+  { key: "annotators", label: "数据标注员", role: "annotator" },
+  { key: "admins", label: "超级管理员", role: "admin" },
 ];
 
 const route = useRoute();
@@ -158,7 +160,7 @@ const activeRole = computed(() => TABS.find((t) => t.key === activeTab.value).ro
 const filteredUsers = computed(() => users.value.filter((u) => u.role === activeRole.value));
 
 const counts = computed(() => {
-  const result = { normal: 0, professional: 0, annotator: 0 };
+  const result = { normal: 0, professional: 0, annotator: 0, admin: 0 };
   for (const u of users.value) {
     if (u.role in result) result[u.role] += 1;
   }
@@ -190,8 +192,14 @@ async function loadUsers() {
   }
 }
 
+function defaultRoleForTab() {
+  if (activeTab.value === "annotators") return "annotator";
+  if (activeTab.value === "admins") return "admin";
+  return "normal";
+}
+
 function openCreate() {
-  form.value = { username: "", email: "", password: "", role: activeTab.value === "annotators" ? "annotator" : "normal" };
+  form.value = { username: "", email: "", password: "", role: defaultRoleForTab() };
   formError.value = "";
   showCreate.value = true;
 }
@@ -199,7 +207,12 @@ function openCreate() {
 async function handleCreate() {
   formError.value = "";
   const { username, email, password } = form.value;
-  const role = activeTab.value === "annotators" ? "annotator" : form.value.role;
+  const role =
+    activeTab.value === "annotators"
+      ? "annotator"
+      : activeTab.value === "admins"
+        ? "admin"
+        : form.value.role;
   if (!username.trim() || !email.trim() || !password.trim()) {
     formError.value = "所有字段均为必填";
     return;
@@ -208,7 +221,7 @@ async function handleCreate() {
   try {
     await createUser({ username: username.trim(), email: email.trim(), password: password.trim(), role });
     showCreate.value = false;
-    form.value = { username: "", email: "", password: "", role: activeTab.value === "annotators" ? "annotator" : "normal" };
+    form.value = { username: "", email: "", password: "", role: defaultRoleForTab() };
     await loadUsers();
   } catch (e) {
     formError.value = e.response?.data?.detail || "创建失败";

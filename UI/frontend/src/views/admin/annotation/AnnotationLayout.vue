@@ -1,7 +1,7 @@
 <template>
   <div class="admin-page">
     <div class="admin-header">
-      <h1>数据标注管理</h1>
+      <h1>标注任务管理</h1>
     </div>
 
     <div class="mgmt-tabs">
