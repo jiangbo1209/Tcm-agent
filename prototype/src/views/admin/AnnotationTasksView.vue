@@ -2,7 +2,7 @@
   <div class="admin-page">
     <header class="admin-header">
       <div class="header-text">
-        <h1>标注任务</h1>
+        <h1>标注管理</h1>
         <p class="header-sub">建池 → 派发 → 标注 → 复核 → 回滚 · 全流程留痕</p>
       </div>
       <div class="header-meta">

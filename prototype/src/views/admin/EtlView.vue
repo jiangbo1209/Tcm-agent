@@ -3,7 +3,7 @@
     <!-- ── 页头 ── -->
     <div class="admin-header">
       <div>
-        <h1>ETL 抽取</h1>
+        <h1>ETL管理</h1>
         <p class="header-sub">LLM 抽取 → 校验 → 归一 → 建图</p>
       </div>
     </div>

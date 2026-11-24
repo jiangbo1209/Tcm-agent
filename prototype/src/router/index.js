@@ -53,11 +53,13 @@ const routes = [
       { path: "admin/literature", redirect: "/admin/data?kind=literature" },
       { path: "admin/cases", redirect: "/admin/data?kind=case" },
       {
-        path: "admin/upload",
-        name: "AdminUpload",
-        component: () => import("../views/admin/UploadView.vue"),
+        path: "admin/sources",
+        name: "AdminDataSources",
+        component: () => import("../views/admin/DataSourceView.vue"),
         meta: { roles: ["admin"] },
       },
+      // 兼容旧入口
+      { path: "admin/upload", redirect: "/admin/sources" },
       {
         path: "admin/users",
         name: "AdminUsers",

@@ -73,12 +73,12 @@ const NAV = {
   ],
   annotator: [{ to: "/annotate", label: "标注工作台", icon: "annotate" }],
   admin: [
-    { to: "/admin", label: "总览", icon: "dashboard" },
+    { to: "/admin", label: "平台总览", icon: "dashboard" },
+    { to: "/admin/sources", label: "数据源管理", icon: "upload" },
+    { to: "/admin/etl", label: "ETL管理", icon: "etl" },
     { to: "/admin/data", label: "数据管理", icon: "book" },
-    { to: "/admin/upload", label: "数据上传", icon: "upload" },
-    { to: "/admin/users", label: "用户与权限", icon: "users" },
-    { to: "/admin/tasks", label: "标注任务", icon: "tasks" },
-    { to: "/admin/etl", label: "ETL 抽取", icon: "etl" },
+    { to: "/admin/tasks", label: "标注管理", icon: "tasks" },
+    { to: "/admin/users", label: "用户管理", icon: "users" },
   ],
 };
 

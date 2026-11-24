@@ -109,7 +109,7 @@
         </div>
 
         <div class="todo-foot">
-          <router-link to="/admin/tasks">前往标注任务中心 →</router-link>
+          <router-link to="/admin/tasks">前往标注管理中心 →</router-link>
         </div>
       </section>
     </div>
