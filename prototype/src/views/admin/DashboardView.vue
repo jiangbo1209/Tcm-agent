@@ -29,57 +29,31 @@
     </section>
 
     <div class="mid-grid">
-      <!-- 角色与能力 -->
-      <section class="panel matrix-panel">
+      <!-- 最近动态 -->
+      <section class="panel activity-panel">
         <div class="panel-head">
           <div class="panel-heading">
-            <h2 class="panel-title">角色与能力</h2>
-            <p class="panel-sub">权限矩阵 · 按角色收敛可见范围</p>
+            <h2 class="panel-title">最近动态</h2>
+            <p class="panel-sub">建池、派发、复核与异常处理</p>
           </div>
-          <span class="panel-hint">
-            <span class="legend-yes">✓</span> 已开放
-            <span class="legend-sep">·</span>
-            <span class="legend-no">✗</span> 未开放
-          </span>
+          <span class="panel-hint">近 24 小时 · {{ ACTIVITIES.length }} 条</span>
         </div>
 
-        <div class="matrix-wrap">
-          <table class="cap-table">
-            <thead>
-              <tr>
-                <th class="role-col">角色</th>
-                <th v-for="cap in CAPABILITIES" :key="cap">{{ cap }}</th>
-              </tr>
-            </thead>
-            <tbody>
-              <tr v-for="role in ROLES" :key="role.name">
-                <td class="role-col">
-                  <div class="role-cell">
-                    <span
-                      class="role-chip"
-                      :style="{ background: role.color + '18', color: role.color }"
-                    >
-                      {{ role.name.slice(0, 1) }}
-                    </span>
-                    <div class="role-info">
-                      <strong>{{ role.name }}</strong>
-                      <small>{{ role.desc }}</small>
-                    </div>
-                  </div>
-                </td>
-                <td v-for="(has, i) in role.caps" :key="CAPABILITIES[i]" class="cap-cell">
-                  <span
-                    class="cap-mark"
-                    :class="has ? 'cap-yes' : 'cap-no'"
-                    :title="`${role.name}${has ? '可' : '不可'}${CAPABILITIES[i]}`"
-                  >
-                    {{ has ? "✓" : "✗" }}
-                  </span>
-                </td>
-              </tr>
-            </tbody>
-          </table>
-        </div>
+        <ul class="timeline">
+          <li v-for="item in ACTIVITIES" :key="item.time + item.title" class="timeline-item">
+            <time class="tl-time">{{ item.time }}</time>
+            <span class="tl-rail" aria-hidden="true">
+              <span class="tl-node" :class="'tl-' + item.type"></span>
+            </span>
+            <div class="tl-body">
+              <div class="tl-head">
+                <strong>{{ item.title }}</strong>
+                <span class="tl-actor">{{ item.actor }}</span>
+              </div>
+              <p class="tl-desc">{{ item.desc }}</p>
+            </div>
+          </li>
+        </ul>
       </section>
 
       <!-- 待办 -->
@@ -114,57 +88,9 @@
       </section>
     </div>
 
-    <!-- 数据链路 -->
-    <section class="panel pipeline-panel">
-      <div class="panel-head">
-        <div class="panel-heading">
-          <h2 class="panel-title">数据链路</h2>
-          <p class="panel-sub">原文到服务的六段式流水线</p>
-        </div>
-        <span class="panel-hint">全链路可回溯 · 低置信人工复核</span>
-      </div>
 
-      <div class="pipeline">
-        <template v-for="(step, idx) in PIPELINE" :key="step.name">
-          <div class="flow-step" :class="{ 'flow-end': idx === PIPELINE.length - 1 }">
-            <div class="flow-top">
-              <span class="flow-index">0{{ idx + 1 }}</span>
-              <span class="flow-tag">{{ step.tag }}</span>
-            </div>
-            <strong class="flow-name">{{ step.name }}</strong>
-            <span class="flow-desc">{{ step.desc }}</span>
-          </div>
-          <span v-if="idx < PIPELINE.length - 1" class="flow-arrow" aria-hidden="true">→</span>
-        </template>
-      </div>
-    </section>
 
-    <!-- 最近动态 -->
-    <section class="panel activity-panel">
-      <div class="panel-head">
-        <div class="panel-heading">
-          <h2 class="panel-title">最近动态</h2>
-          <p class="panel-sub">建池、派发、复核与异常处理</p>
-        </div>
-        <span class="panel-hint">近 24 小时 · {{ ACTIVITIES.length }} 条</span>
-      </div>
 
-      <ul class="timeline">
-        <li v-for="item in ACTIVITIES" :key="item.time + item.title" class="timeline-item">
-          <time class="tl-time">{{ item.time }}</time>
-          <span class="tl-rail" aria-hidden="true">
-            <span class="tl-node" :class="'tl-' + item.type"></span>
-          </span>
-          <div class="tl-body">
-            <div class="tl-head">
-              <strong>{{ item.title }}</strong>
-              <span class="tl-actor">{{ item.actor }}</span>
-            </div>
-            <p class="tl-desc">{{ item.desc }}</p>
-          </div>
-        </li>
-      </ul>
-    </section>
   </div>
 </template>
 
@@ -176,35 +102,6 @@ const STATS = [
   { label: "待复核", value: 21, unit: "份", hint: "今日新增 5 份", tone: "amber" },
   { label: "图谱节点", value: 1580, unit: "个", hint: "6 类实体 · 孤点率 18.4%", tone: "teal" },
   { label: "图谱边", value: 4312, unit: "条", hint: "7 类关系 · 建图版本 v1.8", tone: "teal" },
-];
-
-const CAPABILITIES = ["问答", "搜索", "图谱", "标注", "用户权限", "数据管理"];
-
-const ROLES = [
-  {
-    name: "普通用户",
-    desc: "仅开放智能问答",
-    color: "#6b7280",
-    caps: [true, false, false, false, false, false],
-  },
-  {
-    name: "专业用户",
-    desc: "问答 + 检索 + 图谱",
-    color: "#1565c0",
-    caps: [true, true, true, false, false, false],
-  },
-  {
-    name: "数据标注员",
-    desc: "标注工作台与提交",
-    color: "#00796b",
-    caps: [false, false, false, true, false, false],
-  },
-  {
-    name: "超级管理员",
-    desc: "全平台数据治理",
-    color: "#c62828",
-    caps: [true, true, true, true, true, true],
-  },
 ];
 
 const TODOS = [
@@ -232,15 +129,6 @@ const TODOS = [
     cta: "去裁决",
     to: "/admin/tasks",
   },
-];
-
-const PIPELINE = [
-  { name: "PDF", desc: "文献 / 病案原始文件", tag: "输入" },
-  { name: "LLM 抽取", desc: "64 字段结构化", tag: "Prompt" },
-  { name: "校验", desc: "必填 / 枚举 / 单位", tag: "规则" },
-  { name: "归一", desc: "证型 / 中药 / 方剂", tag: "字典" },
-  { name: "建图", desc: "实体识别 + 关系抽取", tag: "图谱" },
-  { name: "服务", desc: "问答 / 搜索 / 图谱", tag: "API" },
 ];
 
 const ACTIVITIES = [
