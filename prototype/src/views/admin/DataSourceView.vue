@@ -106,18 +106,6 @@
       </div>
     </section>
 
-    <!-- 脚本提示 -->
-    <section class="script-card">
-      <div class="script-icon">{ }</div>
-      <div class="script-body">
-        <h3 class="script-title">批量导入脚本</h3>
-        <p class="script-desc">
-          <code class="script-code">python scripts/upload_docs.py --dir ./pdfs --type lit|case</code>
-          <span class="script-note">原型仅展示，不执行</span>
-        </p>
-      </div>
-    </section>
-
     <!-- 弹窗：上传文件 -->
     <div v-if="uploadModalOpen" class="modal-mask" @click.self="uploadModalOpen = false">
       <div class="modal modal-upload">
@@ -948,56 +936,6 @@ select.row-select:disabled {
   text-align: center;
   color: #999;
   padding: 40px 12px !important;
-}
-
-/* ───────── 脚本提示 ───────── */
-.script-card {
-  display: flex;
-  gap: 14px;
-  padding: 18px 20px;
-  border: 1px solid var(--teal-border);
-  border-radius: 10px;
-  background: #f2faf8;
-}
-.script-icon {
-  width: 38px;
-  height: 38px;
-  border-radius: 8px;
-  background: var(--teal-soft);
-  color: var(--teal-dark);
-  font-family: "SFMono-Regular", Consolas, "Liberation Mono", monospace;
-  font-size: 13px;
-  font-weight: 700;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  flex-shrink: 0;
-}
-.script-title {
-  margin: 0 0 5px;
-  font-size: 13px;
-  font-weight: 600;
-  color: var(--teal-dark);
-}
-.script-desc {
-  margin: 0;
-  font-size: 12px;
-  line-height: 1.7;
-  color: var(--ink-500);
-}
-.script-code {
-  padding: 2px 6px;
-  border-radius: 4px;
-  background: #fff;
-  border: 1px solid var(--teal-border);
-  color: var(--teal-dark);
-  font-family: "SFMono-Regular", Consolas, "Liberation Mono", monospace;
-  font-size: 12px;
-  word-break: break-all;
-}
-.script-note {
-  margin-left: 8px;
-  color: var(--ink-400);
 }
 
 /* ───────── 弹窗 ───────── */
