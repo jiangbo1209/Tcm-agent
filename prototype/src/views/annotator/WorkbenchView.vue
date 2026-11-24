@@ -11,7 +11,7 @@
           <span class="meta-item deadline">{{ TASK.deadline }}</span>
         </div>
       </div>
-      <div class="progress-box">
+      <div v-if="activeTab !== 'review'" class="progress-box">
         <div class="progress-text">
           已处理 <strong>{{ processed }}</strong><span>/ {{ total }}</span>
         </div>
@@ -41,6 +41,14 @@
       </button>
       <button
         class="tab"
+        :class="{ active: activeTab === 'review' }"
+        @click="switchTab('review')"
+      >
+        抽取校验
+        <span class="tab-count">{{ reviewDocs.length }}</span>
+      </button>
+      <button
+        class="tab"
         :class="{ active: activeTab === 'records' }"
         @click="switchTab('records')"
       >
@@ -50,7 +58,7 @@
     </div>
 
     <!-- 标注工作区：任务列表 | 原文面板 | 字段表单 -->
-    <div v-if="activeTab !== 'records'" class="work-layout">
+    <div v-if="activeTab === 'lit' || activeTab === 'case'" class="work-layout">
       <aside class="task-list card">
         <div class="list-head">
           <span>{{ activeTab === 'case' ? '病案条目' : '文献条目' }}</span>
@@ -211,6 +219,49 @@
       </section>
     </div>
 
+    <!-- 抽取校验（待校验 / 待入图） -->
+    <div v-else-if="activeTab === 'review'" class="review-panel card">
+      <div class="records-head">
+        <h2>抽取校验</h2>
+        <span>待校验 {{ counts.review || 0 }} · 待入图 {{ counts.validated || 0 }} · 通过后直接入图</span>
+      </div>
+      <div class="table-wrap">
+        <table class="pool-table">
+          <thead>
+            <tr>
+              <th>文档</th>
+              <th class="col-kind">类型</th>
+              <th class="col-status">状态</th>
+              <th class="col-conf">置信度</th>
+              <th class="col-prob">问题</th>
+              <th class="col-actions">操作</th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr v-for="d in reviewDocs" :key="d.id">
+              <td class="cell-title" :title="d.name">{{ d.id }} · {{ d.name }}</td>
+              <td>
+                <span class="badge" :class="d.kind === 'lit' ? 'badge-lit' : 'badge-case'">
+                  {{ d.kind === "lit" ? "文献" : "病案" }}
+                </span>
+              </td>
+              <td>
+                <span class="badge" :class="d.state === 'review' ? 'badge-review' : 'badge-validated'">
+                  {{ d.state === "review" ? "待校验" : "待入图" }}
+                </span>
+              </td>
+              <td>{{ Math.round(d.confidence * 100) }}%</td>
+              <td :class="{ 'err-text': d.errors.length }">{{ d.errors.length }} 项</td>
+              <td><button class="btn-sm teal" @click="openReview(d)">查看并校验</button></td>
+            </tr>
+            <tr v-if="reviewDocs.length === 0">
+              <td colspan="6" class="empty-row">暂无待校验资源</td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
+    </div>
+
     <!-- 我的标注记录 -->
     <div v-else class="records card">
       <div class="records-head">
@@ -256,6 +307,54 @@
       </div>
     </div>
 
+    <!-- 抽取校验弹窗 -->
+    <div v-if="reviewDoc" class="modal-mask" @click.self="reviewDoc = null">
+      <div class="review-modal">
+        <header class="review-head">
+          <div>
+            <strong>{{ reviewDoc.id }} · {{ reviewDoc.name }}</strong>
+            <span class="review-hint">通过后状态直接变为「已完成」并入图</span>
+          </div>
+          <button class="modal-x" @click="reviewDoc = null">×</button>
+        </header>
+        <div class="review-body">
+          <section class="review-src">
+            <h4>原文</h4>
+            <p class="src-title">{{ reviewOriginal?.title }}</p>
+            <pre class="src-body">{{ reviewOriginal?.body || "暂无原文" }}</pre>
+          </section>
+          <section class="review-fields">
+            <h4>标注字段</h4>
+            <div class="rf-scroll">
+              <div v-for="g in reviewGroups" :key="g.label" class="rf-group">
+                <h5>{{ g.label }}<span>{{ g.fields.length }}</span></h5>
+                <div class="rf-grid">
+                  <label v-for="f in g.fields" :key="f.key" class="rf-item">
+                    <span class="rf-label">{{ f.label }}<i v-if="f.required">*</i></span>
+                    <select v-if="f.options" v-model="reviewValues[f.key]" class="rf-control">
+                      <option value="">— 请选择 —</option>
+                      <option v-for="opt in f.options" :key="opt" :value="opt">{{ opt }}</option>
+                    </select>
+                    <textarea v-else-if="isLongField(f)" v-model="reviewValues[f.key]" rows="2" class="rf-control"></textarea>
+                    <input v-else v-model="reviewValues[f.key]" class="rf-control" />
+                    <em v-if="reviewError(f.key)" class="rf-err">{{ reviewError(f.key) }}</em>
+                  </label>
+                </div>
+              </div>
+            </div>
+          </section>
+        </div>
+        <footer class="review-foot">
+          <span class="foot-hint">校验通过后直接入图</span>
+          <div class="foot-actions">
+            <button class="btn-sm" @click="reviewDoc = null">取消</button>
+            <button class="btn-sm" @click="rejectReview">退回重抽</button>
+            <button class="btn-primary" @click="approveReview">通过并入图</button>
+          </div>
+        </footer>
+      </div>
+    </div>
+
     <!-- 提交确认 -->
     <div v-if="confirmOpen" class="modal-mask" @click.self="confirmOpen = false">
       <div class="modal">
@@ -283,7 +382,8 @@
 <script setup>
 import { computed, reactive, ref } from "vue";
 import { CASE_GROUPS, LIT_GROUPS, flattenGroups } from "../../constants/dorFields";
-import { ORIGINALS } from "../../data/originals";
+import { ORIGINALS, resolveOriginal } from "../../data/originals";
+import { etlStore } from "../../stores/etl";
 
 const TASK = {
   id: "TASK-2026-014",
@@ -619,6 +719,35 @@ const records = [
 ];
 
 const activeTab = ref("lit");
+const reviewDoc = ref(null);
+const reviewValues = ref({});
+
+const reviewDocs = computed(() =>
+  etlStore.docs.filter((d) => ["review", "validated"].includes(d.state)),
+);
+const counts = computed(() => etlStore.counts.value);
+const reviewOriginal = computed(() => resolveOriginal(reviewDoc.value));
+const reviewGroups = computed(() =>
+  reviewDoc.value?.kind === "case" ? CASE_GROUPS : LIT_GROUPS,
+);
+
+function openReview(doc) {
+  reviewDoc.value = doc;
+  reviewValues.value = { ...doc.values };
+}
+function reviewError(key) {
+  return reviewDoc.value?.errors.find((e) => e.field === key)?.message || "";
+}
+function approveReview() {
+  etlStore.setState([reviewDoc.value.id], "graphed", "标注通过并入图");
+  showToast("校验通过，已直接入图");
+  reviewDoc.value = null;
+}
+function rejectReview() {
+  etlStore.setState([reviewDoc.value.id], "pending", "退回重抽");
+  showToast("已退回重抽", "warn");
+  reviewDoc.value = null;
+}
 const selectedLitId = ref("LIT-2026-107");
 const selectedCaseId = ref("CASE-2026-206");
 const form = ref({});
@@ -628,13 +757,16 @@ const originalFont = ref("md");
 const toast = reactive({ show: false, message: "", tone: "ok" });
 let toastTimer = null;
 
-const activeItems = computed(() =>
-  activeTab.value === "case" ? caseItems : litItems,
-);
+const activeItems = computed(() => {
+  if (activeTab.value === "case") return caseItems;
+  if (activeTab.value === "review") return [];
+  return litItems;
+});
 
 const scopeLabel = computed(() => {
   if (activeTab.value === "case") return "病案";
   if (activeTab.value === "records") return "全部";
+  if (activeTab.value === "review") return "抽取校验";
   return "文献";
 });
 
@@ -652,9 +784,11 @@ const currentOriginal = computed(() => {
   return ORIGINALS[item.originalId || item.id] || null;
 });
 
-const scopeItems = computed(() =>
-  activeTab.value === "records" ? [...litItems, ...caseItems] : activeItems.value,
-);
+const scopeItems = computed(() => {
+  if (activeTab.value === "records") return [...litItems, ...caseItems];
+  if (activeTab.value === "review") return reviewDocs.value;
+  return activeItems.value;
+});
 
 const processed = computed(
   () => scopeItems.value.filter((item) => item.status !== "待标注").length,
@@ -1525,4 +1659,47 @@ function confirmSubmit() {
     align-items: flex-start;
   }
 }
+
+/* ── 抽取校验 ── */
+.review-panel { padding: 16px 18px; }
+.review-panel .records-head { margin-bottom: 12px; }
+.col-kind { width: 80px; }
+.col-status { width: 90px; }
+.col-conf { width: 80px; }
+.col-prob { width: 70px; }
+.col-actions { width: 120px; }
+.badge-review { background: #fff8e1; color: #f57f17; }
+.badge-validated { background: #e0f2f1; color: #00695c; }
+.err-text { color: #c62828; font-weight: 600; }
+
+.review-modal {
+  width: 1220px; max-width: 96vw; height: 86vh;
+  background: #fff; border-radius: 12px; display: flex; flex-direction: column; overflow: hidden;
+  box-shadow: 0 24px 60px rgba(0,0,0,.25);
+}
+.review-head { display: flex; align-items: center; justify-content: space-between; gap: 12px; padding: 12px 16px; border-bottom: 1px solid #e8e8e8; background: #fafafa; }
+.review-head strong { font-size: 14px; }
+.review-hint { margin-left: 10px; font-size: 11px; color: #888; }
+.modal-x { border: none; background: transparent; font-size: 20px; color: #999; cursor: pointer; }
+.review-body { flex: 1; min-height: 0; display: grid; grid-template-columns: 32% 68%; }
+.review-src { border-right: 1px solid #e8e8e8; background: #fafafa; padding: 12px; overflow-y: auto; }
+.review-src h4, .review-fields h4 { margin: 0 0 8px; font-size: 12px; color: #666; }
+.src-title { margin: 0 0 8px; font-size: 13px; font-weight: 600; }
+.src-body { margin: 0; white-space: pre-wrap; font-size: 12px; line-height: 1.8; color: #333; font-family: inherit; }
+.review-fields { display: flex; flex-direction: column; min-height: 0; padding: 12px; }
+.rf-scroll { flex: 1; overflow-y: auto; }
+.rf-group { margin-bottom: 14px; }
+.rf-group h5 { display: flex; align-items: center; gap: 6px; margin: 0 0 8px; font-size: 12px; color: #00796b; }
+.rf-group h5 span { font-size: 10px; padding: 0 6px; border-radius: 999px; background: #e0f2f1; }
+.rf-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 8px 12px; }
+.rf-item { display: flex; flex-direction: column; gap: 4px; min-width: 0; }
+.rf-label { font-size: 11px; color: #667; }
+.rf-label i { color: #c62828; font-style: normal; margin-left: 2px; }
+.rf-control { width: 100%; box-sizing: border-box; padding: 6px 8px; border: 1px solid #d5d9d8; border-radius: 5px; font-size: 12px; outline: none; background: #fff; font-family: inherit; }
+.rf-control:focus { border-color: #00796b; }
+.rf-err { font-size: 10px; color: #c62828; font-style: normal; }
+.review-foot { display: flex; align-items: center; justify-content: space-between; padding: 10px 16px; border-top: 1px solid #e8e8e8; background: #fafafa; }
+.review-foot .foot-hint { font-size: 11px; color: #999; }
+.review-foot .foot-actions { display: flex; gap: 8px; }
+.review-foot .btn-primary { padding: 6px 16px; }
 </style>

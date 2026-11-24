@@ -24,8 +24,8 @@
     </div>
 
     <div class="mgmt-body">
-      <LiteratureLibrary v-if="activeKind === 'literature'" embedded />
-      <CaseLibrary v-else embedded />
+      <LiteratureLibrary v-if="activeKind === 'literature'" embedded :initial-record-id="recordId" />
+      <CaseLibrary v-else embedded :initial-record-id="recordId" />
     </div>
   </div>
 </template>
@@ -46,6 +46,7 @@ const TABS = [
 ];
 
 const activeKind = computed(() => (route.query.kind === "case" ? "case" : "literature"));
+const recordId = computed(() => String(route.query.record || ""));
 
 function setKind(kind) {
   if (kind === activeKind.value) return;

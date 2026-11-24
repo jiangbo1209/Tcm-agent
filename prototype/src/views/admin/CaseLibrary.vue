@@ -224,8 +224,9 @@ import {
 import { CASE_RECORDS, DOR_STATUS_META } from "../../data/dorMock";
 import { ORIGINALS } from "../../data/originals";
 
-defineProps({
+const props = defineProps({
   embedded: { type: Boolean, default: false },
+  initialRecordId: { type: String, default: "" },
 });
 
 const fields = flattenGroups(CASE_GROUPS);
@@ -386,6 +387,10 @@ function handleKeydown(e) {
 
 onMounted(() => {
   window.addEventListener("keydown", handleKeydown);
+  if (props.initialRecordId) {
+    const target = records.value.find((r) => r.id === props.initialRecordId);
+    if (target) openEditor(target);
+  }
 });
 
 onBeforeUnmount(() => {

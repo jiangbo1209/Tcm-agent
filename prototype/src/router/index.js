@@ -74,9 +74,14 @@ const routes = [
       },
       {
         path: "admin/etl",
-        name: "AdminEtl",
-        component: () => import("../views/admin/EtlView.vue"),
+        component: () => import("../views/admin/etl/EtlLayout.vue"),
         meta: { roles: ["admin"] },
+        redirect: "/admin/etl/resources",
+        children: [
+          { path: "resources", name: "EtlResources", component: () => import("../views/admin/etl/EtlResourcesView.vue") },
+          { path: "quality", name: "EtlQuality", component: () => import("../views/admin/EtlQualityView.vue") },
+          { path: "settings", name: "EtlSettings", component: () => import("../views/admin/etl/EtlSettingsView.vue") },
+        ],
       },
     ],
   },

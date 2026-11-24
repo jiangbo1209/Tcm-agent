@@ -1,9 +1,9 @@
 <template>
-  <div class="admin-page" data-testid="etl-quality-dashboard">
+  <div class="quality-page" data-testid="etl-quality-dashboard">
     <!-- ── 页头 ── -->
     <div class="page-header">
       <div class="page-heading">
-        <h1>ETL 抽取质检</h1>
+        <h1>质检看板</h1>
         <p class="page-subtitle">LLM 抽取 → 校验 → 归一 → 建图</p>
       </div>
       <button class="btn-primary" type="button" @click="handleReextract">重新抽取</button>
@@ -350,7 +350,7 @@ function dispatch(row) {
 </script>
 
 <style scoped>
-.admin-page { width: 100%; min-height: 100%; padding: 24px 32px 40px; box-sizing: border-box; }
+.quality-page { width: 100%; box-sizing: border-box; }
 
 /* ── 页头 ── */
 .page-header { display: flex; align-items: flex-start; justify-content: space-between; gap: 16px; margin-bottom: 20px; }
@@ -474,7 +474,7 @@ function dispatch(row) {
 
 /* ── 响应式 ── */
 @media (max-width: 720px) {
-  .admin-page { padding: 16px; }
+  .quality-page { padding: 0; }
   .page-header { flex-direction: column; align-items: stretch; }
   .status-row { grid-template-columns: 60px 1fr 44px; }
   .bar-row { grid-template-columns: 84px 1fr 46px 44px; }
