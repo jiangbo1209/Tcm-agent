@@ -123,8 +123,8 @@
           <button class="editor-close" title="关闭" @click="closeEditor">&times;</button>
         </header>
 
-        <div class="editor-body">
-          <section class="editor-pane editor-source">
+        <div ref="editorBodyRef" class="editor-body">
+          <section class="editor-pane editor-source" :style="{ width: sourceWidth + '%' }">
             <div class="pane-head">
               <span class="pane-label">原文</span>
               <span v-if="original" class="pane-hint">{{ original.source }}</span>
@@ -137,6 +137,13 @@
               <p v-else class="source-empty">暂无原文</p>
             </div>
           </section>
+
+          <div
+            class="editor-splitter"
+            :class="{ dragging: resizing }"
+            title="拖动调整宽度"
+            @pointerdown.prevent="startResize"
+          ></div>
 
           <section class="editor-pane editor-fields">
             <div class="pane-head">
@@ -326,6 +333,30 @@ function openEditor(record) {
   editValues.value = next;
 }
 
+const sourceWidth = ref(40);
+const resizing = ref(false);
+const editorBodyRef = ref(null);
+
+function startResize() {
+  resizing.value = true;
+  window.addEventListener("pointermove", onResizeMove);
+  window.addEventListener("pointerup", stopResize);
+}
+
+function onResizeMove(e) {
+  if (!resizing.value || !editorBodyRef.value) return;
+  const rect = editorBodyRef.value.getBoundingClientRect();
+  if (!rect.width) return;
+  const pct = ((e.clientX - rect.left) / rect.width) * 100;
+  sourceWidth.value = Math.min(80, Math.max(20, pct));
+}
+
+function stopResize() {
+  resizing.value = false;
+  window.removeEventListener("pointermove", onResizeMove);
+  window.removeEventListener("pointerup", stopResize);
+}
+
 function closeEditor() {
   editingRecord.value = null;
   editValues.value = {};
@@ -358,7 +389,7 @@ onMounted(() => {
 onBeforeUnmount(() => {
   clearTimeout(toastTimer);
   window.removeEventListener("keydown", handleKeydown);
-});
+ stopResize(); });
 </script>
 
 <style scoped>
@@ -438,9 +469,14 @@ onBeforeUnmount(() => {
 .editor-close { width: 28px; height: 28px; border: none; background: transparent; font-size: 22px; line-height: 1; color: #999; cursor: pointer; border-radius: 4px; flex-shrink: 0; }
 .editor-close:hover { background: #f0f0f0; color: #333; }
 
-.editor-body { flex: 1; min-height: 0; display: grid; grid-template-columns: 40% 60%; }
+.editor-body { flex: 1; min-height: 0; display: flex; }
 .editor-pane { display: flex; flex-direction: column; min-width: 0; min-height: 0; }
-.editor-source { border-right: 1px solid #e8e8e8; background: #fafafa; }
+.editor-source { flex: 0 0 auto; background: #fafafa; min-width: 0; }
+.editor-splitter { flex: 0 0 7px; cursor: col-resize; background: #f0f2f2; border-left: 1px solid #e8e8e8; border-right: 1px solid #e8e8e8; position: relative; touch-action: none; transition: background 0.15s; }
+.editor-splitter::after { content: ""; position: absolute; top: 50%; left: 50%; width: 3px; height: 34px; transform: translate(-50%, -50%); border-radius: 3px; background: #c9d6d4; }
+.editor-splitter:hover, .editor-splitter.dragging { background: var(--teal-soft, #e0f2f1); }
+.editor-splitter:hover::after, .editor-splitter.dragging::after { background: var(--teal, #00796b); }
+.editor-fields { flex: 1 1 auto; min-width: 0; }
 .pane-head { display: flex; align-items: center; justify-content: space-between; gap: 8px; padding: 9px 16px; border-bottom: 1px solid #ececec; flex-shrink: 0; }
 .pane-label { font-size: 12px; font-weight: 600; color: #00796b; letter-spacing: 0.5px; }
 .pane-hint { font-size: 11px; color: #999; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
@@ -478,8 +514,10 @@ textarea.field-control { resize: vertical; min-height: 52px; line-height: 1.4; }
 .editor-fade-enter-from, .editor-fade-leave-to { opacity: 0; }
 
 @media (max-width: 960px) {
-  .editor-body { grid-template-columns: 1fr; grid-template-rows: 40% 60%; }
-  .editor-source { border-right: none; border-bottom: 1px solid #e8e8e8; }
+  .editor-body { flex-direction: column; }
+  .editor-splitter { display: none; }
+  .editor-source { height: 40%; }
+  .editor-source { border-bottom: 1px solid #e8e8e8; }
 }
 
 /* toast */
