@@ -1,12 +1,24 @@
 <template>
   <div class="shell">
-    <aside class="sidebar">
+    <aside class="sidebar" :class="{ collapsed: isCollapsed }">
       <div class="brand">
         <div class="brand-mark"></div>
-        <div class="brand-text">
+        <div v-if="!isCollapsed" class="brand-text">
           <strong>TCM-DOR</strong>
           <span>知识图谱原型</span>
         </div>
+        <button
+          class="btn-collapse"
+          :title="isCollapsed ? '展开侧栏' : '折叠侧栏'"
+          @click="toggleCollapse"
+        >
+          <svg v-if="isCollapsed" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+            <polyline points="9 18 15 12 9 6" />
+          </svg>
+          <svg v-else viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+            <polyline points="15 18 9 12 15 6" />
+          </svg>
+        </button>
       </div>
 
       <nav class="nav">
@@ -16,21 +28,28 @@
           :to="item.to"
           class="nav-item"
           :class="{ active: isActive(item.to) }"
+          :title="isCollapsed ? item.label : undefined"
         >
           <span class="nav-icon" v-html="item.icon"></span>
-          <span>{{ item.label }}</span>
+          <span v-if="!isCollapsed">{{ item.label }}</span>
         </router-link>
       </nav>
 
       <div class="sidebar-footer">
-        <div class="role-card">
+        <div class="role-card" :title="isCollapsed ? roleMeta.label : undefined">
           <span class="role-dot" :style="{ background: roleMeta.color }"></span>
-          <div class="role-text">
+          <div v-if="!isCollapsed" class="role-text">
             <strong>{{ roleMeta.label }}</strong>
             <span>{{ roleMeta.desc }}</span>
           </div>
         </div>
-        <button class="btn-switch" @click="switchRole">切换角色</button>
+        <button class="btn-switch" :title="isCollapsed ? '切换角色' : undefined" @click="switchRole">
+          <span v-if="!isCollapsed">切换角色</span>
+          <svg v-else viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+            <path d="M17 1l4 4-4 4" /><path d="M3 11V9a4 4 0 0 1 4-4h14" />
+            <path d="M7 23l-4-4 4-4" /><path d="M21 13v2a4 4 0 0 1-4 4H3" />
+          </svg>
+        </button>
       </div>
     </aside>
 
@@ -41,7 +60,7 @@
 </template>
 
 <script setup>
-import { computed } from "vue";
+import { computed, ref } from "vue";
 import { useRoute, useRouter } from "vue-router";
 import { session, ROLE_META } from "../stores/session";
 
@@ -49,6 +68,22 @@ const route = useRoute();
 const router = useRouter();
 
 const roleMeta = computed(() => ROLE_META[session.state.role] || ROLE_META.normal);
+
+const COLLAPSE_KEY = "tcm-dor-proto-sidebar-collapsed";
+const isCollapsed = ref(false);
+try {
+  isCollapsed.value = localStorage.getItem(COLLAPSE_KEY) === "1";
+} catch {
+  isCollapsed.value = false;
+}
+function toggleCollapse() {
+  isCollapsed.value = !isCollapsed.value;
+  try {
+    localStorage.setItem(COLLAPSE_KEY, isCollapsed.value ? "1" : "0");
+  } catch {
+    /* ignore */
+  }
+}
 
 const ICONS = {
   chat: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/></svg>',
@@ -103,6 +138,8 @@ function switchRole() {
 .sidebar {
   width: 232px;
   flex-shrink: 0;
+  transition: width 0.18s ease, padding 0.18s ease;
+  overflow: hidden;
   background: var(--sidebar);
   color: var(--sidebar-ink);
   display: flex;
@@ -110,6 +147,9 @@ function switchRole() {
   padding: 18px 12px;
 }
 .brand { display: flex; align-items: center; gap: 10px; padding: 0 8px 18px; }
+.btn-collapse { margin-left: auto; width: 24px; height: 24px; border: 1px solid rgba(255,255,255,.14); background: transparent; color: #9fb0c0; border-radius: 6px; cursor: pointer; display: inline-flex; align-items: center; justify-content: center; flex-shrink: 0; }
+.btn-collapse:hover { color: #7ff0df; border-color: #7ff0df; }
+.btn-collapse svg { width: 14px; height: 14px; }
 .brand-mark { width: 28px; height: 28px; border-radius: 8px; background: linear-gradient(135deg, #00a896, #00796b); }
 .brand-text { display: flex; flex-direction: column; line-height: 1.2; }
 .brand-text strong { color: #fff; font-size: 14px; letter-spacing: 0.5px; }
@@ -138,6 +178,18 @@ function switchRole() {
 .role-text { display: flex; flex-direction: column; line-height: 1.25; min-width: 0; }
 .role-text strong { color: #fff; font-size: 12px; font-weight: 600; }
 .role-text span { color: #8494a3; font-size: 10px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.btn-switch svg { width: 14px; height: 14px; }
+
+/* 折叠态 */
+.sidebar.collapsed { width: 64px; padding-left: 8px; padding-right: 8px; }
+.sidebar.collapsed .brand { justify-content: center; padding-left: 0; padding-right: 0; }
+.sidebar.collapsed .brand-mark { width: 24px; height: 24px; border-radius: 7px; }
+.sidebar.collapsed .btn-collapse { margin-left: 4px; }
+.sidebar.collapsed .nav-item { justify-content: center; padding-left: 0; padding-right: 0; }
+.sidebar.collapsed .nav-icon { width: 18px; height: 18px; }
+.sidebar.collapsed .nav-icon :deep(svg) { width: 18px; height: 18px; }
+.sidebar.collapsed .role-card { justify-content: center; padding-left: 0; padding-right: 0; }
+.sidebar.collapsed .btn-switch { display: flex; align-items: center; justify-content: center; padding: 6px 0; }
 .btn-switch { border: 1px solid rgba(255, 255, 255, 0.16); background: transparent; color: #c9d1d9; border-radius: 6px; padding: 6px; font-size: 12px; cursor: pointer; }
 .btn-switch:hover { border-color: #7ff0df; color: #7ff0df; }
 
