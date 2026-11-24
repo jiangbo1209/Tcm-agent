@@ -44,6 +44,22 @@
       </div>
 
       <div class="toolbar">
+        <div class="batch-menu" :class="{ 'is-disabled': selectedIds.size === 0 }">
+          <button
+            type="button"
+            class="btn-batch-trigger"
+            :disabled="selectedIds.size === 0"
+            :title="selectedIds.size === 0 ? '请先勾选数据源' : '批量操作'"
+          >
+            批量操作<span v-if="selectedIds.size > 0" class="batch-num">（{{ selectedIds.size }}）</span>
+            <span class="batch-caret">▾</span>
+          </button>
+          <div v-if="selectedIds.size > 0" class="batch-dropdown">
+            <button type="button" class="batch-option danger" @click="askBatchDelete">批量删除</button>
+            <button type="button" class="batch-option" @click="batchSetType('lit')">批量设为文献</button>
+            <button type="button" class="batch-option" @click="batchSetType('case')">批量设为病案</button>
+          </div>
+        </div>
         <select v-model="filterType" class="filter-select">
           <option value="">全部类型</option>
           <option v-for="opt in TYPE_OPTIONS" :key="opt.value" :value="opt.value">{{ opt.label }}</option>
@@ -57,20 +73,6 @@
         <input v-model="searchQuery" type="text" class="filter-input" placeholder="搜索文件名..." />
         <button v-if="searchQuery" type="button" class="btn-clear" @click="searchQuery = ''">清除</button>
         <span class="result-count">共 {{ filteredSources.length }} 条</span>
-      </div>
-
-      <div v-if="selectedIds.size > 0" class="batch-bar">
-        <span class="batch-count">已选 <strong>{{ selectedIds.size }}</strong> 项</span>
-        <select v-model="batchAction" class="filter-select">
-          <option value="">批量操作…</option>
-          <option value="delete">批量删除</option>
-          <option value="lit">批量设为文献</option>
-          <option value="case">批量设为病案</option>
-        </select>
-        <button type="button" class="btn-primary btn-batch" :disabled="!batchAction" @click="applyBatch">
-          执行
-        </button>
-        <button type="button" class="btn-sm" @click="selectedIds = new Set()">取消选择</button>
       </div>
 
       <div class="table-wrap">
@@ -553,7 +555,6 @@ function shortName(name) {
 
 /* ───────── 多选与批量操作 ───────── */
 const selectedIds = ref(new Set());
-const batchAction = ref("");
 const pendingBatchDelete = ref(false);
 
 const isPageAllSelected = computed(
@@ -581,19 +582,17 @@ watch([filterType, filterStatus, searchQuery], () => {
   selectedIds.value = new Set();
 });
 
-function applyBatch() {
-  if (!batchAction.value) return;
-  if (batchAction.value === "delete") {
-    pendingBatchDelete.value = true;
-    return;
-  }
-  const label = batchAction.value === "lit" ? "文献" : "病案";
-  sources.value = sources.value.map((f) =>
-    selectedIds.value.has(f.id) ? { ...f, type: batchAction.value } : f,
-  );
+function askBatchDelete() {
+  pendingBatchDelete.value = true;
+}
+
+function batchSetType(type) {
+  const label = type === "lit" ? "文献" : "病案";
   const count = selectedIds.value.size;
+  sources.value = sources.value.map((f) =>
+    selectedIds.value.has(f.id) ? { ...f, type } : f,
+  );
   selectedIds.value = new Set();
-  batchAction.value = "";
   showToast(`已将 ${count} 个数据源设置为${label}`);
 }
 
@@ -602,7 +601,6 @@ function confirmBatchDelete() {
   sources.value = sources.value.filter((f) => !selectedIds.value.has(f.id));
   selectedIds.value = new Set();
   pendingBatchDelete.value = false;
-  batchAction.value = "";
   if (page.value > pageCount.value) page.value = pageCount.value;
   showToast(`已删除 ${count} 个数据源`);
 }
@@ -1405,11 +1403,38 @@ select.row-select:disabled {
 .col-check { width: 40px; text-align: center; }
 .row-check { width: 15px; height: 15px; accent-color: var(--teal); cursor: pointer; }
 .row-selected td { background: #f0f7f6; }
-.batch-bar { display: flex; align-items: center; gap: 10px; margin: 0 0 12px; padding: 10px 14px; border: 1px solid var(--teal-border); border-radius: 8px; background: #f2faf8; flex-wrap: wrap; }
-.batch-count { font-size: 13px; color: var(--ink-700); }
-.batch-count strong { color: var(--teal-dark); }
-.btn-batch { padding: 6px 16px; }
-.btn-batch:disabled { opacity: 0.45; cursor: not-allowed; }
+
+.batch-menu { position: relative; display: inline-flex; }
+.btn-batch-trigger {
+  display: inline-flex; align-items: center; gap: 6px;
+  padding: 7px 12px; border-radius: 6px; font-size: 13px; cursor: pointer;
+  border: 1px solid var(--teal-border); background: #fff; color: var(--teal-dark);
+  transition: background 0.15s, color 0.15s, border-color 0.15s;
+}
+.btn-batch-trigger:hover { background: var(--teal-soft); }
+.batch-menu.is-disabled .btn-batch-trigger,
+.btn-batch-trigger:disabled {
+  background: #f3f4f4; border-color: #e0e0e0; color: #9ca3af; cursor: not-allowed;
+}
+.batch-num { font-weight: 600; }
+.batch-caret { font-size: 10px; opacity: 0.8; }
+
+.batch-dropdown {
+  position: absolute; left: 0; top: calc(100% + 6px); min-width: 168px; z-index: 40;
+  background: #fff; border: 1px solid var(--line); border-radius: 8px;
+  box-shadow: 0 10px 28px rgba(20, 60, 55, 0.14); padding: 6px;
+  display: none;
+}
+.batch-menu:hover .batch-dropdown,
+.batch-menu:focus-within .batch-dropdown { display: block; }
+.batch-option {
+  display: block; width: 100%; text-align: left; padding: 8px 10px;
+  border: none; background: transparent; border-radius: 6px;
+  font-size: 13px; color: var(--ink-700); cursor: pointer;
+}
+.batch-option:hover { background: var(--teal-soft); color: var(--teal-dark); }
+.batch-option.danger { color: #c62828; }
+.batch-option.danger:hover { background: #ffebee; color: #b71c1c; }
 
 /* ── 分页 ── */
 .pager-bar { display: flex; align-items: center; gap: 12px; margin-top: 14px; flex-wrap: wrap; }
