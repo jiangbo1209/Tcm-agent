@@ -51,7 +51,7 @@
           :title="selectedIds.size === 0 ? '请先勾选数据源' : '批量操作'"
           @change="handleBatchAction"
         >
-          <option value="">{{ selectedIds.size > 0 ? `批量操作（${selectedIds.size}）` : "批量操作" }}</option>
+          <option value="" disabled hidden>{{ selectedIds.size > 0 ? `批量操作（${selectedIds.size}）` : "批量操作" }}</option>
           <option value="delete">批量删除</option>
           <option value="lit">批量设为文献</option>
           <option value="case">批量设为病案</option>
