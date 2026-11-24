@@ -60,7 +60,7 @@
           </tr>
         </thead>
         <tbody>
-          <tr v-for="record in filteredRecords" :key="record.id" class="row-clickable" @click="openEditor(record)">
+          <tr v-for="record in pagedList" :key="record.id" class="row-clickable" @click="openEditor(record)">
             <td class="cell-id">{{ record.id }}</td>
             <td class="cell-title" :title="record.values.lit_1">{{ record.values.lit_1 || "—" }}</td>
             <td class="cell-author" :title="record.values.lit_2">{{ record.values.lit_2 || "—" }}</td>
@@ -87,6 +87,21 @@
         </tbody>
       </table>
     </div>
+      <div class="pager-bar">
+        <div class="page-size">
+          <span>每页</span>
+          <select v-model.number="pageSize" class="filter-select">
+            <option v-for="n in PAGE_SIZES" :key="n" :value="n">{{ n }}</option>
+          </select>
+          <span>条</span>
+        </div>
+        <span class="page-info">第 {{ page }} / {{ pageCount }} 页 · 共 {{ filteredRecords.length }} 条</span>
+        <div class="pager-btns">
+          <button class="btn-sm" :disabled="page <= 1" @click="page--">上一页</button>
+          <button class="btn-sm" :disabled="page >= pageCount" @click="page++">下一页</button>
+        </div>
+      </div>
+
 
     <!-- 原文 / 字段分栏编辑器 -->
     <transition name="editor-fade">
@@ -191,7 +206,7 @@
 </template>
 
 <script setup>
-import { ref, computed, onMounted, onBeforeUnmount } from "vue";
+import { ref, computed, onMounted, onBeforeUnmount , watch} from "vue";
 import {
   LIT_GROUPS,
   LIT_FIELD_COUNT,
@@ -236,6 +251,27 @@ const filteredRecords = computed(() => {
       .toLowerCase();
     return haystack.includes(q);
   });
+});
+
+const PAGE_SIZES = [10, 20, 50, 100];
+const page = ref(1);
+const pageSize = ref(10);
+
+const pageCount = computed(() =>
+  Math.max(1, Math.ceil(filteredRecords.value.length / pageSize.value))
+);
+
+const pagedList = computed(() => {
+  const start = (page.value - 1) * pageSize.value;
+  return filteredRecords.value.slice(start, start + pageSize.value);
+});
+
+watch([filterType, pageSize], () => {
+  page.value = 1;
+});
+
+watch(pageCount, (n) => {
+  if (page.value > n) page.value = n;
 });
 
 function statusMeta(status) {
@@ -452,4 +488,12 @@ textarea.field-control { resize: vertical; min-height: 52px; line-height: 1.4; }
 .toast-error { background: #c62828; color: #fff; }
 .toast-fade-enter-active, .toast-fade-leave-active { transition: opacity 0.25s ease, transform 0.25s ease; }
 .toast-fade-enter-from, .toast-fade-leave-to { opacity: 0; transform: translateY(-8px); }
+
+/* ── 分页 ── */
+.pager-bar { display: flex; align-items: center; gap: 12px; margin-top: 14px; flex-wrap: wrap; }
+.page-size { display: flex; align-items: center; gap: 6px; font-size: 12px; color: #6b7280; }
+.page-size .filter-select { padding: 4px 8px; }
+.page-info { font-size: 12px; color: #9ca3af; margin-left: auto; }
+.pager-btns { display: flex; gap: 8px; }
+.pager-btns .btn-sm:disabled { opacity: 0.45; cursor: not-allowed; }
 </style>

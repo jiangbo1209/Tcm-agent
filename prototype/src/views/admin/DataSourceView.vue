@@ -74,7 +74,7 @@
             </tr>
           </thead>
           <tbody>
-            <tr v-for="file in filteredSources" :key="file.id">
+            <tr v-for="file in pagedList" :key="file.id">
               <td class="cell-name" :title="file.name">{{ file.name }}</td>
               <td class="cell-size">{{ file.size }}</td>
               <td>
@@ -104,6 +104,21 @@
           </tbody>
         </table>
       </div>
+      <div class="pager-bar">
+        <div class="page-size">
+          <span>每页</span>
+          <select v-model.number="pageSize" class="filter-select">
+            <option v-for="n in PAGE_SIZES" :key="n" :value="n">{{ n }}</option>
+          </select>
+          <span>条</span>
+        </div>
+        <span class="page-info">第 {{ page }} / {{ pageCount }} 页 · 共 {{ filteredSources.length }} 条</span>
+        <div class="pager-btns">
+          <button class="btn-sm" :disabled="page <= 1" @click="page--">上一页</button>
+          <button class="btn-sm" :disabled="page >= pageCount" @click="page++">下一页</button>
+        </div>
+      </div>
+
     </section>
 
     <!-- 弹窗：上传文件 -->
@@ -282,7 +297,7 @@
 </template>
 
 <script setup>
-import { ref, computed, onBeforeUnmount } from "vue";
+import { ref, computed, onBeforeUnmount , watch} from "vue";
 
 const MAX_QUEUE = 10;
 const TYPE_OPTIONS = [
@@ -422,6 +437,23 @@ const sources = ref([
   },
 ]);
 
+
+// 分页演示补充数据源（原型）
+const EXTRA_SOURCES = Array.from({ length: 16 }, (_, i) => ({
+  id: `DS-${String(1036 + i).padStart(4, "0")}`,
+  name: [
+    "补肾活血法治疗 DOR 病案汇编", "针灸治疗卵巢储备减退文献集", "DOR 证型分布调查数据",
+    "IVF-ET 妊娠结局随访表", "中药复方配伍数据", "名老中医 DOR 验案集",
+  ][i % 6] + `_${i + 1}.pdf`,
+  size: `${(0.3 + (i % 7) * 0.4).toFixed(1)} MB`,
+  type: i % 2 ? "case" : "lit",
+  source: i % 3 === 0 ? "脚本批量" : "手动上传",
+  uploadedAt: `2026-11-${String(10 + (i % 14)).padStart(2, "0")} ${String(8 + (i % 10)).padStart(2, "0")}:20`,
+  uploader: ["张医师", "李研究员", "王医生", "陈医生"][i % 4],
+  status: ["done", "done", "pending", "done"][i % 4],
+}));
+sources.value.push(...EXTRA_SOURCES);
+
 const filterType = ref("");
 const filterStatus = ref("");
 const searchQuery = ref("");
@@ -434,6 +466,27 @@ const filteredSources = computed(() => {
     if (q && !file.name.toLowerCase().includes(q)) return false;
     return true;
   });
+});
+
+const PAGE_SIZES = [10, 20, 50, 100];
+const page = ref(1);
+const pageSize = ref(10);
+
+const pageCount = computed(() =>
+  Math.max(1, Math.ceil(filteredSources.value.length / pageSize.value))
+);
+
+const pagedList = computed(() => {
+  const start = (page.value - 1) * pageSize.value;
+  return filteredSources.value.slice(start, start + pageSize.value);
+});
+
+watch([sources, pageSize], () => {
+  page.value = 1;
+});
+
+watch(pageCount, (n) => {
+  if (page.value > n) page.value = n;
 });
 
 const stats = computed(() => ({
@@ -1244,4 +1297,12 @@ select.row-select:disabled {
     margin-left: 0;
   }
 }
+
+/* ── 分页 ── */
+.pager-bar { display: flex; align-items: center; gap: 12px; margin-top: 14px; flex-wrap: wrap; }
+.page-size { display: flex; align-items: center; gap: 6px; font-size: 12px; color: var(--ink-500); }
+.page-size .filter-select { padding: 4px 8px; }
+.page-info { font-size: 12px; color: var(--ink-400); margin-left: auto; }
+.pager-btns { display: flex; gap: 8px; }
+.pager-btns .btn-sm:disabled { opacity: 0.45; cursor: not-allowed; }
 </style>
