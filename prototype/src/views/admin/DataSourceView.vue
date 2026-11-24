@@ -51,8 +51,7 @@
             :disabled="selectedIds.size === 0"
             :title="selectedIds.size === 0 ? '请先勾选数据源' : '批量操作'"
           >
-            批量操作<span v-if="selectedIds.size > 0" class="batch-num">（{{ selectedIds.size }}）</span>
-            <span class="batch-caret">▾</span>
+            批量操作<span class="batch-num">{{ selectedIds.size > 0 ? `（${selectedIds.size}）` : "" }}</span>
           </button>
           <div v-if="selectedIds.size > 0" class="batch-dropdown">
             <button type="button" class="batch-option danger" @click="askBatchDelete">批量删除</button>
@@ -1416,8 +1415,13 @@ select.row-select:disabled {
 .btn-batch-trigger:disabled {
   background: #f3f4f4; border-color: #e0e0e0; color: #9ca3af; cursor: not-allowed;
 }
-.batch-num { font-weight: 600; }
-.batch-caret { font-size: 10px; opacity: 0.8; }
+.batch-num {
+  display: inline-block;
+  width: 4.2em;
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+  text-align: left;
+}
 
 .batch-dropdown {
   position: absolute; left: 0; top: calc(100% + 6px); min-width: 168px; z-index: 40;
