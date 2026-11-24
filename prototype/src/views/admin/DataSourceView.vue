@@ -44,21 +44,18 @@
       </div>
 
       <div class="toolbar">
-        <div class="batch-menu" :class="{ 'is-disabled': selectedIds.size === 0 }">
-          <button
-            type="button"
-            class="btn-batch-trigger"
-            :disabled="selectedIds.size === 0"
-            :title="selectedIds.size === 0 ? '请先勾选数据源' : '批量操作'"
-          >
-            批量操作<span class="batch-num">{{ selectedIds.size > 0 ? `（${selectedIds.size}）` : "" }}</span>
-          </button>
-          <div v-if="selectedIds.size > 0" class="batch-dropdown">
-            <button type="button" class="batch-option danger" @click="askBatchDelete">批量删除</button>
-            <button type="button" class="batch-option" @click="batchSetType('lit')">批量设为文献</button>
-            <button type="button" class="batch-option" @click="batchSetType('case')">批量设为病案</button>
-          </div>
-        </div>
+        <select
+          v-model="batchAction"
+          class="filter-select batch-select"
+          :disabled="selectedIds.size === 0"
+          :title="selectedIds.size === 0 ? '请先勾选数据源' : '批量操作'"
+          @change="handleBatchAction"
+        >
+          <option value="">{{ selectedIds.size > 0 ? `批量操作（${selectedIds.size}）` : "批量操作" }}</option>
+          <option value="delete">批量删除</option>
+          <option value="lit">批量设为文献</option>
+          <option value="case">批量设为病案</option>
+        </select>
         <select v-model="filterType" class="filter-select">
           <option value="">全部类型</option>
           <option v-for="opt in TYPE_OPTIONS" :key="opt.value" :value="opt.value">{{ opt.label }}</option>
@@ -554,6 +551,7 @@ function shortName(name) {
 
 /* ───────── 多选与批量操作 ───────── */
 const selectedIds = ref(new Set());
+const batchAction = ref("");
 const pendingBatchDelete = ref(false);
 
 const isPageAllSelected = computed(
@@ -580,6 +578,17 @@ function toggleSelectAllOnPage() {
 watch([filterType, filterStatus, searchQuery], () => {
   selectedIds.value = new Set();
 });
+
+function handleBatchAction() {
+  const action = batchAction.value;
+  if (!action) return;
+  if (action === "delete") {
+    pendingBatchDelete.value = true;
+  } else {
+    batchSetType(action);
+  }
+  batchAction.value = "";
+}
 
 function askBatchDelete() {
   pendingBatchDelete.value = true;
@@ -1403,42 +1412,17 @@ select.row-select:disabled {
 .row-check { width: 15px; height: 15px; accent-color: var(--teal); cursor: pointer; }
 .row-selected td { background: #f0f7f6; }
 
-.batch-menu { position: relative; display: inline-flex; }
-.btn-batch-trigger {
-  display: inline-flex; align-items: center; gap: 6px;
-  padding: 7px 12px; border-radius: 6px; font-size: 13px; cursor: pointer;
-  border: 1px solid var(--teal-border); background: #fff; color: var(--teal-dark);
-  transition: background 0.15s, color 0.15s, border-color 0.15s;
-}
-.btn-batch-trigger:hover { background: var(--teal-soft); }
-.batch-menu.is-disabled .btn-batch-trigger,
-.btn-batch-trigger:disabled {
-  background: #f3f4f4; border-color: #e0e0e0; color: #9ca3af; cursor: not-allowed;
-}
-.batch-num {
-  display: inline-block;
-  width: 4.2em;
-  font-weight: 600;
+.batch-select {
+  width: 132px;
   font-variant-numeric: tabular-nums;
-  text-align: left;
+  cursor: pointer;
 }
-
-.batch-dropdown {
-  position: absolute; left: 0; top: calc(100% + 6px); min-width: 168px; z-index: 40;
-  background: #fff; border: 1px solid var(--line); border-radius: 8px;
-  box-shadow: 0 10px 28px rgba(20, 60, 55, 0.14); padding: 6px;
-  display: none;
+.batch-select:disabled {
+  background: #f3f4f4;
+  border-color: #e0e0e0;
+  color: #9ca3af;
+  cursor: not-allowed;
 }
-.batch-menu:hover .batch-dropdown,
-.batch-menu:focus-within .batch-dropdown { display: block; }
-.batch-option {
-  display: block; width: 100%; text-align: left; padding: 8px 10px;
-  border: none; background: transparent; border-radius: 6px;
-  font-size: 13px; color: var(--ink-700); cursor: pointer;
-}
-.batch-option:hover { background: var(--teal-soft); color: var(--teal-dark); }
-.batch-option.danger { color: #c62828; }
-.batch-option.danger:hover { background: #ffebee; color: #b71c1c; }
 
 /* ── 分页 ── */
 .pager-bar { display: flex; align-items: center; gap: 12px; margin-top: 14px; flex-wrap: wrap; }
