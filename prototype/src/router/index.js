@@ -44,15 +44,18 @@ const routes = [
         meta: { roles: ["admin"] },
       },
       {
-        path: "admin/literature",
-        name: "AdminLiterature",
-        component: () => import("../views/admin/LiteratureLibrary.vue"),
+        path: "admin/data",
+        name: "AdminDataManage",
+        component: () => import("../views/admin/DataManageView.vue"),
         meta: { roles: ["admin"] },
       },
+      // 兼容旧入口
+      { path: "admin/literature", redirect: "/admin/data?kind=literature" },
+      { path: "admin/cases", redirect: "/admin/data?kind=case" },
       {
-        path: "admin/cases",
-        name: "AdminCases",
-        component: () => import("../views/admin/CaseLibrary.vue"),
+        path: "admin/upload",
+        name: "AdminUpload",
+        component: () => import("../views/admin/UploadView.vue"),
         meta: { roles: ["admin"] },
       },
       {
@@ -70,7 +73,7 @@ const routes = [
       {
         path: "admin/etl",
         name: "AdminEtl",
-        component: () => import("../views/admin/EtlQualityView.vue"),
+        component: () => import("../views/admin/EtlView.vue"),
         meta: { roles: ["admin"] },
       },
     ],
@@ -94,7 +97,6 @@ router.beforeEach((to) => {
   if (Array.isArray(allowed) && !allowed.includes(session.state.role)) {
     return "/login";
   }
-  // 根路径按角色定向
   if (to.path === "/") {
     return session.state.role === "admin"
       ? "/admin"

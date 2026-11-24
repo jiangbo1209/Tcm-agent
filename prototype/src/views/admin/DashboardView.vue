@@ -214,7 +214,7 @@ const TODOS = [
     desc: "文献 14 · 病案 7",
     tone: "amber",
     cta: "进入复核",
-    to: "/admin/literature",
+    to: "/admin/data?kind=literature",
   },
   {
     count: 7,

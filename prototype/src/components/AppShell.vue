@@ -61,6 +61,7 @@ const ICONS = {
   users: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M23 21v-2a4 4 0 0 0-3-3.87"/><path d="M16 3.13a4 4 0 0 1 0 7.75"/></svg>',
   tasks: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M9 11l3 3L22 4"/><path d="M21 12v7a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11"/></svg>',
   etl: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 3v18h18"/><path d="M18 17V9M13 17V5M8 17v-3"/></svg>',
+  upload: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="17 8 12 3 7 8"/><line x1="12" y1="3" x2="12" y2="15"/></svg>',
 };
 
 const NAV = {
@@ -73,11 +74,11 @@ const NAV = {
   annotator: [{ to: "/annotate", label: "标注工作台", icon: "annotate" }],
   admin: [
     { to: "/admin", label: "总览", icon: "dashboard" },
-    { to: "/admin/literature", label: "文献库", icon: "book" },
-    { to: "/admin/cases", label: "病案库", icon: "case" },
+    { to: "/admin/data", label: "数据管理", icon: "book" },
+    { to: "/admin/upload", label: "数据上传", icon: "upload" },
     { to: "/admin/users", label: "用户与权限", icon: "users" },
     { to: "/admin/tasks", label: "标注任务", icon: "tasks" },
-    { to: "/admin/etl", label: "ETL 质检", icon: "etl" },
+    { to: "/admin/etl", label: "ETL 抽取", icon: "etl" },
   ],
 };
 

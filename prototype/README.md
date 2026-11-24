@@ -24,7 +24,7 @@ npm run build
 | 普通用户 | `/chat` | 仅智能问答 |
 | 专业用户 | `/chat` `/search` `/graph` | 问答 + 搜索 + 知识图谱 |
 | 数据标注员 | `/annotate` | 标注工作台（单一入口） |
-| 超级管理员 | `/admin` | 总览 / 文献库 / 病案库 / 用户与权限 / 标注任务 / ETL 质检 |
+| 超级管理员 | `/admin` | 总览 / 数据管理 / 数据上传 / 用户与权限 / 标注任务 / ETL 抽取 |
 
 登录页一键选择角色进入，无需账号密码；侧栏「切换角色」可回到登录页。
 
@@ -44,16 +44,25 @@ src/views/
   chat/ChatView.vue             智能问答（mock 对话）
   professional/SearchView.vue   智能搜索（文献+病案）
   professional/GraphView.vue    知识图谱（SVG 实体关系图）
-  annotator/WorkbenchView.vue   标注工作台
+  annotator/WorkbenchView.vue   标注工作台（文献/病案分栏 + 原文对照）
   admin/DashboardView.vue       平台总览
-  admin/LiteratureLibrary.vue   文献库（65 字段）
-  admin/CaseLibrary.vue         病案库（41 字段）
+  admin/DataManageView.vue      数据管理（文献库/病案库同页切换）
+  admin/LiteratureLibrary.vue   文献库（65 字段，人工编辑）
+  admin/CaseLibrary.vue         病案库（41 字段，人工编辑）
+  admin/UploadView.vue          数据上传（队列上限 10 + 类型管理）
   admin/UsersView.vue           用户与权限
   admin/AnnotationTasksView.vue 标注任务（任务池/复核/操作记录）
-  admin/EtlQualityView.vue      ETL 抽取质检看板
+  admin/EtlView.vue             ETL 抽取（抽取任务/质检看板）
 ```
 
 ## 说明
 
 - 无 axios、无 API 请求、无鉴权后端；角色状态仅存 localStorage
 - 字段规模与分组取自甲方需求 Excel，界面用于评审信息架构与交互
+
+## 本轮交互要点
+
+- **数据管理**：文献库/病案库同一页面，顶部菜单切换；编辑为左右分栏（左原文、右字段），不含 AI 重抽按钮。
+- **数据上传**：队列最多 10 个文件，逐文件设置「文献 / 病案」，另提供已上传文件的分类调整入口。
+- **ETL 抽取**：必须先选执行范围（未抽取 / 指定记录 / 按筛选条件），不允许默认全量；与质检看板合并为同页两个菜单。
+- **标注工作台**：文献 / 病案分别标注；三栏布局（任务列表 | 原文 | 字段表单）。

@@ -3,16 +3,17 @@
     <div class="admin-header">
       <div class="header-main">
         <h1>标注工作台</h1>
-        <p class="header-sub">DOR 文献抽取复核 · 本地原型（不调用接口）</p>
+        <p class="header-sub">DOR 文献 / 病案抽取复核 · 本地原型（不调用接口）</p>
         <div class="task-meta">
           <span class="task-code">{{ TASK.id }}</span>
           <span class="meta-item">来源池「{{ TASK.pool }}」</span>
+          <span class="meta-item">当前对象：{{ scopeLabel }}</span>
           <span class="meta-item deadline">{{ TASK.deadline }}</span>
         </div>
       </div>
       <div class="progress-box">
         <div class="progress-text">
-          已处理 <strong>{{ processed }}</strong><span>/ 20</span>
+          已处理 <strong>{{ processed }}</strong><span>/ {{ total }}</span>
         </div>
         <div class="progress-track">
           <div class="progress-fill" :style="{ width: progressPct + '%' }"></div>
@@ -20,39 +21,47 @@
       </div>
     </div>
 
-    <!-- Tab 切换 -->
+    <!-- 对象切换 -->
     <div class="tabs">
       <button
         class="tab"
-        :class="{ active: activeTab === 'batch' }"
-        @click="activeTab = 'batch'"
+        :class="{ active: activeTab === 'lit' }"
+        @click="switchTab('lit')"
       >
-        评审批次
-        <span class="tab-count">{{ items.length }}</span>
+        文献标注
+        <span class="tab-count">{{ litItems.length }}</span>
+      </button>
+      <button
+        class="tab"
+        :class="{ active: activeTab === 'case' }"
+        @click="switchTab('case')"
+      >
+        病案标注
+        <span class="tab-count">{{ caseItems.length }}</span>
       </button>
       <button
         class="tab"
         :class="{ active: activeTab === 'records' }"
-        @click="activeTab = 'records'"
+        @click="switchTab('records')"
       >
         我的标注记录
         <span class="tab-count">{{ records.length }}</span>
       </button>
     </div>
 
-    <!-- 评审批次 -->
-    <div v-if="activeTab === 'batch'" class="batch-layout">
+    <!-- 标注工作区：任务列表 | 原文面板 | 字段表单 -->
+    <div v-if="activeTab !== 'records'" class="work-layout">
       <aside class="task-list card">
         <div class="list-head">
-          <span>本批条目</span>
-          <span class="list-count">{{ items.length }} 条</span>
+          <span>{{ activeTab === 'case' ? '病案条目' : '文献条目' }}</span>
+          <span class="list-count">{{ activeItems.length }} 条</span>
         </div>
         <div class="list-body">
           <button
-            v-for="item in items"
+            v-for="item in activeItems"
             :key="item.id"
             class="task-item"
-            :class="{ active: item.id === selectedId }"
+            :class="{ active: item.id === currentId }"
             @click="selectItem(item.id)"
           >
             <div class="task-item-top">
@@ -64,6 +73,43 @@
         </div>
       </aside>
 
+      <section class="original-panel card">
+        <header class="original-head">
+          <div class="original-title">
+            <span class="original-tag">{{ activeTab === 'case' ? '病案原文' : '文献原文' }}</span>
+            <div class="font-switch" role="group" aria-label="正文字号">
+              <button
+                v-for="option in FONT_OPTIONS"
+                :key="option.value"
+                class="font-btn"
+                :class="{ active: originalFont === option.value }"
+                @click="originalFont = option.value"
+              >
+                {{ option.label }}
+              </button>
+            </div>
+          </div>
+        </header>
+
+        <template v-if="currentOriginal">
+          <div class="original-meta">
+            <span class="original-source">{{ currentOriginal.source }}</span>
+            <h3 class="original-name" :title="currentOriginal.title">
+              {{ currentOriginal.title }}
+            </h3>
+          </div>
+          <div class="original-body" :class="'font-' + originalFont">
+            {{ currentOriginal.body }}
+          </div>
+        </template>
+
+        <div v-else class="original-empty">
+          <div class="empty-mark">▤</div>
+          <p>暂无原文</p>
+          <span>该条目在本地 mock 中未提供原文片段</span>
+        </div>
+      </section>
+
       <section class="editor card">
         <template v-if="currentItem">
           <header class="editor-head">
@@ -72,12 +118,26 @@
               <h2 :title="currentItem.title">{{ currentItem.title || "未命名条目" }}</h2>
             </div>
             <div class="editor-meta">
-              <span class="badge" :class="STATUS_META[currentItem.status]">
+              <span class="badge" :class="[currentItem.status === '已提交' ? 'badge-ok' : currentItem.status === '已暂存' ? 'badge-warn' : 'badge-muted']">
                 {{ currentItem.status }}
               </span>
-              <span class="group-hint">按文献母版前 2 组渲染</span>
+              <span class="group-hint">
+                {{ activeTab === 'case' ? '按病案母版前 2 组渲染' : '按文献母版前 2 组渲染' }}
+              </span>
             </div>
           </header>
+
+          <div v-if="activeTab === 'case'" class="key-fields">
+            <span class="key-fields-label">关键字段</span>
+            <span
+              v-for="keyField in CASE_KEY_FIELDS"
+              :key="keyField.key"
+              class="key-chip"
+            >
+              <span class="key-name">{{ keyField.label }}</span>
+              <span class="key-value">{{ displayValue(keyField) }}</span>
+            </span>
+          </div>
 
           <div class="editor-body">
             <section
@@ -146,7 +206,7 @@
         <div v-else class="editor-empty">
           <div class="empty-mark">▤</div>
           <p>未选择标注条目</p>
-          <span>从左侧「本批条目」中选择一条开始标注</span>
+          <span>从左侧「{{ activeTab === 'case' ? '病案条目' : '文献条目' }}」中选择一条开始标注</span>
         </div>
       </section>
     </div>
@@ -155,13 +215,14 @@
     <div v-else class="records card">
       <div class="records-head">
         <h2>我的标注记录</h2>
-        <span>近 30 天提交的标注与复核意见</span>
+        <span>近 30 天提交的文献 / 病案标注与复核意见</span>
       </div>
       <div class="table-wrap">
         <table class="pool-table">
           <thead>
             <tr>
               <th class="col-no">编号</th>
+              <th class="col-kind">对象类型</th>
               <th>标题</th>
               <th class="col-status">状态</th>
               <th class="col-time">提交时间</th>
@@ -171,6 +232,11 @@
           <tbody>
             <tr v-for="record in records" :key="record.id">
               <td class="cell-no">{{ record.id }}</td>
+              <td>
+                <span class="badge" :class="record.kind === '病案' ? 'badge-case' : 'badge-lit'">
+                  {{ record.kind }}
+                </span>
+              </td>
               <td class="cell-title" :title="record.title">{{ record.title }}</td>
               <td>
                 <span class="badge" :class="RECORD_STATUS_META[record.status]">
@@ -183,7 +249,7 @@
               </td>
             </tr>
             <tr v-if="records.length === 0">
-              <td colspan="5" class="empty-row">暂无提交记录</td>
+              <td colspan="6" class="empty-row">暂无提交记录</td>
             </tr>
           </tbody>
         </table>
@@ -193,7 +259,7 @@
     <!-- 提交确认 -->
     <div v-if="confirmOpen" class="modal-mask" @click.self="confirmOpen = false">
       <div class="modal">
-        <h3>确认提交整批标注？</h3>
+        <h3>确认提交整批{{ scopeLabel }}标注？</h3>
         <p>
           将把 <strong>{{ stagedCount }}</strong> 条「已暂存」记录提交至复核队列，
           提交后本批次内不可再编辑。
@@ -216,11 +282,12 @@
 
 <script setup>
 import { computed, reactive, ref } from "vue";
-import { LIT_GROUPS, flattenGroups } from "../../constants/dorFields";
+import { CASE_GROUPS, LIT_GROUPS, flattenGroups } from "../../constants/dorFields";
+import { ORIGINALS } from "../../data/originals";
 
 const TASK = {
   id: "TASK-2026-014",
-  pool: "DOR 文献抽取复核",
+  pool: "DOR 文献 / 病案抽取复核",
   deadline: "剩 3 天",
 };
 
@@ -236,6 +303,35 @@ const RECORD_STATUS_META = {
   需修改: "badge-danger",
 };
 
+const FONT_OPTIONS = [
+  { value: "sm", label: "小" },
+  { value: "md", label: "中" },
+  { value: "lg", label: "大" },
+];
+
+const CASE_KEY_FIELDS = [
+  { key: "case_1", label: "年龄", unit: "岁" },
+  { key: "case_10", label: "AMH", unit: "ng/mL" },
+  { key: "case_23", label: "证型", unit: "" },
+];
+
+const LONG_KEYS = [
+  "lit_8",
+  "lit_9",
+  "lit_13",
+  "lit_14",
+  "case_5",
+  "case_6",
+  "case_7",
+  "case_17",
+  "case_20",
+  "case_24",
+  "case_26",
+  "case_28",
+  "case_32",
+  "case_34",
+];
+
 const TITLES = {
   sys: "补肾填精法治疗卵巢储备功能减退的系统评价",
   rct: "左归丸联合西药治疗 DOR 的随机对照试验",
@@ -245,9 +341,10 @@ const TITLES = {
   meta: "中西医结合治疗 DOR 的系统评价与 Meta 分析",
 };
 
-const items = reactive([
+const litItems = reactive([
   {
     id: "LIT-2026-101",
+    originalId: "LIT-001",
     title: TITLES.sys,
     status: "已提交",
     values: {
@@ -261,6 +358,7 @@ const items = reactive([
   },
   {
     id: "LIT-2026-102",
+    originalId: "LIT-002",
     title: TITLES.needle,
     status: "已提交",
     values: {
@@ -273,6 +371,7 @@ const items = reactive([
   },
   {
     id: "LIT-2026-103",
+    originalId: "LIT-003",
     title: TITLES.rct,
     status: "已暂存",
     values: {
@@ -286,6 +385,7 @@ const items = reactive([
   },
   {
     id: "LIT-2026-104",
+    originalId: "LIT-004",
     title: TITLES.cohort,
     status: "已提交",
     values: {
@@ -297,6 +397,7 @@ const items = reactive([
   },
   {
     id: "LIT-2026-105",
+    originalId: "LIT-005",
     title: TITLES.dea,
     status: "已暂存",
     values: {
@@ -310,6 +411,7 @@ const items = reactive([
   },
   {
     id: "LIT-2026-106",
+    originalId: "LIT-006",
     title: "毓麟珠联合 IVF-ET 改善 DOR 患者妊娠结局的回顾性研究",
     status: "已提交",
     values: {
@@ -345,37 +447,162 @@ const items = reactive([
   },
 ]);
 
+const caseItems = reactive([
+  {
+    id: "CASE-2026-201",
+    originalId: "CASE-001",
+    title: "病案 CASE-2026-201 · 34 岁 · 原发性不孕 3 年（肾虚证）",
+    status: "已提交",
+    values: {
+      case_1: "34",
+      case_3: "3",
+      case_4: "原发性不孕",
+      case_10: "0.68",
+      case_11: "13.2",
+      case_14: "4",
+      case_15: "25—28",
+      case_17: "未避孕未孕 3 年，经量偏少、色暗，腰酸畏寒",
+      case_23: "肾虚证",
+      case_24: "腰膝酸软、畏寒肢冷，舌淡苔白，脉沉细",
+    },
+  },
+  {
+    id: "CASE-2026-202",
+    originalId: "CASE-002",
+    title: "病案 CASE-2026-202 · 38 岁 · 继发性不孕 2 年（肝肾阴虚证）",
+    status: "已暂存",
+    values: {
+      case_1: "38",
+      case_3: "2",
+      case_4: "继发性不孕",
+      case_10: "0.42",
+      case_11: "16.8",
+      case_14: "2",
+      case_15: "26—30",
+      case_23: "肝肾阴虚证",
+    },
+  },
+  {
+    id: "CASE-2026-203",
+    originalId: "CASE-003",
+    title: "病案 CASE-2026-203 · 31 岁 · 原发性不孕 1 年半（肝郁气滞证）",
+    status: "已提交",
+    values: {
+      case_1: "31",
+      case_3: "1.5",
+      case_4: "原发性不孕",
+      case_10: "0.86",
+      case_11: "11.4",
+      case_14: "5",
+      case_15: "28—35",
+      case_23: "肝郁气滞证",
+    },
+  },
+  {
+    id: "CASE-2026-204",
+    originalId: "CASE-004",
+    title: "病案 CASE-2026-204 · 40 岁 · 继发性不孕 4 年（脾肾阳虚证）",
+    status: "已提交",
+    values: {
+      case_1: "40",
+      case_3: "4",
+      case_4: "继发性不孕",
+      case_10: "0.35",
+      case_11: "18.2",
+      case_14: "2",
+      case_15: "23—26",
+      case_23: "脾肾阳虚证",
+    },
+  },
+  {
+    id: "CASE-2026-205",
+    originalId: "CASE-005",
+    title: "病案 CASE-2026-205 · 36 岁 · 原发性不孕 2 年（肾虚血瘀证）",
+    status: "已暂存",
+    values: {
+      case_1: "36",
+      case_3: "2",
+      case_4: "原发性不孕",
+      case_10: "0.55",
+      case_11: "14.6",
+      case_14: "3",
+      case_15: "26—29",
+      case_23: "肾虚血瘀证",
+    },
+  },
+  {
+    id: "CASE-2026-206",
+    originalId: "CASE-006",
+    title: "病案 CASE-2026-206 · 29 岁 · 原发性不孕 1 年（痰湿证）",
+    status: "待标注",
+    values: {},
+  },
+  {
+    id: "CASE-2026-207",
+    title: "病案 CASE-2026-207 · 33 岁 · 原发性不孕 2 年（肾虚肝郁证）",
+    status: "待标注",
+    values: {},
+  },
+  {
+    id: "CASE-2026-208",
+    title: "病案 CASE-2026-208 · 42 岁 · 继发性不孕 5 年（气血两虚证）",
+    status: "待标注",
+    values: {},
+  },
+]);
+
 const records = [
   {
     id: "LIT-2026-098",
+    kind: "文献",
     title: TITLES.sys,
     status: "已通过",
     submittedAt: "2026-11-20 16:42",
     review: "抽取完整，结局指标已核对，通过。",
   },
   {
+    id: "CASE-2026-198",
+    kind: "病案",
+    title: "病案 · 37 岁 · 继发性不孕 3 年（肾虚肝郁证）",
+    status: "已通过",
+    submittedAt: "2026-11-19 14:05",
+    review: "四诊信息与证型判定一致。",
+  },
+  {
     id: "LIT-2026-096",
+    kind: "文献",
     title: TITLES.rct,
     status: "需修改",
     submittedAt: "2026-11-19 10:18",
     review: "AMH 单位疑似录入错误，请对照原文后重新提交。",
   },
   {
+    id: "CASE-2026-196",
+    kind: "病案",
+    title: "病案 · 32 岁 · 原发性不孕 2 年（痰湿证）",
+    status: "已提交",
+    submittedAt: "2026-11-18 17:31",
+    review: "",
+  },
+  {
     id: "LIT-2026-095",
+    kind: "文献",
     title: TITLES.needle,
     status: "已通过",
     submittedAt: "2026-11-18 15:07",
     review: "穴位与疗程字段复核无误。",
   },
   {
-    id: "CASE-2026-031",
-    title: "肾虚肝郁型 DOR 病案一例（随访 12 个月）",
-    status: "已通过",
+    id: "CASE-2026-194",
+    kind: "病案",
+    title: "病案 · 41 岁 · 继发性不孕 5 年（脾肾阳虚证）",
+    status: "需修改",
     submittedAt: "2026-11-17 09:36",
-    review: "四诊信息与证型判定一致。",
+    review: "AFC 与超声描述不一致，请核对。",
   },
   {
     id: "LIT-2026-092",
+    kind: "文献",
     title: TITLES.meta,
     status: "已提交",
     submittedAt: "2026-11-16 17:55",
@@ -383,6 +610,7 @@ const records = [
   },
   {
     id: "LIT-2026-090",
+    kind: "文献",
     title: "DOR 患者中医体质分布与证型相关性分析",
     status: "需修改",
     submittedAt: "2026-11-15 11:23",
@@ -390,45 +618,102 @@ const records = [
   },
 ];
 
-const activeTab = ref("batch");
-const selectedId = ref("LIT-2026-107");
+const activeTab = ref("lit");
+const selectedLitId = ref("LIT-2026-107");
+const selectedCaseId = ref("CASE-2026-206");
 const form = ref({});
 const confirmOpen = ref(false);
-const extraProcessed = ref(0);
+const originalFont = ref("md");
 
 const toast = reactive({ show: false, message: "", tone: "ok" });
 let toastTimer = null;
 
-const currentItem = computed(
-  () => items.find((item) => item.id === selectedId.value) || null,
+const activeItems = computed(() =>
+  activeTab.value === "case" ? caseItems : litItems,
 );
 
-const processed = computed(() => Math.min(20, 6 + extraProcessed.value));
+const scopeLabel = computed(() => {
+  if (activeTab.value === "case") return "病案";
+  if (activeTab.value === "records") return "全部";
+  return "文献";
+});
 
-const progressPct = computed(() => Math.round((processed.value / 20) * 100));
+const currentId = computed(() =>
+  activeTab.value === "case" ? selectedCaseId.value : selectedLitId.value,
+);
+
+const currentItem = computed(
+  () => activeItems.value.find((item) => item.id === currentId.value) || null,
+);
+
+const currentOriginal = computed(() => {
+  const item = currentItem.value;
+  if (!item) return null;
+  return ORIGINALS[item.originalId || item.id] || null;
+});
+
+const scopeItems = computed(() =>
+  activeTab.value === "records" ? [...litItems, ...caseItems] : activeItems.value,
+);
+
+const processed = computed(
+  () => scopeItems.value.filter((item) => item.status !== "待标注").length,
+);
+
+const total = computed(() => scopeItems.value.length);
+
+const progressPct = computed(() =>
+  total.value ? Math.round((processed.value / total.value) * 100) : 0,
+);
 
 const stagedCount = computed(
-  () => items.filter((item) => item.status === "已暂存").length,
+  () => activeItems.value.filter((item) => item.status === "已暂存").length,
 );
 
 const visibleGroups = computed(() => {
-  const flat = flattenGroups(LIT_GROUPS);
-  return LIT_GROUPS.slice(0, 2).map((group) => ({
+  const groups = activeTab.value === "case" ? CASE_GROUPS : LIT_GROUPS;
+  const flat = flattenGroups(groups);
+  return groups.slice(0, 2).map((group) => ({
     label: group.label,
     fields: flat.filter((field) => field.group === group.label),
   }));
 });
 
-function selectItem(id) {
-  selectedId.value = id;
-  const item = items.find((entry) => entry.id === id);
+function displayValue(keyField) {
+  const raw = currentItem.value ? currentItem.value.values[keyField.key] : "";
+  if (raw === undefined || raw === null || raw === "") return "—";
+  return keyField.unit && /^[\d.]+$/.test(raw) ? `${raw} ${keyField.unit}` : raw;
+}
+
+function loadItem(id) {
+  const item = (activeTab.value === "case" ? caseItems : litItems).find(
+    (entry) => entry.id === id,
+  );
   form.value = item ? { ...item.values } : {};
+}
+
+function switchTab(tab) {
+  activeTab.value = tab;
+  if (tab === "lit") {
+    loadItem(selectedLitId.value);
+  } else if (tab === "case") {
+    loadItem(selectedCaseId.value);
+  }
+}
+
+function selectItem(id) {
+  if (activeTab.value === "case") {
+    selectedCaseId.value = id;
+  } else {
+    selectedLitId.value = id;
+  }
+  loadItem(id);
 }
 
 function isLongField(field) {
   return (
     !field.options &&
-    (field.desc.length > 9 || ["lit_8", "lit_9", "lit_13", "lit_14"].includes(field.key))
+    (LONG_KEYS.includes(field.key) || field.desc.length > 14)
   );
 }
 
@@ -443,25 +728,25 @@ function showToast(message, tone = "ok") {
 }
 
 function goNext() {
-  const index = items.findIndex((item) => item.id === selectedId.value);
-  for (let step = 1; step <= items.length; step += 1) {
-    const next = items[(index + step) % items.length];
-    if (next.id !== selectedId.value && next.status === "待标注") {
+  const list = activeItems.value;
+  const index = list.findIndex((item) => item.id === currentId.value);
+  for (let step = 1; step <= list.length; step += 1) {
+    const next = list[(index + step) % list.length];
+    if (next.id !== currentId.value && next.status === "待标注") {
       selectItem(next.id);
       return;
     }
   }
-  showToast("本批待标注条目已全部处理", "warn");
+  showToast(`本批${scopeLabel.value}待标注条目已全部处理`, "warn");
 }
 
 function markNoChange() {
   const item = currentItem.value;
   if (!item) return;
-  const wasPending = item.status === "待标注";
   item.values = {};
   item.status = "已提交";
   item.note = "无需修改";
-  if (wasPending) extraProcessed.value += 1;
+  loadItem(item.id);
   showToast(`${item.id} 已标记为无需修改`);
   goNext();
 }
@@ -469,10 +754,8 @@ function markNoChange() {
 function stashCurrent() {
   const item = currentItem.value;
   if (!item) return;
-  const wasPending = item.status === "待标注";
   item.values = { ...form.value };
   item.status = "已暂存";
-  if (wasPending) extraProcessed.value += 1;
   showToast(`${item.id} 已暂存到本地`);
   goNext();
 }
@@ -482,7 +765,7 @@ function openSubmit() {
 }
 
 function confirmSubmit() {
-  const staged = items.filter((item) => item.status === "已暂存");
+  const staged = activeItems.value.filter((item) => item.status === "已暂存");
   const submittedAt = "2026-11-24 16:40";
   staged.forEach((item) => {
     item.status = "已提交";
@@ -491,7 +774,7 @@ function confirmSubmit() {
   confirmOpen.value = false;
   showToast(
     staged.length
-      ? `已提交整批 ${staged.length} 条标注`
+      ? `已提交${scopeLabel.value}整批 ${staged.length} 条标注`
       : "暂无已暂存的标注，未执行提交",
     staged.length ? "ok" : "warn",
   );
@@ -633,14 +916,17 @@ function confirmSubmit() {
   color: var(--teal-dark);
 }
 
-.batch-layout {
+.work-layout {
   display: grid;
-  grid-template-columns: 300px minmax(0, 1fr);
+  grid-template-columns: 270px minmax(0, 32%) minmax(0, 1fr);
   gap: 14px;
-  align-items: start;
+  align-items: stretch;
 }
 
 .task-list {
+  display: flex;
+  flex-direction: column;
+  height: 700px;
   overflow: hidden;
 }
 
@@ -648,6 +934,7 @@ function confirmSubmit() {
   display: flex;
   align-items: center;
   justify-content: space-between;
+  flex-shrink: 0;
   padding: 12px 16px;
   border-bottom: 1px solid var(--line);
   font-size: 12px;
@@ -663,8 +950,9 @@ function confirmSubmit() {
 
 .list-body {
   display: flex;
+  flex: 1;
   flex-direction: column;
-  max-height: 620px;
+  min-height: 0;
   overflow-y: auto;
   padding: 6px;
 }
@@ -725,10 +1013,132 @@ function confirmSubmit() {
   font-size: 10px;
 }
 
+.original-panel {
+  display: flex;
+  flex-direction: column;
+  height: 700px;
+  min-width: 0;
+  overflow: hidden;
+}
+
+.original-head {
+  flex-shrink: 0;
+  padding: 10px 14px;
+  border-bottom: 1px solid var(--line);
+  background: #fbfdfd;
+}
+
+.original-title {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+}
+
+.original-tag {
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--ink-700);
+}
+
+.font-switch {
+  display: flex;
+  padding: 2px;
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  background: #fff;
+}
+
+.font-btn {
+  padding: 2px 7px;
+  border: none;
+  border-radius: 4px;
+  background: transparent;
+  font-size: 11px;
+  color: var(--ink-500);
+  cursor: pointer;
+}
+
+.font-btn.active {
+  background: var(--teal-soft);
+  color: var(--teal-dark);
+  font-weight: 600;
+}
+
+.original-meta {
+  flex-shrink: 0;
+  padding: 12px 14px 10px;
+  border-bottom: 1px dashed var(--line);
+}
+
+.original-source {
+  display: block;
+  margin-bottom: 6px;
+  font-size: 11px;
+  color: var(--ink-400);
+}
+
+.original-name {
+  margin: 0;
+  font-size: 13px;
+  font-weight: 600;
+  line-height: 1.5;
+  color: var(--ink-900);
+}
+
+.original-body {
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+  padding: 14px;
+  white-space: pre-wrap;
+  word-break: break-word;
+  line-height: 1.75;
+  color: var(--ink-700);
+  background: #fff;
+}
+
+.original-body.font-sm {
+  font-size: 12px;
+}
+
+.original-body.font-md {
+  font-size: 13.5px;
+}
+
+.original-body.font-lg {
+  font-size: 15.5px;
+}
+
+.original-empty {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  padding: 24px;
+  text-align: center;
+  color: var(--ink-400);
+}
+
+.original-empty p {
+  margin: 0;
+  font-size: 13px;
+  color: var(--ink-500);
+}
+
+.original-empty span {
+  font-size: 11px;
+  line-height: 1.5;
+}
+
 .editor {
   display: flex;
   flex-direction: column;
+  height: 700px;
   min-width: 0;
+  overflow: hidden;
 }
 
 .editor-head {
@@ -736,7 +1146,8 @@ function confirmSubmit() {
   align-items: flex-start;
   justify-content: space-between;
   gap: 16px;
-  padding: 16px 20px;
+  flex-shrink: 0;
+  padding: 14px 20px;
   border-bottom: 1px solid var(--line);
 }
 
@@ -772,10 +1183,47 @@ function confirmSubmit() {
   color: var(--ink-400);
 }
 
+.key-fields {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 6px;
+  flex-shrink: 0;
+  padding: 9px 20px;
+  border-bottom: 1px dashed var(--line);
+  background: #fbfdfd;
+}
+
+.key-fields-label {
+  font-size: 11px;
+  color: var(--ink-400);
+}
+
+.key-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 2px 8px;
+  border: 1px solid var(--teal-border);
+  border-radius: 999px;
+  background: var(--teal-soft);
+  font-size: 11px;
+}
+
+.key-name {
+  color: var(--teal-dark);
+}
+
+.key-value {
+  color: var(--ink-700);
+  font-weight: 600;
+}
+
 .editor-body {
-  padding: 4px 20px 18px;
-  max-height: 560px;
+  flex: 1;
+  min-height: 0;
   overflow-y: auto;
+  padding: 4px 20px 18px;
 }
 
 .field-group {
@@ -856,6 +1304,7 @@ function confirmSubmit() {
   align-items: center;
   justify-content: space-between;
   gap: 16px;
+  flex-shrink: 0;
   margin-top: auto;
   padding: 12px 20px;
   border-top: 1px solid var(--line);
@@ -876,7 +1325,7 @@ function confirmSubmit() {
 }
 
 .editor-empty {
-  min-height: 420px;
+  flex: 1;
   display: flex;
   flex-direction: column;
   align-items: center;
@@ -898,6 +1347,18 @@ function confirmSubmit() {
 
 .editor-empty span {
   font-size: 11px;
+}
+
+.badge-lit {
+  border: 1px solid var(--teal-border);
+  background: var(--teal-soft);
+  color: var(--teal-dark);
+}
+
+.badge-case {
+  border: 1px solid #e6d3a8;
+  background: #fdf6e5;
+  color: #9a6b12;
 }
 
 .records {
@@ -931,8 +1392,12 @@ function confirmSubmit() {
   white-space: nowrap;
 }
 
+.col-kind {
+  width: 92px;
+}
+
 .cell-title {
-  max-width: 380px;
+  max-width: 340px;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
@@ -944,7 +1409,7 @@ function confirmSubmit() {
 }
 
 .cell-review {
-  max-width: 320px;
+  max-width: 300px;
   font-size: 12px;
   color: var(--ink-700);
 }
@@ -1028,9 +1493,36 @@ function confirmSubmit() {
   transform: translate(-50%, 8px);
 }
 
+@media (max-width: 1280px) {
+  .work-layout {
+    grid-template-columns: 240px minmax(0, 30%) minmax(0, 1fr);
+  }
+}
+
 @media (max-width: 1100px) {
-  .batch-layout {
-    grid-template-columns: 240px minmax(0, 1fr);
+  .work-layout {
+    grid-template-columns: 220px minmax(0, 1fr);
+  }
+
+  .task-list {
+    grid-row: span 2;
+    height: auto;
+    max-height: 700px;
+  }
+
+  .original-panel {
+    grid-column: 2;
+    height: 300px;
+  }
+
+  .editor {
+    grid-column: 2;
+    height: 620px;
+  }
+
+  .editor-footer {
+    flex-direction: column;
+    align-items: flex-start;
   }
 }
 </style>

@@ -1,11 +1,10 @@
 <template>
-  <div class="admin-page">
-    <div class="admin-header">
+  <div class="admin-page" :class="{ 'is-embedded': embedded }">
+    <div v-if="!embedded" class="admin-header">
       <div class="header-text">
         <h1>病案库</h1>
         <p class="header-sub">DOR 病案母版 · {{ CASE_FIELD_COUNT }} 字段 · {{ CASE_GROUPS.length }} 分组</p>
       </div>
-      <button class="btn-primary" @click="handleReextract">AI 重新抽取</button>
     </div>
 
     <div class="toolbar">
@@ -62,7 +61,7 @@
           </tr>
         </thead>
         <tbody>
-          <tr v-for="record in filteredRecords" :key="record.id" class="row-clickable" @click="openDrawer(record)">
+          <tr v-for="record in filteredRecords" :key="record.id" class="row-clickable" @click="openEditor(record)">
             <td class="cell-id">{{ record.id }}</td>
             <td class="cell-num">{{ record.values.case_1 || "—" }}</td>
             <td class="cell-num">{{ record.values.case_10 || "—" }}</td>
@@ -81,7 +80,7 @@
               <span class="badge" :class="statusMeta(record.status).cls">{{ statusMeta(record.status).label }}</span>
             </td>
             <td class="cell-actions">
-              <button class="btn-sm btn-view" @click.stop="openDrawer(record)">查看</button>
+              <button class="btn-sm btn-view" @click.stop="openEditor(record)">编辑</button>
             </td>
           </tr>
           <tr v-if="filteredRecords.length === 0">
@@ -91,83 +90,99 @@
       </table>
     </div>
 
-    <!-- 详情抽屉 -->
-    <transition name="fade">
-      <div v-if="drawerRecord" class="drawer-overlay" @click.self="closeDrawer"></div>
-    </transition>
-    <transition name="slide">
-      <aside v-if="drawerRecord" class="drawer">
-        <header class="drawer-header">
-          <div class="drawer-head-main">
-            <span class="drawer-id">{{ drawerRecord.id }}</span>
-            <h2 class="drawer-title">{{ drawerRecord.values.case_17 || "未记录主诉" }}</h2>
-            <div class="drawer-meta">
-              <span class="badge" :class="statusMeta(drawerRecord.status).cls">
-                {{ statusMeta(drawerRecord.status).label }}
+    <!-- 原文 / 字段分栏编辑器 -->
+    <transition name="editor-fade">
+      <div v-if="editingRecord" class="editor-overlay">
+        <header class="editor-top">
+          <div class="editor-top-main">
+            <span class="editor-id">{{ editingRecord.id }}</span>
+            <span class="badge" :class="statusMeta(editingRecord.status).cls">
+              {{ statusMeta(editingRecord.status).label }}
+            </span>
+            <span class="editor-meta">
+              置信度
+              <span class="conf" :class="confClass(editingRecord.confidence)">
+                {{ formatPct(editingRecord.confidence) }}
               </span>
-              <span class="drawer-meta-item">
-                置信度
-                <span class="conf" :class="confClass(drawerRecord.confidence)">
-                  {{ formatPct(drawerRecord.confidence) }}
-                </span>
-              </span>
-              <span class="drawer-meta-item">更新于 {{ drawerRecord.updated_at }}</span>
-            </div>
+            </span>
+            <span class="editor-meta">更新于 {{ editingRecord.updated_at }}</span>
           </div>
-          <button class="drawer-close" title="关闭" @click="closeDrawer">&times;</button>
+          <button class="editor-close" title="关闭" @click="closeEditor">&times;</button>
         </header>
 
-        <div class="drawer-body">
-          <section v-for="group in CASE_GROUPS" :key="group.label" class="field-group">
-            <h3 class="group-title">
-              {{ group.label }}
-              <span class="group-count">{{ group.fields.length }}</span>
-            </h3>
-            <div class="field-grid">
-              <div
-                v-for="field in group.fields"
-                :key="field.key"
-                class="field-item"
-                :class="{ 'field-item-wide': isMultiline(field) }"
-              >
-                <label class="field-label" :title="field.desc">
-                  {{ field.label }}<span v-if="field.required" class="required">*</span>
-                </label>
-                <select
-                  v-if="field.options"
-                  v-model="editValues[field.key]"
-                  class="field-control"
-                  :title="field.desc"
-                >
-                  <option value="">— 请选择 —</option>
-                  <option v-for="opt in field.options" :key="opt" :value="opt">{{ opt }}</option>
-                </select>
-                <textarea
-                  v-else-if="isMultiline(field)"
-                  v-model="editValues[field.key]"
-                  rows="2"
-                  class="field-control"
-                  :placeholder="field.desc"
-                  :title="field.desc"
-                ></textarea>
-                <input
-                  v-else
-                  v-model="editValues[field.key]"
-                  type="text"
-                  class="field-control"
-                  :placeholder="field.desc"
-                  :title="field.desc"
-                />
+        <div class="editor-body">
+          <section class="editor-pane editor-source">
+            <div class="pane-head">
+              <span class="pane-label">原文</span>
+              <span v-if="original" class="pane-hint">{{ original.source }}</span>
+            </div>
+            <div class="pane-scroll">
+              <template v-if="original">
+                <p class="source-title">{{ original.title }}</p>
+                <pre class="source-body">{{ original.body }}</pre>
+              </template>
+              <p v-else class="source-empty">暂无原文</p>
+            </div>
+          </section>
+
+          <section class="editor-pane editor-fields">
+            <div class="pane-head">
+              <span class="pane-label">字段编辑</span>
+              <span class="pane-hint">{{ CASE_FIELD_COUNT }} 字段 · {{ CASE_GROUPS.length }} 分组</span>
+            </div>
+            <div class="pane-scroll form-scroll">
+              <div v-for="group in CASE_GROUPS" :key="group.label" class="field-group">
+                <h3 class="group-title">
+                  {{ group.label }}
+                  <span class="group-count">{{ group.fields.length }}</span>
+                </h3>
+                <div class="field-grid">
+                  <div
+                    v-for="field in group.fields"
+                    :key="field.key"
+                    class="field-item"
+                    :class="{ 'field-item-wide': isMultiline(field) }"
+                  >
+                    <label class="field-label" :title="field.desc">
+                      {{ field.label }}<span v-if="field.required" class="required">*</span>
+                    </label>
+                    <select
+                      v-if="field.options"
+                      v-model="editValues[field.key]"
+                      class="field-control"
+                      :title="field.desc"
+                    >
+                      <option value="">— 请选择 —</option>
+                      <option v-for="opt in field.options" :key="opt" :value="opt">{{ opt }}</option>
+                    </select>
+                    <textarea
+                      v-else-if="isMultiline(field)"
+                      v-model="editValues[field.key]"
+                      rows="2"
+                      class="field-control"
+                      :placeholder="field.desc"
+                      :title="field.desc"
+                    ></textarea>
+                    <input
+                      v-else
+                      v-model="editValues[field.key]"
+                      type="text"
+                      class="field-control"
+                      :placeholder="field.desc"
+                      :title="field.desc"
+                    />
+                  </div>
+                </div>
               </div>
             </div>
           </section>
         </div>
 
-        <footer class="drawer-footer">
-          <button class="btn-cancel" @click="closeDrawer">取消</button>
+        <footer class="editor-footer">
+          <button class="btn-cancel" @click="closeEditor">取消</button>
           <button class="btn-primary" @click="handleSave">保存</button>
         </footer>
-      </aside>
+      </div>
     </transition>
 
     <!-- 全局提示 -->
@@ -185,6 +200,11 @@ import {
   flattenGroups,
 } from "../../constants/dorFields";
 import { CASE_RECORDS, DOR_STATUS_META } from "../../data/dorMock";
+import { ORIGINALS } from "../../data/originals";
+
+defineProps({
+  embedded: { type: Boolean, default: false },
+});
 
 const fields = flattenGroups(CASE_GROUPS);
 
@@ -255,12 +275,16 @@ function showToast(message, type = "success") {
   }, 3000);
 }
 
-/* ───────── 抽屉 ───────── */
-const drawerRecord = ref(null);
+/* ───────── 分栏编辑器 ───────── */
+const editingRecord = ref(null);
 const editValues = ref({});
 
-function openDrawer(record) {
-  drawerRecord.value = record;
+const original = computed(() =>
+  editingRecord.value ? ORIGINALS[editingRecord.value.id] || null : null
+);
+
+function openEditor(record) {
+  editingRecord.value = record;
   const next = {};
   fields.forEach((f) => {
     next[f.key] = record.values[f.key] ?? "";
@@ -268,8 +292,8 @@ function openDrawer(record) {
   editValues.value = next;
 }
 
-function closeDrawer() {
-  drawerRecord.value = null;
+function closeEditor() {
+  editingRecord.value = null;
   editValues.value = {};
 }
 
@@ -280,21 +304,17 @@ function nowText() {
 }
 
 function handleSave() {
-  const target = records.value.find((r) => r.id === drawerRecord.value?.id);
+  const target = records.value.find((r) => r.id === editingRecord.value?.id);
   if (target) {
     target.values = { ...editValues.value };
     target.updated_at = nowText();
   }
   showToast("已保存");
-  closeDrawer();
-}
-
-function handleReextract() {
-  showToast("AI 重新抽取任务已提交（mock）");
+  closeEditor();
 }
 
 function handleKeydown(e) {
-  if (e.key === "Escape" && drawerRecord.value) closeDrawer();
+  if (e.key === "Escape" && editingRecord.value) closeEditor();
 }
 
 onMounted(() => {
@@ -309,6 +329,7 @@ onBeforeUnmount(() => {
 
 <style scoped>
 .admin-page { width: 100%; padding: 24px 32px; }
+.admin-page.is-embedded { padding: 0; }
 
 .admin-header { display: flex; align-items: flex-start; justify-content: space-between; gap: 16px; margin-bottom: 18px; }
 .header-text h1 { font-size: 22px; font-weight: 600; color: #1a1a2e; margin: 0 0 4px; }
@@ -370,23 +391,28 @@ onBeforeUnmount(() => {
 .btn-view { color: #00796b; border-color: #b2dfdb; }
 .btn-view:hover { background: #e0f2f1; }
 
-/* ───────── 抽屉 ───────── */
-.drawer-overlay { position: fixed; inset: 0; background: rgba(0, 0, 0, 0.4); z-index: 1000; }
-.drawer {
-  position: fixed; top: 0; right: 0; bottom: 0; width: 720px; max-width: 100vw;
-  background: #fff; z-index: 1001; display: flex; flex-direction: column;
-  box-shadow: -4px 0 24px rgba(0, 0, 0, 0.16);
-}
-.drawer-header { display: flex; align-items: flex-start; gap: 12px; padding: 16px 20px; border-bottom: 1px solid #e8e8e8; background: #fafafa; flex-shrink: 0; }
-.drawer-head-main { flex: 1; min-width: 0; }
-.drawer-id { font-size: 12px; color: #999; }
-.drawer-title { font-size: 16px; font-weight: 600; color: #1a1a2e; margin: 4px 0 8px; line-height: 1.4; }
-.drawer-meta { display: flex; align-items: center; gap: 14px; flex-wrap: wrap; font-size: 12px; color: #888; }
-.drawer-meta-item { display: inline-flex; align-items: center; gap: 4px; }
-.drawer-close { width: 28px; height: 28px; border: none; background: transparent; font-size: 22px; line-height: 1; color: #999; cursor: pointer; border-radius: 4px; flex-shrink: 0; }
-.drawer-close:hover { background: #f0f0f0; color: #333; }
+/* ───────── 全屏分栏编辑器 ───────── */
+.editor-overlay { position: fixed; inset: 0; z-index: 100; background: #fff; display: flex; flex-direction: column; }
+.editor-top { display: flex; align-items: center; gap: 12px; padding: 12px 20px; border-bottom: 1px solid #e8e8e8; background: #fafafa; flex-shrink: 0; }
+.editor-top-main { flex: 1; min-width: 0; display: flex; align-items: center; gap: 12px; flex-wrap: wrap; }
+.editor-id { font-size: 14px; font-weight: 600; color: #1a1a2e; }
+.editor-meta { display: inline-flex; align-items: center; gap: 4px; font-size: 12px; color: #888; }
+.editor-close { width: 28px; height: 28px; border: none; background: transparent; font-size: 22px; line-height: 1; color: #999; cursor: pointer; border-radius: 4px; flex-shrink: 0; }
+.editor-close:hover { background: #f0f0f0; color: #333; }
 
-.drawer-body { flex: 1; overflow-y: auto; padding: 8px 20px 20px; }
+.editor-body { flex: 1; min-height: 0; display: grid; grid-template-columns: 40% 60%; }
+.editor-pane { display: flex; flex-direction: column; min-width: 0; min-height: 0; }
+.editor-source { border-right: 1px solid #e8e8e8; background: #fafafa; }
+.pane-head { display: flex; align-items: center; justify-content: space-between; gap: 8px; padding: 9px 16px; border-bottom: 1px solid #ececec; flex-shrink: 0; }
+.pane-label { font-size: 12px; font-weight: 600; color: #00796b; letter-spacing: 0.5px; }
+.pane-hint { font-size: 11px; color: #999; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.pane-scroll { flex: 1; overflow-y: auto; padding: 16px; }
+
+.source-title { margin: 0 0 12px; font-size: 14px; font-weight: 600; color: #1a1a2e; line-height: 1.5; }
+.source-body { margin: 0; font-family: inherit; font-size: 13px; line-height: 1.8; color: #444; white-space: pre-wrap; word-break: break-word; }
+.source-empty { margin: 0; padding: 32px 0; text-align: center; font-size: 13px; color: #aaa; }
+
+.form-scroll { padding: 8px 20px 20px; }
 .field-group { padding: 14px 0 4px; border-bottom: 1px dashed #ececec; }
 .field-group:last-child { border-bottom: none; }
 .group-title { display: flex; align-items: center; gap: 8px; font-size: 13px; font-weight: 600; color: #00796b; margin: 0 0 10px; }
@@ -405,15 +431,18 @@ onBeforeUnmount(() => {
 .field-control:focus { border-color: #00796b; }
 textarea.field-control { resize: vertical; min-height: 52px; line-height: 1.4; }
 
-.drawer-footer { display: flex; justify-content: flex-end; gap: 10px; padding: 12px 20px; border-top: 1px solid #e8e8e8; background: #fafafa; flex-shrink: 0; }
+.editor-footer { display: flex; justify-content: flex-end; gap: 10px; padding: 12px 20px; border-top: 1px solid #e8e8e8; background: #fafafa; flex-shrink: 0; }
 .btn-cancel { padding: 8px 20px; border: 1px solid #d0d0d0; border-radius: 6px; background: #fff; font-size: 13px; color: #666; cursor: pointer; }
 .btn-cancel:hover { background: #f0f0f0; }
 
-/* 抽屉过渡 */
-.fade-enter-active, .fade-leave-active { transition: opacity 0.25s ease; }
-.fade-enter-from, .fade-leave-to { opacity: 0; }
-.slide-enter-active, .slide-leave-active { transition: transform 0.28s ease; }
-.slide-enter-from, .slide-leave-to { transform: translateX(100%); }
+/* 编辑器过渡 */
+.editor-fade-enter-active, .editor-fade-leave-active { transition: opacity 0.2s ease; }
+.editor-fade-enter-from, .editor-fade-leave-to { opacity: 0; }
+
+@media (max-width: 960px) {
+  .editor-body { grid-template-columns: 1fr; grid-template-rows: 40% 60%; }
+  .editor-source { border-right: none; border-bottom: 1px solid #e8e8e8; }
+}
 
 /* toast */
 .toast { position: fixed; top: 24px; right: 24px; z-index: 2000; padding: 12px 18px; border-radius: 8px; font-size: 13px; box-shadow: 0 4px 16px rgba(0, 0, 0, 0.18); max-width: 420px; }
