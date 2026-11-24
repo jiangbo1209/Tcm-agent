@@ -38,3 +38,5 @@ migrate-deploy.sh
 backup-database.sh
 
 backups/
+# 甲方需求原文（Excel/PDF，仅本地保留）
+requirements/
