@@ -59,14 +59,37 @@
         <span class="result-count">共 {{ filteredSources.length }} 条</span>
       </div>
 
+      <div v-if="selectedIds.size > 0" class="batch-bar">
+        <span class="batch-count">已选 <strong>{{ selectedIds.size }}</strong> 项</span>
+        <select v-model="batchAction" class="filter-select">
+          <option value="">批量操作…</option>
+          <option value="delete">批量删除</option>
+          <option value="lit">批量设为文献</option>
+          <option value="case">批量设为病案</option>
+        </select>
+        <button type="button" class="btn-primary btn-batch" :disabled="!batchAction" @click="applyBatch">
+          执行
+        </button>
+        <button type="button" class="btn-sm" @click="selectedIds = new Set()">取消选择</button>
+      </div>
+
       <div class="table-wrap">
         <table class="pool-table">
           <thead>
             <tr>
+              <th class="col-check">
+                <input
+                  type="checkbox"
+                  class="row-check"
+                  :checked="isPageAllSelected"
+                  :disabled="pagedList.length === 0"
+                  title="全选本页"
+                  @change="toggleSelectAllOnPage"
+                />
+              </th>
               <th class="col-name">文件名</th>
               <th class="col-size">大小</th>
               <th class="col-type">类型</th>
-              <th class="col-source">来源</th>
               <th class="col-time">上传时间</th>
               <th class="col-uploader">上传人</th>
               <th class="col-status">状态</th>
@@ -74,7 +97,15 @@
             </tr>
           </thead>
           <tbody>
-            <tr v-for="file in pagedList" :key="file.id">
+            <tr v-for="file in pagedList" :key="file.id" :class="{ 'row-selected': selectedIds.has(file.id) }">
+              <td class="col-check">
+                <input
+                  type="checkbox"
+                  class="row-check"
+                  :checked="selectedIds.has(file.id)"
+                  @change="toggleSelect(file.id)"
+                />
+              </td>
               <td class="cell-name" :title="file.name">{{ file.name }}</td>
               <td class="cell-size">{{ file.size }}</td>
               <td>
@@ -85,9 +116,6 @@
                 >
                   <option v-for="opt in TYPE_OPTIONS" :key="opt.value" :value="opt.value">{{ opt.label }}</option>
                 </select>
-              </td>
-              <td class="cell-source">
-                <span class="source-tag" :class="{ 'source-script': file.source === '脚本批量' }">{{ file.source }}</span>
               </td>
               <td class="cell-time">{{ file.uploadedAt }}</td>
               <td class="cell-uploader">{{ file.uploader }}</td>
@@ -120,6 +148,25 @@
       </div>
 
     </section>
+
+    <!-- 弹窗：批量删除 -->
+    <div v-if="pendingBatchDelete" class="modal-mask" @click.self="pendingBatchDelete = false">
+      <div class="modal modal-confirm">
+        <div class="modal-head">
+          <h3 class="modal-title">批量删除数据源</h3>
+          <button type="button" class="modal-close" aria-label="关闭" @click="pendingBatchDelete = false">×</button>
+        </div>
+        <div class="confirm-body">
+          <p class="confirm-text">确定删除选中的 <strong>{{ selectedIds.size }}</strong> 个数据源吗？此操作不可撤销。</p>
+        </div>
+        <div class="modal-foot">
+          <button type="button" class="btn-ghost" @click="pendingBatchDelete = false">取消</button>
+          <div class="foot-right">
+            <button type="button" class="btn-primary btn-danger-solid" @click="confirmBatchDelete">删除</button>
+          </div>
+        </div>
+      </div>
+    </div>
 
     <!-- 弹窗：上传文件 -->
     <div v-if="uploadModalOpen" class="modal-mask" @click.self="uploadModalOpen = false">
@@ -440,7 +487,7 @@ const sources = ref([
 
 // 分页演示补充数据源（原型）
 const EXTRA_SOURCES = Array.from({ length: 16 }, (_, i) => ({
-  id: `DS-${String(1036 + i).padStart(4, "0")}`,
+  id: `DS-${String(2001 + i).padStart(4, "0")}`,
   name: [
     "补肾活血法治疗 DOR 病案汇编", "针灸治疗卵巢储备减退文献集", "DOR 证型分布调查数据",
     "IVF-ET 妊娠结局随访表", "中药复方配伍数据", "名老中医 DOR 验案集",
@@ -502,6 +549,62 @@ function typeLabel(value) {
 
 function shortName(name) {
   return name.length > 18 ? `${name.slice(0, 18)}…` : name;
+}
+
+/* ───────── 多选与批量操作 ───────── */
+const selectedIds = ref(new Set());
+const batchAction = ref("");
+const pendingBatchDelete = ref(false);
+
+const isPageAllSelected = computed(
+  () => pagedList.value.length > 0 && pagedList.value.every((f) => selectedIds.value.has(f.id)),
+);
+
+function toggleSelect(id) {
+  const next = new Set(selectedIds.value);
+  if (next.has(id)) next.delete(id);
+  else next.add(id);
+  selectedIds.value = next;
+}
+
+function toggleSelectAllOnPage() {
+  const next = new Set(selectedIds.value);
+  const all = isPageAllSelected.value;
+  for (const f of pagedList.value) {
+    if (all) next.delete(f.id);
+    else next.add(f.id);
+  }
+  selectedIds.value = next;
+}
+
+watch([filterType, filterStatus, searchQuery], () => {
+  selectedIds.value = new Set();
+});
+
+function applyBatch() {
+  if (!batchAction.value) return;
+  if (batchAction.value === "delete") {
+    pendingBatchDelete.value = true;
+    return;
+  }
+  const label = batchAction.value === "lit" ? "文献" : "病案";
+  sources.value = sources.value.map((f) =>
+    selectedIds.value.has(f.id) ? { ...f, type: batchAction.value } : f,
+  );
+  const count = selectedIds.value.size;
+  selectedIds.value = new Set();
+  batchAction.value = "";
+  showToast(`已将 ${count} 个数据源设置为${label}`);
+}
+
+function confirmBatchDelete() {
+  const count = selectedIds.value.size;
+  sources.value = sources.value.filter((f) => !selectedIds.value.has(f.id));
+  selectedIds.value = new Set();
+  pendingBatchDelete.value = false;
+  batchAction.value = "";
+  if (page.value > pageCount.value) page.value = pageCount.value;
+  showToast(`已删除 ${count} 个数据源`);
 }
 
 function onTypeChange(file) {
@@ -1297,6 +1400,16 @@ select.row-select:disabled {
     margin-left: 0;
   }
 }
+
+/* ── 多选与批量 ── */
+.col-check { width: 40px; text-align: center; }
+.row-check { width: 15px; height: 15px; accent-color: var(--teal); cursor: pointer; }
+.row-selected td { background: #f0f7f6; }
+.batch-bar { display: flex; align-items: center; gap: 10px; margin: 0 0 12px; padding: 10px 14px; border: 1px solid var(--teal-border); border-radius: 8px; background: #f2faf8; flex-wrap: wrap; }
+.batch-count { font-size: 13px; color: var(--ink-700); }
+.batch-count strong { color: var(--teal-dark); }
+.btn-batch { padding: 6px 16px; }
+.btn-batch:disabled { opacity: 0.45; cursor: not-allowed; }
 
 /* ── 分页 ── */
 .pager-bar { display: flex; align-items: center; gap: 12px; margin-top: 14px; flex-wrap: wrap; }
