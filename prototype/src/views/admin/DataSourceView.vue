@@ -169,7 +169,17 @@
       <div class="modal modal-upload">
         <div class="modal-head">
           <h3 class="modal-title">上传文件</h3>
-          <button type="button" class="modal-close" aria-label="关闭" @click="uploadModalOpen = false">×</button>
+          <div class="modal-head-actions">
+            <button type="button" class="btn-ghost" @click="uploadModalOpen = false">取消</button>
+            <button
+              type="button"
+              class="btn-primary"
+              :disabled="!queue.length || uploading"
+              @click="startFromUploadModal"
+            >
+              开始上传
+            </button>
+          </div>
         </div>
 
         <div
@@ -209,19 +219,8 @@
           </div>
         </div>
 
-        <div class="modal-foot">
-          <button type="button" class="btn-ghost" @click="uploadModalOpen = false">取消</button>
-          <div class="foot-right">
-            <button type="button" class="btn-ghost" @click="switchToQueue">查看上传队列</button>
-            <button
-              type="button"
-              class="btn-primary"
-              :disabled="!queue.length || uploading"
-              @click="startFromUploadModal"
-            >
-              开始上传
-            </button>
-          </div>
+        <div class="queue-actions">
+          <button type="button" class="btn-ghost" @click="switchToQueue">查看上传队列</button>
         </div>
       </div>
     </div>
@@ -1128,6 +1127,9 @@ select.row-select:disabled {
 .modal-confirm {
   max-width: 420px;
 }
+.modal-head-actions { display: flex; align-items: center; gap: 8px; }
+.modal-head-actions .btn-primary { padding: 6px 14px; }
+.queue-actions { display: flex; justify-content: flex-end; padding-top: 10px; }
 .modal-head {
   display: flex;
   align-items: center;

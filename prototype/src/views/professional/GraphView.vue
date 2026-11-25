@@ -389,6 +389,8 @@ function edgeWidth(edge) {
   grid-template-columns: 212px minmax(0, 1fr) 268px;
   gap: 14px;
   align-items: stretch;
+  height: calc(100vh - 240px);
+  min-height: 520px;
 }
 
 .legend {
@@ -495,7 +497,7 @@ function edgeWidth(edge) {
 .graph-svg {
   display: block;
   width: 100%;
-  height: auto;
+  height: 100%;
   border-radius: 8px;
 }
 

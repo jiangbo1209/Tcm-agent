@@ -119,7 +119,10 @@
             </span>
             <span class="editor-meta">更新于 {{ editingRecord.updated_at }}</span>
           </div>
-          <button class="editor-close" title="关闭" @click="closeEditor">&times;</button>
+          <div class="editor-actions">
+            <button class="btn-cancel" type="button" @click="closeEditor">取消</button>
+            <button class="btn-primary" type="button" @click="handleSave">保存</button>
+          </div>
         </header>
 
         <div
@@ -227,10 +230,6 @@
           </section>
         </div>
 
-        <footer class="editor-footer">
-          <button class="btn-cancel" @click="closeEditor">取消</button>
-          <button class="btn-primary" @click="handleSave">保存</button>
-        </footer>
       </div>
     </transition>
 
@@ -517,8 +516,9 @@ onBeforeUnmount(() => {
 .editor-top-main { flex: 1; min-width: 0; display: flex; align-items: center; gap: 12px; flex-wrap: wrap; }
 .editor-id { font-size: 14px; font-weight: 600; color: #1a1a2e; }
 .editor-meta { display: inline-flex; align-items: center; gap: 4px; font-size: 12px; color: #888; }
-.editor-close { width: 28px; height: 28px; border: none; background: transparent; font-size: 22px; line-height: 1; color: #999; cursor: pointer; border-radius: 4px; flex-shrink: 0; }
-.editor-close:hover { background: #f0f0f0; color: #333; }
+.editor-actions { display: flex; align-items: center; gap: 8px; flex-shrink: 0; }
+.editor-actions .btn-primary { padding: 7px 18px; }
+.editor-actions .btn-cancel { padding: 7px 16px; }
 
 .editor-body { flex: 1; min-height: 0; display: flex; gap: 10px; padding: 12px; background: #f7f9f9; }
 .editor-pane { display: flex; flex-direction: column; min-width: 0; min-height: 0; }

@@ -283,11 +283,14 @@ watch(
   display: flex;
   gap: 16px;
   align-items: stretch;
+  height: calc(100vh - 150px);
+  min-height: 480px;
 }
 
 .chat-card {
   flex: 1;
   min-width: 0;
+  height: 100%;
   display: flex;
   flex-direction: column;
   overflow: hidden;
@@ -296,7 +299,6 @@ watch(
 .msg-list {
   flex: 1;
   min-height: 320px;
-  max-height: calc(100vh - 300px);
   overflow-y: auto;
   padding: 20px 22px 8px;
   background: linear-gradient(180deg, #fbfdfd 0%, #ffffff 60%);
