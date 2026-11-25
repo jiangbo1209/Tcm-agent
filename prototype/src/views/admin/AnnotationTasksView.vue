@@ -157,6 +157,7 @@
                 </td>
                 <td class="mono cell-deadline">{{ pool.deadline }}</td>
                 <td class="col-pool-actions">
+                  <button class="btn-sm" type="button" @click="poolDetail = pool">详情</button>
                   <button
                     class="btn-sm teal"
                     type="button"
@@ -336,6 +337,42 @@
       </div>
     </div>
 
+    <!-- 池详情弹窗 -->
+    <div v-if="poolDetail" class="modal-mask" @click.self="poolDetail = null">
+      <div class="modal-box pool-detail-modal">
+        <div class="panel-head">
+          <div class="panel-heading">
+            <h2 class="panel-title">任务池详情 · {{ poolDetail.id }}</h2>
+            <p class="panel-sub">
+              {{ tableTypeLabel(poolDetail.tableType) }} ·
+              余量 {{ poolDetail.remaining }} / {{ poolDetail.total }} ·
+              截止 {{ poolDetail.deadline }}
+            </p>
+          </div>
+          <button class="modal-close" type="button" @click="poolDetail = null">×</button>
+        </div>
+        <div class="table-wrap">
+          <table class="pool-table">
+            <thead>
+              <tr><th>领取任务</th><th>标注员</th><th>领取条数</th><th>领取范围</th><th>领取时间</th></tr>
+            </thead>
+            <tbody>
+              <tr v-for="c in poolDetail.claims || []" :key="c.taskId">
+                <td class="mono">{{ c.taskId }}</td>
+                <td>{{ c.annotator }}</td>
+                <td>{{ c.count }}</td>
+                <td>{{ c.scope }}</td>
+                <td class="mono">{{ c.claimedAt }}</td>
+              </tr>
+              <tr v-if="!poolDetail.claims || poolDetail.claims.length === 0">
+                <td colspan="5" class="empty-row">暂无领取记录</td>
+              </tr>
+            </tbody>
+          </table>
+        </div>
+      </div>
+    </div>
+
     <!-- ───────── 操作记录 ───────── -->
     <div v-show="activeTab === 'logs'" class="tab-body">
       <section class="panel">
@@ -493,6 +530,10 @@ const POOLS = ref([
     remaining: 32,
     total: 46,
     deadline: "2025-03-25",
+    claims: [
+      { taskId: "TK-2025-091", annotator: "周静", count: 14, scope: "文献表 · 补肾填精 AND DOR", claimedAt: "2025-03-19 10:15" },
+      { taskId: "TK-2025-088", annotator: "李明", count: 10, scope: "文献表 · 卵巢储备功能减退", claimedAt: "2025-03-18 16:40" },
+    ],
   },
   {
     id: "POOL-2025-017",
@@ -501,6 +542,9 @@ const POOLS = ref([
     remaining: 25,
     total: 25,
     deadline: "2025-03-24",
+    claims: [
+      { taskId: "TK-2025-090", annotator: "王芳", count: 12, scope: "病案表 · 肾虚证", claimedAt: "2025-03-18 09:30" },
+    ],
   },
   {
     id: "POOL-2025-016",
@@ -509,6 +553,10 @@ const POOLS = ref([
     remaining: 11,
     total: 30,
     deadline: "2025-03-21",
+    claims: [
+      { taskId: "TK-2025-086", annotator: "赵磊", count: 8, scope: "文献表 · Meta 分析", claimedAt: "2025-03-17 14:20" },
+      { taskId: "TK-2025-087", annotator: "陈晨", count: 11, scope: "文献表 · 随机对照试验", claimedAt: "2025-03-17 15:05" },
+    ],
   },
   {
     id: "POOL-2025-015",
@@ -517,6 +565,10 @@ const POOLS = ref([
     remaining: 0,
     total: 40,
     deadline: "2025-03-18",
+    claims: [
+      { taskId: "TK-2025-080", annotator: "周静", count: 20, scope: "病案表 · 全部", claimedAt: "2025-03-15 10:00" },
+      { taskId: "TK-2025-081", annotator: "李明", count: 20, scope: "病案表 · 全部", claimedAt: "2025-03-15 10:05" },
+    ],
   },
 ]);
 
@@ -527,6 +579,7 @@ const poolForm = reactive({
 });
 const previewResult = ref(null);
 const wizardOpen = ref(false);
+const poolDetail = ref(null);
 const poolSeq = ref(19);
 
 const previewSamples = computed(() => {
@@ -591,6 +644,7 @@ function confirmPool() {
     remaining: count,
     total: count,
     deadline: "2025-03-28",
+    claims: [],
   });
   showToast(`任务池 ${id} 已创建，共 ${count} 条，等待指派（mock）`);
   poolForm.query = "";
