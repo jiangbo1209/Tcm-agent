@@ -161,4 +161,38 @@ export const etlStore = {
   moveOut(ids) {
     this.setState(ids, "uploaded", "移出队列");
   },
+  addDocs(list) {
+    const nowText = new Date().toISOString().slice(0, 16).replace("T", " ");
+    list.forEach((item, i) => {
+      const id = `DOC-${Date.now().toString(36)}-${i}`;
+      docs.unshift({
+        id,
+        name: item.name,
+        kind: item.kind || "lit",
+        state: "pending",
+        confidence: 0,
+        values: {},
+        errors: [],
+        version: 1,
+        uploadedAt: nowText,
+        operator: "demo_admin",
+        history: [{ at: nowText, action: "上传", by: "demo_admin" }],
+      });
+    });
+    persistStates();
+  },
+  removeDocs(ids) {
+    const set = new Set(ids);
+    for (let i = docs.length - 1; i >= 0; i -= 1) {
+      if (set.has(docs[i].id)) docs.splice(i, 1);
+    }
+    persistStates();
+  },
+  setKind(ids, kind) {
+    const set = new Set(ids);
+    for (const d of docs) {
+      if (set.has(d.id)) d.kind = kind;
+    }
+    persistStates();
+  },
 };

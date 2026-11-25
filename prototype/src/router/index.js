@@ -60,12 +60,21 @@ const routes = [
       { path: "admin/cases", redirect: "/admin/data?kind=case" },
       {
         path: "admin/sources",
-        name: "AdminDataSources",
-        component: () => import("../views/admin/DataSourceView.vue"),
+        component: () => import("../views/admin/datasource/DataSourceLayout.vue"),
         meta: { roles: ["admin"] },
+        redirect: "/admin/sources/resources",
+        children: [
+          { path: "resources", name: "DataSourceResources", component: () => import("../views/admin/datasource/DataSourceResourceView.vue") },
+          { path: "quality", name: "DataSourceQuality", component: () => import("../views/admin/EtlQualityView.vue") },
+          { path: "settings", name: "DataSourceSettings", component: () => import("../views/admin/etl/EtlSettingsView.vue") },
+        ],
       },
       // 兼容旧入口
       { path: "admin/upload", redirect: "/admin/sources" },
+      { path: "admin/etl", redirect: "/admin/sources" },
+      { path: "admin/etl/resources", redirect: "/admin/sources/resources" },
+      { path: "admin/etl/quality", redirect: "/admin/sources/quality" },
+      { path: "admin/etl/settings", redirect: "/admin/sources/settings" },
       {
         path: "admin/users",
         name: "AdminUsers",
@@ -77,17 +86,6 @@ const routes = [
         name: "AdminTasks",
         component: () => import("../views/admin/AnnotationTasksView.vue"),
         meta: { roles: ["admin"] },
-      },
-      {
-        path: "admin/etl",
-        component: () => import("../views/admin/etl/EtlLayout.vue"),
-        meta: { roles: ["admin"] },
-        redirect: "/admin/etl/resources",
-        children: [
-          { path: "resources", name: "EtlResources", component: () => import("../views/admin/etl/EtlResourcesView.vue") },
-          { path: "quality", name: "EtlQuality", component: () => import("../views/admin/EtlQualityView.vue") },
-          { path: "settings", name: "EtlSettings", component: () => import("../views/admin/etl/EtlSettingsView.vue") },
-        ],
       },
     ],
   },

@@ -166,7 +166,6 @@ const NAV = {
   admin: [
     { to: "/admin", label: "平台总览", icon: "dashboard" },
     { to: "/admin/sources", label: "数据源管理", icon: "upload" },
-    { to: "/admin/etl", label: "ETL管理", icon: "etl" },
     { to: "/admin/data", label: "数据管理", icon: "book" },
     { to: "/admin/tasks", label: "标注管理", icon: "tasks" },
     { to: "/admin/users", label: "用户管理", icon: "users" },
