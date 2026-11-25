@@ -258,16 +258,16 @@
             </p>
           </div>
           <div class="detail-actions">
-            <button class="btn-sm" type="button" @click="leftCollapsed = !leftCollapsed">
-              {{ leftCollapsed ? "展开对象列表" : "收起对象列表" }}
-            </button>
             <button class="btn-sm" type="button" @click="leaveReview">收起复核</button>
           </div>
         </div>
 
-        <div class="review-three">
+        <div ref="reviewBodyRef" class="review-three">
           <aside v-if="!leftCollapsed" class="rv-list">
-            <div class="rv-list-head">复核对象</div>
+            <div class="rv-list-head">
+              <span>复核对象</span>
+              <button class="rv-toggle" type="button" title="收起对象列表" @click="leftCollapsed = true">«</button>
+            </div>
             <div class="rv-list-body">
               <button
                 v-for="entry in selectedTask.entries"
@@ -285,13 +285,28 @@
             </div>
           </aside>
 
-          <section class="rv-source">
+          <button
+            v-else
+            class="rv-list-rail"
+            type="button"
+            title="展开对象列表"
+            @click="leftCollapsed = false"
+          >»</button>
+
+          <section class="rv-source" :style="{ width: sourceWidth + '%' }">
             <div class="rv-pane-head">原文</div>
             <div class="rv-source-body">
               <p v-if="currentOriginal" class="rv-source-title">{{ currentOriginal.title }}</p>
               <pre class="rv-source-text">{{ currentOriginal?.body || "暂无原文" }}</pre>
             </div>
           </section>
+
+          <div
+            class="rv-splitter"
+            :class="{ dragging: sourceResizing }"
+            title="拖动调整宽度"
+            @pointerdown.prevent="startSourceResize"
+          ></div>
 
           <section class="rv-form">
             <div class="rv-pane-head">
@@ -1096,6 +1111,29 @@ function stepReview(delta) {
 
 const leftCollapsed = ref(false);
 const currentEntryId = ref(null);
+const sourceWidth = ref(50);
+const sourceResizing = ref(false);
+const reviewBodyRef = ref(null);
+
+function startSourceResize() {
+  sourceResizing.value = true;
+  window.addEventListener("pointermove", onSourceResize);
+  window.addEventListener("pointerup", stopSourceResize);
+}
+
+function onSourceResize(e) {
+  if (!sourceResizing.value || !reviewBodyRef.value) return;
+  const rect = reviewBodyRef.value.getBoundingClientRect();
+  if (!rect.width) return;
+  const pct = ((e.clientX - rect.left) / rect.width) * 100;
+  sourceWidth.value = Math.min(75, Math.max(25, pct));
+}
+
+function stopSourceResize() {
+  sourceResizing.value = false;
+  window.removeEventListener("pointermove", onSourceResize);
+  window.removeEventListener("pointerup", stopSourceResize);
+}
 
 const currentEntry = computed(() => {
   if (!selectedTask.value) return null;
@@ -1334,6 +1372,7 @@ function rollbackLog(log) {
 }
 
 onBeforeUnmount(() => {
+  stopSourceResize();
   clearTimeout(toastTimer);
 });
 </script>
@@ -2300,15 +2339,13 @@ onBeforeUnmount(() => {
 .modal-foot-actions { display: flex; justify-content: flex-end; gap: 10px; margin-top: 16px; }
 .detail-actions { display: flex; gap: 8px; }
 .review-three {
-  display: grid;
-  grid-template-columns: 240px minmax(0, 1fr) minmax(0, 1.1fr);
-  gap: 0;
+  display: flex;
   border: 1px solid var(--line);
   border-radius: 10px;
   overflow: hidden;
   height: 520px;
 }
-.rv-list { border-right: 1px solid var(--line); background: #fafbfb; display: flex; flex-direction: column; min-width: 0; }
+.rv-list { flex: 0 0 220px; width: 220px; border-right: 1px solid var(--line); background: #fafbfb; display: flex; flex-direction: column; min-width: 0; }
 .rv-list-head { padding: 9px 12px; font-size: 12px; font-weight: 600; color: var(--ink-500); border-bottom: 1px solid var(--line); }
 .rv-list-body { flex: 1; overflow-y: auto; padding: 6px; display: flex; flex-direction: column; gap: 4px; }
 .rv-item {
@@ -2319,8 +2356,8 @@ onBeforeUnmount(() => {
 .rv-item:hover { background: #f0f7f6; }
 .rv-item.active { background: #fff; border-color: var(--teal-border); box-shadow: 0 1px 4px rgba(0,0,0,.04); }
 .rv-item-id { font-size: 11px; color: var(--ink-700); }
-.rv-source { border-right: 1px solid var(--line); background: #fafafa; display: flex; flex-direction: column; min-width: 0; }
-.rv-form { display: flex; flex-direction: column; min-width: 0; background: #fff; }
+.rv-source { flex: 0 0 auto; background: #fafafa; display: flex; flex-direction: column; min-width: 0; }
+.rv-form { flex: 1 1 auto; display: flex; flex-direction: column; min-width: 0; background: #fff; }
 .rv-pane-head { padding: 9px 12px; font-size: 12px; font-weight: 600; color: var(--ink-500); border-bottom: 1px solid var(--line); display: flex; justify-content: space-between; align-items: center; }
 .rv-change-count { font-size: 10px; color: #b06a00; }
 .rv-source-body { flex: 1; overflow-y: auto; padding: 12px; }
@@ -2335,4 +2372,22 @@ onBeforeUnmount(() => {
 .rv-diff-submitted { color: var(--teal-dark); font-weight: 500; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .rv-diff.changed .rv-diff-submitted { color: #b06a00; }
 .rv-actions { display: flex; justify-content: flex-end; gap: 8px; padding: 10px 12px; border-top: 1px solid var(--line); }
+.rv-toggle { border: none; background: transparent; color: #8a9695; cursor: pointer; font-size: 16px; line-height: 1; }
+.rv-toggle:hover { color: #00796b; }
+.rv-list-rail {
+  flex: 0 0 22px; width: 22px; border: none; border-right: 1px solid var(--line);
+  background: #fafbfb; color: #8a9695; cursor: pointer; font-size: 14px;
+}
+.rv-list-rail:hover { color: #00796b; background: #f0f7f6; }
+.rv-splitter {
+  flex: 0 0 7px; cursor: col-resize; background: #f0f2f2;
+  border-left: 1px solid #e8e8e8; border-right: 1px solid #e8e8e8;
+  position: relative; touch-action: none; transition: background 0.15s;
+}
+.rv-splitter::after {
+  content: ""; position: absolute; top: 50%; left: 50%; width: 3px; height: 34px;
+  transform: translate(-50%, -50%); border-radius: 3px; background: #c9d6d4;
+}
+.rv-splitter:hover, .rv-splitter.dragging { background: #e0f2f1; }
+.rv-splitter:hover::after, .rv-splitter.dragging::after { background: #00796b; }
 </style>
