@@ -55,9 +55,6 @@ const routes = [
         component: () => import("../views/admin/DataManageView.vue"),
         meta: { roles: ["admin"] },
       },
-      // 兼容旧入口
-      { path: "admin/literature", redirect: "/admin/data?kind=literature" },
-      { path: "admin/cases", redirect: "/admin/data?kind=case" },
       {
         path: "admin/sources",
         component: () => import("../views/admin/datasource/DataSourceLayout.vue"),
@@ -65,16 +62,10 @@ const routes = [
         redirect: "/admin/sources/resources",
         children: [
           { path: "resources", name: "DataSourceResources", component: () => import("../views/admin/datasource/DataSourceResourceView.vue") },
-          { path: "quality", name: "DataSourceQuality", component: () => import("../views/admin/EtlQualityView.vue") },
-          { path: "settings", name: "DataSourceSettings", component: () => import("../views/admin/etl/EtlSettingsView.vue") },
+          { path: "quality", name: "DataSourceQuality", component: () => import("../views/admin/datasource/QualityView.vue") },
+          { path: "settings", name: "DataSourceSettings", component: () => import("../views/admin/datasource/SettingsView.vue") },
         ],
       },
-      // 兼容旧入口
-      { path: "admin/upload", redirect: "/admin/sources" },
-      { path: "admin/etl", redirect: "/admin/sources" },
-      { path: "admin/etl/resources", redirect: "/admin/sources/resources" },
-      { path: "admin/etl/quality", redirect: "/admin/sources/quality" },
-      { path: "admin/etl/settings", redirect: "/admin/sources/settings" },
       {
         path: "admin/users",
         name: "AdminUsers",

@@ -116,7 +116,7 @@ const TODOS = [
     desc: "版式 / 单位问题，需重抽",
     tone: "red",
     cta: "查看失败",
-    to: "/admin/etl",
+    to: "/admin/sources/resources",
   },
   {
     count: 3,
