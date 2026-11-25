@@ -58,11 +58,18 @@
     </div>
 
     <!-- 标注工作区：任务列表 | 原文面板 | 字段表单 -->
-    <div v-if="activeTab === 'lit' || activeTab === 'case'" class="work-layout">
-      <aside class="task-list card">
+    <div
+      v-if="activeTab === 'lit' || activeTab === 'case'"
+      class="work-layout"
+      :class="{ 'list-collapsed': workListCollapsed }"
+    >
+      <aside v-if="!workListCollapsed" class="task-list card">
         <div class="list-head">
           <span>{{ activeTab === 'case' ? '病案条目' : '文献条目' }}</span>
-          <span class="list-count">{{ activeItems.length }} 条</span>
+          <div class="list-head-right">
+            <span class="list-count">{{ activeItems.length }} 条</span>
+            <button class="list-toggle" type="button" title="收起条目列表" @click="workListCollapsed = true">«</button>
+          </div>
         </div>
         <div class="list-body">
           <button
@@ -80,6 +87,11 @@
           </button>
         </div>
       </aside>
+
+      <div v-else class="work-list-rail">
+        <button type="button" title="展开条目列表" @click="workListCollapsed = false">»</button>
+        <button type="button" title="下一条" @click="nextItem">›</button>
+      </div>
 
       <section class="original-panel card">
         <header class="original-head">
@@ -678,6 +690,7 @@ const selectedCaseId = ref("");
 const form = ref({});
 const confirmOpen = ref(false);
 const originalFont = ref("md");
+const workListCollapsed = ref(false);
 
 const toast = reactive({ show: false, message: "", tone: "ok" });
 let toastTimer = null;
@@ -810,6 +823,14 @@ function hydrateAssignedItems() {
 
 hydrateAssignedItems();
 if (selectedLitId.value) loadItem(selectedLitId.value);
+
+function nextItem() {
+  const list = activeItems.value;
+  if (!list.length) return;
+  const idx = list.findIndex((item) => item.id === currentId.value);
+  const next = list[(idx + 1) % list.length];
+  if (next) selectItem(next.id);
+}
 
 function goNext() {
   const list = activeItems.value;
@@ -1018,6 +1039,22 @@ function confirmSubmit() {
   height: 700px;
   overflow: hidden;
 }
+.list-head-right { display: flex; align-items: center; gap: 8px; }
+.list-toggle {
+  border: none; background: transparent; color: #8a9695; cursor: pointer;
+  font-size: 15px; line-height: 1; padding: 0 2px;
+}
+.list-toggle:hover { color: #00796b; }
+.work-layout.list-collapsed { grid-template-columns: 26px minmax(0, 32%) minmax(0, 1fr); }
+.work-list-rail {
+  display: flex; flex-direction: column; border: 1px solid var(--line);
+  border-radius: 10px; background: #fafbfb; overflow: hidden;
+}
+.work-list-rail button {
+  border: none; background: transparent; color: #8a9695; cursor: pointer;
+  font-size: 14px; padding: 8px 0;
+}
+.work-list-rail button:hover { color: #00796b; background: #f0f7f6; }
 
 .list-head {
   display: flex;

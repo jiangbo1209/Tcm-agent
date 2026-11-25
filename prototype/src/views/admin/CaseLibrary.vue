@@ -149,7 +149,10 @@
               </button>
             </div>
           </aside>
-          <button v-else class="editor-list-expand" type="button" title="展开列表" @click="listCollapsed = false">»</button>
+          <div v-else class="editor-list-rail">
+            <button type="button" title="展开列表" @click="listCollapsed = false">»</button>
+            <button type="button" title="下一条" @click="nextRecord">›</button>
+          </div>
 
           <section class="editor-pane editor-source" :style="{ width: sourceWidth + '%' }">
             <div class="pane-head">
@@ -351,6 +354,14 @@ const editValues = ref({});
 const original = computed(() =>
   editingRecord.value ? ORIGINALS[editingRecord.value.id] || null : null
 );
+
+function nextRecord() {
+  if (!editingRecord.value) return;
+  const list = records.value;
+  const idx = list.findIndex((r) => r.id === editingRecord.value.id);
+  const next = list[(idx + 1) % list.length];
+  if (next) openEditor(next);
+}
 
 function openEditor(record) {
   editingRecord.value = record;
@@ -576,6 +587,7 @@ textarea.field-control { resize: vertical; min-height: 52px; line-height: 1.4; }
 .editor-list-item.active { background: #fff; border-color: #b2dfdb; }
 .editor-list-id { font-size: 10px; color: #999; font-family: ui-monospace, Consolas, monospace; }
 .editor-list-title { font-size: 11px; color: #444; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.editor-list-expand { flex: 0 0 18px; width: 18px; border: none; border-right: 1px solid #e8e8e8; background: #fafbfb; color: #8a9695; cursor: pointer; font-size: 14px; }
-.editor-list-expand:hover { color: #00796b; background: #f0f7f6; }
+.editor-list-rail { flex: 0 0 24px; width: 24px; border-right: 1px solid #e8e8e8; background: #fafbfb; display: flex; flex-direction: column; }
+.editor-list-rail button { border: none; background: transparent; color: #8a9695; cursor: pointer; font-size: 14px; padding: 8px 0; }
+.editor-list-rail button:hover { color: #00796b; background: #f0f7f6; }
 </style>

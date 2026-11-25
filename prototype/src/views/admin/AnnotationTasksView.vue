@@ -30,7 +30,6 @@
         @click="activeTab = tab.key"
       >
         {{ tab.label }}
-        <span class="sub-count">{{ tabCount(tab.key) }}</span>
       </button>
     </div>
 
@@ -285,13 +284,10 @@
             </div>
           </aside>
 
-          <button
-            v-else
-            class="rv-list-rail"
-            type="button"
-            title="展开对象列表"
-            @click="leftCollapsed = false"
-          >»</button>
+          <div v-else class="rv-list-rail">
+            <button type="button" title="展开对象列表" @click="leftCollapsed = false">»</button>
+            <button type="button" title="下一条" @click="nextReviewEntry">›</button>
+          </div>
 
           <section class="rv-source" :style="{ width: sourceWidth + '%' }">
             <div class="rv-pane-head">原文</div>
@@ -1165,6 +1161,13 @@ async function enterReview(task) {
   await nextTick();
   const el = document.querySelector(".task-card.active");
   el?.scrollIntoView({ behavior: "smooth", inline: "center", block: "nearest" });
+}
+
+function nextReviewEntry() {
+  if (!selectedTask.value || !selectedTask.value.entries.length) return;
+  const entries = selectedTask.value.entries;
+  const idx = entries.findIndex((e) => e.id === currentEntryId.value);
+  currentEntryId.value = entries[(idx + 1) % entries.length].id;
 }
 
 function leaveReview() {
@@ -2346,7 +2349,8 @@ onBeforeUnmount(() => {
   height: 520px;
 }
 .rv-list { flex: 0 0 220px; width: 220px; border-right: 1px solid var(--line); background: #fafbfb; display: flex; flex-direction: column; min-width: 0; }
-.rv-list-head { padding: 9px 12px; font-size: 12px; font-weight: 600; color: var(--ink-500); border-bottom: 1px solid var(--line); }
+.rv-list-head { display: flex; align-items: center; justify-content: space-between; height: 38px; padding: 0 10px 0 12px; box-sizing: border-box; font-size: 12px; font-weight: 600; color: var(--ink-500); border-bottom: 1px solid var(--line); }
+.rv-list-head span { flex: 1; min-width: 0; }
 .rv-list-body { flex: 1; overflow-y: auto; padding: 6px; display: flex; flex-direction: column; gap: 4px; }
 .rv-item {
   display: flex; align-items: center; justify-content: space-between; gap: 8px;
@@ -2358,7 +2362,7 @@ onBeforeUnmount(() => {
 .rv-item-id { font-size: 11px; color: var(--ink-700); }
 .rv-source { flex: 0 0 auto; background: #fafafa; display: flex; flex-direction: column; min-width: 0; }
 .rv-form { flex: 1 1 auto; display: flex; flex-direction: column; min-width: 0; background: #fff; }
-.rv-pane-head { padding: 9px 12px; font-size: 12px; font-weight: 600; color: var(--ink-500); border-bottom: 1px solid var(--line); display: flex; justify-content: space-between; align-items: center; }
+.rv-pane-head { height: 38px; padding: 0 12px; box-sizing: border-box; font-size: 12px; font-weight: 600; color: var(--ink-500); border-bottom: 1px solid var(--line); display: flex; justify-content: space-between; align-items: center; }
 .rv-change-count { font-size: 10px; color: #b06a00; }
 .rv-source-body { flex: 1; overflow-y: auto; padding: 12px; }
 .rv-source-title { margin: 0 0 8px; font-size: 13px; font-weight: 600; }
@@ -2375,10 +2379,14 @@ onBeforeUnmount(() => {
 .rv-toggle { border: none; background: transparent; color: #8a9695; cursor: pointer; font-size: 16px; line-height: 1; }
 .rv-toggle:hover { color: #00796b; }
 .rv-list-rail {
-  flex: 0 0 22px; width: 22px; border: none; border-right: 1px solid var(--line);
-  background: #fafbfb; color: #8a9695; cursor: pointer; font-size: 14px;
+  flex: 0 0 24px; width: 24px; border-right: 1px solid var(--line);
+  background: #fafbfb; display: flex; flex-direction: column; align-items: stretch;
 }
-.rv-list-rail:hover { color: #00796b; background: #f0f7f6; }
+.rv-list-rail button {
+  border: none; background: transparent; color: #8a9695; cursor: pointer;
+  font-size: 14px; padding: 8px 0;
+}
+.rv-list-rail button:hover { color: #00796b; background: #f0f7f6; }
 .rv-splitter {
   flex: 0 0 7px; cursor: col-resize; background: #f0f2f2;
   border-left: 1px solid #e8e8e8; border-right: 1px solid #e8e8e8;
