@@ -12,7 +12,7 @@
           <span class="meta-divider"></span>
           <span class="meta-item">今日操作 <strong>{{ LOGS.length }}</strong></span>
         </div>
-        <button class="btn-primary" type="button" @click="wizardOpen = true">建池向导</button>
+        <button class="btn-primary header-btn" type="button" @click="wizardOpen = true">建池向导</button>
       </div>
     </header>
 
@@ -1409,6 +1409,13 @@ onBeforeUnmount(() => {
   margin: 0;
   font-size: 12px;
   color: var(--ink-400);
+}
+.header-btn {
+  height: 32px;
+  padding: 0 16px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
 }
 .header-meta {
   display: inline-flex;

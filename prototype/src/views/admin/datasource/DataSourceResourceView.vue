@@ -1,12 +1,5 @@
 <template>
   <div class="resource-page">
-    <div class="action-row">
-      <button class="btn-primary upload-btn" type="button" @click="uploadModalOpen = true">上传文件</button>
-      <button class="btn-sm upload-btn" type="button" @click="queueModalOpen = true">
-        上传队列（{{ queue.length }}/{{ MAX_QUEUE }}）
-      </button>
-    </div>
-
     <div class="toolbar">
       <select
         v-model="batchAction"
@@ -32,6 +25,12 @@
       </select>
       <input v-model="searchQuery" class="filter-input" placeholder="搜索文档 / 编号..." />
       <button v-if="searchQuery" class="btn-clear" type="button" @click="searchQuery = ''">清除</button>
+      <div class="toolbar-actions">
+        <button class="btn-primary upload-btn" type="button" @click="uploadModalOpen = true">上传文件</button>
+        <button class="btn-sm upload-btn" type="button" @click="queueModalOpen = true">
+          上传队列（{{ queue.length }}/{{ MAX_QUEUE }}）
+        </button>
+      </div>
     </div>
 
     <div class="table-wrap">
@@ -436,8 +435,8 @@ async function startUpload() {
 .page-head h1 { margin: 0; font-size: 22px; font-weight: 600; color: var(--ink-900); }
 .head-actions { display: flex; align-items: center; gap: 8px; }
 
-.action-row { display: flex; align-items: center; justify-content: flex-end; gap: 10px; margin-bottom: 12px; }
-.upload-btn { height: 38px; padding: 0 18px; display: inline-flex; align-items: center; justify-content: center; }
+.toolbar-actions { display: flex; align-items: center; gap: 10px; margin-left: auto; }
+.upload-btn { height: 33px; padding: 0 16px; display: inline-flex; align-items: center; justify-content: center; }
 
 .toolbar { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; margin-bottom: 12px; }
 .batch-select { width: 132px; font-variant-numeric: tabular-nums; cursor: pointer; }
