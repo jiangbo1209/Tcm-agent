@@ -242,7 +242,7 @@
         </button>
       </div>
 
-      <section v-if="selectedTask" class="panel review-detail">
+      <section v-if="selectedTask" class="review-detail">
         <div class="detail-head">
           <div class="detail-heading">
             <div class="detail-title">
@@ -262,7 +262,7 @@
         </div>
 
         <div ref="reviewBodyRef" class="review-three">
-          <aside v-if="!leftCollapsed" class="rv-list" :style="{ width: rvListWidth + 'px' }">
+          <aside v-if="!leftCollapsed" class="rv-list">
             <div class="rv-list-head">
               <span>复核对象</span>
               <button class="rv-toggle" type="button" title="收起对象列表" @click="leftCollapsed = true">«</button>
@@ -290,12 +290,6 @@
             <button type="button" title="下一条" @click="nextReviewEntry">›</button>
           </div>
 
-          <div
-            v-if="!leftCollapsed"
-            class="rv-list-resizer"
-            title="拖动调整列表宽度"
-            @pointerdown.prevent="startRvListResize"
-          ></div>
 
           <section class="rv-source" :style="{ width: sourceWidth + '%' }">
             <div class="rv-pane-head">原文</div>
@@ -1116,26 +1110,6 @@ function stepReview(delta) {
 const leftCollapsed = ref(false);
 const currentEntryId = ref(null);
 const sourceWidth = ref(50);
-const rvListWidth = ref(220);
-const rvListResizing = ref(false);
-
-function startRvListResize() {
-  rvListResizing.value = true;
-  window.addEventListener("pointermove", onRvListResize);
-  window.addEventListener("pointerup", stopRvListResize);
-}
-
-function onRvListResize(e) {
-  if (!rvListResizing.value || !reviewBodyRef.value) return;
-  const rect = reviewBodyRef.value.getBoundingClientRect();
-  rvListWidth.value = Math.min(360, Math.max(180, e.clientX - rect.left));
-}
-
-function stopRvListResize() {
-  rvListResizing.value = false;
-  window.removeEventListener("pointermove", onRvListResize);
-  window.removeEventListener("pointerup", stopRvListResize);
-}
 const sourceResizing = ref(false);
 const reviewBodyRef = ref(null);
 
@@ -1411,7 +1385,6 @@ function rollbackLog(log) {
 
 onBeforeUnmount(() => {
   stopSourceResize();
-  stopRvListResize();
   clearTimeout(toastTimer);
 });
 </script>
@@ -2383,7 +2356,7 @@ onBeforeUnmount(() => {
   height: 520px;
 }
 .rv-list {
-  flex: 0 0 auto; min-width: 0; display: flex; flex-direction: column;
+  flex: 0 0 220px; width: 220px; min-width: 0; display: flex; flex-direction: column;
   border: 1px solid var(--line); border-radius: 10px; background: #fff; overflow: hidden;
 }
 .rv-list-head { display: flex; align-items: center; justify-content: space-between; height: 38px; padding: 0 10px 0 12px; box-sizing: border-box; font-size: 12px; font-weight: 600; color: var(--ink-500); border-bottom: 1px solid var(--line); }
@@ -2430,18 +2403,6 @@ onBeforeUnmount(() => {
   font-size: 14px; padding: 8px 0;
 }
 .rv-list-rail button:hover { color: #00796b; background: #f0f7f6; }
-.rv-list-resizer {
-  flex: 0 0 7px; cursor: col-resize; background: #f0f2f2;
-  border-left: 1px solid #e8e8e8; border-right: 1px solid #e8e8e8;
-  border-radius: 4px; position: relative; touch-action: none;
-}
-.rv-list-resizer::after {
-  content: ""; position: absolute; top: 50%; left: 50%; width: 3px; height: 30px;
-  transform: translate(-50%, -50%); border-radius: 3px; background: #c9d6d4;
-}
-.rv-list-resizer:hover { background: #e0f2f1; }
-.rv-list-resizer:hover::after { background: #00796b; }
-
 .rv-splitter {
   flex: 0 0 7px; cursor: col-resize; background: #f0f2f2;
   border-left: 1px solid #e8e8e8; border-right: 1px solid #e8e8e8;

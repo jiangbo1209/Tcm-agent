@@ -128,7 +128,7 @@
           class="editor-body"
           :class="{ 'list-collapsed': listCollapsed }"
         >
-          <aside v-if="!listCollapsed" class="editor-list" :style="{ width: listWidth + 'px' }">
+          <aside v-if="!listCollapsed" class="editor-list">
             <div class="editor-list-head">
               <span>记录列表</span>
               <button class="list-toggle" type="button" title="收起列表" @click="listCollapsed = true">«</button>
@@ -153,12 +153,6 @@
             <button type="button" title="下一条" @click="nextRecord">›</button>
           </div>
 
-          <div
-            v-if="!listCollapsed"
-            class="editor-list-resizer"
-            title="拖动调整列表宽度"
-            @pointerdown.prevent="startListResize"
-          ></div>
 
           <section class="editor-pane editor-source" :style="{ width: sourceWidth + '%' }">
             <div class="pane-head">
@@ -388,26 +382,6 @@ function openEditor(record) {
 
 const sourceWidth = ref(40);
 const listCollapsed = ref(false);
-const listWidth = ref(220);
-const listResizing = ref(false);
-
-function startListResize() {
-  listResizing.value = true;
-  window.addEventListener("pointermove", onListResize);
-  window.addEventListener("pointerup", stopListResize);
-}
-
-function onListResize(e) {
-  if (!listResizing.value || !editorBodyRef.value) return;
-  const rect = editorBodyRef.value.getBoundingClientRect();
-  listWidth.value = Math.min(380, Math.max(180, e.clientX - rect.left));
-}
-
-function stopListResize() {
-  listResizing.value = false;
-  window.removeEventListener("pointermove", onListResize);
-  window.removeEventListener("pointerup", stopListResize);
-}
 const resizing = ref(false);
 const editorBodyRef = ref(null);
 
@@ -467,8 +441,7 @@ onMounted(() => {
 onBeforeUnmount(() => {
   clearTimeout(toastTimer);
   window.removeEventListener("keydown", handleKeydown);
- stopResize();
-  stopListResize(); });
+ stopResize(); });
 </script>
 
 <style scoped>
@@ -551,18 +524,6 @@ onBeforeUnmount(() => {
 .editor-body { flex: 1; min-height: 0; display: flex; gap: 10px; padding: 12px; background: #f7f9f9; }
 .editor-pane { display: flex; flex-direction: column; min-width: 0; min-height: 0; }
 .editor-source { flex: 0 0 auto; background: #fafafa; min-width: 0; border: 1px solid #e8e8e8; border-radius: 10px; overflow: hidden; }
-.editor-list-resizer {
-  flex: 0 0 7px; cursor: col-resize; background: #f0f2f2;
-  border-left: 1px solid #e8e8e8; border-right: 1px solid #e8e8e8;
-  border-radius: 4px; position: relative; touch-action: none;
-}
-.editor-list-resizer::after {
-  content: ""; position: absolute; top: 50%; left: 50%; width: 3px; height: 30px;
-  transform: translate(-50%, -50%); border-radius: 3px; background: #c9d6d4;
-}
-.editor-list-resizer:hover { background: #e0f2f1; }
-.editor-list-resizer:hover::after { background: #00796b; }
-
 .editor-splitter { flex: 0 0 7px; cursor: col-resize; background: #f0f2f2; border-left: 1px solid #e8e8e8; border-right: 1px solid #e8e8e8; position: relative; touch-action: none; transition: background 0.15s; }
 .editor-splitter::after { content: ""; position: absolute; top: 50%; left: 50%; width: 3px; height: 34px; transform: translate(-50%, -50%); border-radius: 3px; background: #c9d6d4; }
 .editor-splitter:hover, .editor-splitter.dragging { background: var(--teal-soft, #e0f2f1); }
@@ -628,7 +589,7 @@ textarea.field-control { resize: vertical; min-height: 52px; line-height: 1.4; }
 
 /* ── 三栏编辑：记录列表 / 原文 / 字段 ── */
 .editor-actions { display: flex; align-items: center; gap: 8px; flex-shrink: 0; }
-.editor-list { flex: 0 0 auto; min-width: 0; display: flex; flex-direction: column; border: 1px solid #e8e8e8; border-radius: 10px; background: #fff; overflow: hidden; }
+.editor-list { flex: 0 0 220px; width: 220px; min-width: 0; display: flex; flex-direction: column; border: 1px solid #e8e8e8; border-radius: 10px; background: #fff; overflow: hidden; }
 .editor-list-head { display: flex; align-items: center; justify-content: space-between; padding: 8px 12px; border-bottom: 1px solid #e8e8e8; font-size: 12px; font-weight: 600; color: #666; }
 .list-toggle { border: none; background: transparent; color: #8a9695; cursor: pointer; font-size: 16px; line-height: 1; }
 .list-toggle:hover { color: #00796b; }

@@ -35,6 +35,31 @@
         </router-link>
       </nav>
 
+      <div v-if="showChatHistory && !isCollapsed" class="chat-history">
+        <div class="ch-head">
+          <span>对话历史</span>
+          <button class="ch-new" type="button" title="新建对话" @click="newChat">＋</button>
+        </div>
+        <div class="ch-scroll">
+          <div v-for="group in grouped" :key="group.label" class="ch-group">
+            <div v-if="group.items.length" class="ch-group-label">{{ group.label }}</div>
+            <button
+              v-for="conv in group.items"
+              :key="conv.id"
+              class="ch-item"
+              :class="{ active: route.path === '/chat' && conv.id === chatStore.state.activeId }"
+              type="button"
+              :title="conv.title"
+              @click="selectChat(conv.id)"
+            >
+              <span class="ch-title">{{ conv.title }}</span>
+              <span class="ch-del" title="删除" @click.stop="deleteChat(conv.id)">×</span>
+            </button>
+          </div>
+          <p v-if="chatStore.conversations.length === 0" class="ch-empty">暂无对话</p>
+        </div>
+      </div>
+
       <div class="sidebar-footer">
         <div class="role-card" :title="isCollapsed ? roleMeta.label : undefined">
           <span class="role-dot" :style="{ background: roleMeta.color }"></span>
@@ -63,11 +88,39 @@
 import { computed, ref } from "vue";
 import { useRoute, useRouter } from "vue-router";
 import { session, ROLE_META } from "../stores/session";
+import { chatStore } from "../stores/chat";
 
 const route = useRoute();
 const router = useRouter();
 
 const roleMeta = computed(() => ROLE_META[session.state.role] || ROLE_META.normal);
+const showChatHistory = computed(() =>
+  ["normal", "professional"].includes(session.state.role),
+);
+const grouped = computed(() => {
+  const g = chatStore.group();
+  return [
+    { label: "今天", items: g.today },
+    { label: "昨天", items: g.yesterday },
+    { label: "更早", items: g.earlier },
+  ];
+});
+
+function newChat() {
+  chatStore.create([]);
+  router.push("/chat");
+}
+
+function selectChat(id) {
+  chatStore.select(id);
+  router.push("/chat");
+}
+
+function deleteChat(id) {
+  chatStore.remove(id);
+  if (chatStore.conversations.length === 0) chatStore.create([]);
+  if (route.path !== "/chat") router.push("/chat");
+}
 
 const COLLAPSE_KEY = "tcm-dor-proto-sidebar-collapsed";
 const isCollapsed = ref(false);
@@ -106,7 +159,10 @@ const NAV = {
     { to: "/search", label: "智能搜索", icon: "search" },
     { to: "/graph", label: "知识图谱", icon: "graph" },
   ],
-  annotator: [{ to: "/annotate", label: "标注工作台", icon: "annotate" }],
+  annotator: [
+    { to: "/annotate", label: "标注工作台", icon: "annotate" },
+    { to: "/annotate/tasks", label: "任务领取", icon: "tasks" },
+  ],
   admin: [
     { to: "/admin", label: "平台总览", icon: "dashboard" },
     { to: "/admin/sources", label: "数据源管理", icon: "upload" },
@@ -172,7 +228,27 @@ function switchRole() {
 .nav-icon { width: 16px; height: 16px; display: inline-flex; }
 .nav-icon :deep(svg) { width: 16px; height: 16px; }
 
-.sidebar-footer { border-top: 1px solid rgba(255, 255, 255, 0.08); padding-top: 12px; display: flex; flex-direction: column; gap: 8px; }
+.chat-history { flex: 1; min-height: 0; display: flex; flex-direction: column; margin-top: 10px; padding-top: 10px; border-top: 1px solid rgba(255,255,255,0.08); }
+.ch-head { display: flex; align-items: center; justify-content: space-between; padding: 0 6px 6px; font-size: 11px; color: #7f8c9b; }
+.ch-new { width: 20px; height: 20px; border: 1px solid rgba(255,255,255,0.14); border-radius: 5px; background: transparent; color: #c9d1d9; cursor: pointer; font-size: 12px; line-height: 1; }
+.ch-new:hover { color: #7ff0df; border-color: #7ff0df; }
+.ch-scroll { flex: 1; overflow-y: auto; }
+.ch-group { margin-bottom: 8px; }
+.ch-group-label { padding: 4px 8px; font-size: 10px; color: #6b7885; }
+.ch-item {
+  position: relative; display: flex; align-items: center; width: 100%;
+  padding: 6px 22px 6px 8px; border: none; border-radius: 6px;
+  background: transparent; color: #aab4c0; cursor: pointer; text-align: left;
+}
+.ch-item:hover { background: rgba(255,255,255,0.06); color: #fff; }
+.ch-item.active { background: rgba(0,121,107,0.22); color: #7ff0df; }
+.ch-title { flex: 1; min-width: 0; font-size: 12px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.ch-del { position: absolute; right: 4px; width: 16px; height: 16px; line-height: 14px; text-align: center; border-radius: 4px; color: #6b7885; font-size: 12px; opacity: 0; }
+.ch-item:hover .ch-del { opacity: 1; }
+.ch-del:hover { background: rgba(198,40,40,0.25); color: #ff8a80; }
+.ch-empty { margin: 10px 8px; font-size: 11px; color: #6b7885; }
+
+.sidebar-footer { border-top: 1px solid rgba(255, 255, 255, 0.08); padding-top: 12px; display: flex; flex-direction: column; gap: 8px; flex-shrink: 0; }
 .role-card { display: flex; align-items: center; gap: 8px; padding: 8px 10px; border-radius: 8px; background: rgba(255, 255, 255, 0.05); }
 .role-dot { width: 8px; height: 8px; border-radius: 50%; flex-shrink: 0; }
 .role-text { display: flex; flex-direction: column; line-height: 1.25; min-width: 0; }

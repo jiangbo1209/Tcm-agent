@@ -38,6 +38,12 @@ const routes = [
         meta: { roles: ["annotator"] },
       },
       {
+        path: "annotate/tasks",
+        name: "AnnotateTasks",
+        component: () => import("../views/annotator/ClaimTasksView.vue"),
+        meta: { roles: ["annotator"] },
+      },
+      {
         path: "admin",
         name: "AdminDashboard",
         component: () => import("../views/admin/DashboardView.vue"),
