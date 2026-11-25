@@ -60,10 +60,11 @@
     <!-- 标注工作区：任务列表 | 原文面板 | 字段表单 -->
     <div
       v-if="activeTab === 'lit' || activeTab === 'case'"
+      ref="workLayoutRef"
       class="work-layout"
       :class="{ 'list-collapsed': workListCollapsed }"
     >
-      <aside v-if="!workListCollapsed" class="task-list card" :style="{ width: workListWidth + 'px' }">
+      <aside v-if="!workListCollapsed" class="task-list card">
         <div class="list-head">
           <span>{{ activeTab === 'case' ? '病案条目' : '文献条目' }}</span>
           <div class="list-head-right">
@@ -94,14 +95,8 @@
         <button type="button" title="下一条" @click="nextItem">›</button>
       </div>
 
-      <div
-        v-if="!workListCollapsed"
-        class="list-resizer"
-        title="拖动调整列表宽度"
-        @pointerdown.prevent="startListResize"
-      ></div>
 
-      <section class="original-panel card">
+      <section class="original-panel card" :style="{ width: sourceWidth + 'px' }">
         <header class="original-head">
           <div class="original-title">
             <span class="original-tag">{{ activeTab === 'case' ? '病案原文' : '文献原文' }}</span>
@@ -137,6 +132,12 @@
           <span>该条目在本地 mock 中未提供原文片段</span>
         </div>
       </section>
+
+      <div
+        class="source-editor-splitter"
+        title="拖动调整原文宽度"
+        @pointerdown.prevent="startSourceResize"
+      ></div>
 
       <section class="editor card">
         <template v-if="currentItem">
@@ -699,24 +700,31 @@ const form = ref({});
 const confirmOpen = ref(false);
 const originalFont = ref("md");
 const workListCollapsed = ref(false);
-const workListWidth = ref(270);
-const listResizing = ref(false);
+const sourceWidth = ref(420);
+const sourceResizing = ref(false);
+const workLayoutRef = ref(null);
+let resizeStartX = 0;
+let resizeStartW = 0;
 
-function startListResize() {
-  listResizing.value = true;
-  window.addEventListener("pointermove", onListResize);
-  window.addEventListener("pointerup", stopListResize);
+function startSourceResize(e) {
+  sourceResizing.value = true;
+  resizeStartX = e.clientX;
+  resizeStartW = sourceWidth.value;
+  window.addEventListener("pointermove", onSourceResize);
+  window.addEventListener("pointerup", stopSourceResize);
 }
 
-function onListResize(e) {
-  if (!listResizing.value) return;
-  workListWidth.value = Math.min(420, Math.max(200, e.clientX - 232 - 32));
+function onSourceResize(e) {
+  if (!sourceResizing.value) return;
+  const rect = workLayoutRef.value?.getBoundingClientRect();
+  const max = rect ? rect.width - (workListCollapsed.value ? 26 : 270) - 320 : 900;
+  sourceWidth.value = Math.min(Math.max(280, max), Math.max(280, resizeStartW + (e.clientX - resizeStartX)));
 }
 
-function stopListResize() {
-  listResizing.value = false;
-  window.removeEventListener("pointermove", onListResize);
-  window.removeEventListener("pointerup", stopListResize);
+function stopSourceResize() {
+  sourceResizing.value = false;
+  window.removeEventListener("pointermove", onSourceResize);
+  window.removeEventListener("pointerup", stopSourceResize);
 }
 
 const toast = reactive({ show: false, message: "", tone: "ok" });
@@ -1066,20 +1074,20 @@ function confirmSubmit() {
   gap: 12px;
   align-items: stretch;
 }
-.list-resizer {
+.task-list { flex: 0 0 270px; width: 270px; min-width: 0; }
+.original-panel { flex: 0 0 auto; min-width: 0; }
+.editor { flex: 1 1 auto; min-width: 0; }
+.source-editor-splitter {
   flex: 0 0 7px; cursor: col-resize; background: #f0f2f2;
   border-left: 1px solid #e8e8e8; border-right: 1px solid #e8e8e8;
   border-radius: 4px; position: relative; touch-action: none;
 }
-.list-resizer::after {
+.source-editor-splitter::after {
   content: ""; position: absolute; top: 50%; left: 50%; width: 3px; height: 30px;
   transform: translate(-50%, -50%); border-radius: 3px; background: #c9d6d4;
 }
-.list-resizer:hover { background: #e0f2f1; }
-.list-resizer:hover::after { background: #00796b; }
-.task-list { flex: 0 0 auto; min-width: 0; }
-.original-panel { flex: 0 0 32%; min-width: 0; }
-.editor { flex: 1 1 auto; min-width: 0; }
+.source-editor-splitter:hover { background: #e0f2f1; }
+.source-editor-splitter:hover::after { background: #00796b; }
 
 .task-list {
   display: flex;
@@ -1671,7 +1679,7 @@ function confirmSubmit() {
 }
 
 @media (max-width: 1280px) {
-  .original-panel { flex-basis: 30%; }
+  .original-panel { max-width: 46vw; }
 }
 
 @media (max-width: 1100px) {
@@ -1685,15 +1693,18 @@ function confirmSubmit() {
 
   .original-panel {
     flex: 1 1 100%;
+    width: auto !important;
     height: 300px;
   }
+
+  .source-editor-splitter { display: none; }
 
   .editor {
     flex: 1 1 100%;
     height: 620px;
   }
 
-  .list-resizer { display: none; }
+
 
   .editor-footer {
     flex-direction: column;
