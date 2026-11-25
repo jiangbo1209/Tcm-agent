@@ -63,7 +63,7 @@
       class="work-layout"
       :class="{ 'list-collapsed': workListCollapsed }"
     >
-      <aside v-if="!workListCollapsed" class="task-list card">
+      <aside v-if="!workListCollapsed" class="task-list card" :style="{ width: workListWidth + 'px' }">
         <div class="list-head">
           <span>{{ activeTab === 'case' ? '病案条目' : '文献条目' }}</span>
           <div class="list-head-right">
@@ -90,8 +90,16 @@
 
       <div v-else class="work-list-rail">
         <button type="button" title="展开条目列表" @click="workListCollapsed = false">»</button>
+        <button type="button" title="上一条" @click="prevItem">‹</button>
         <button type="button" title="下一条" @click="nextItem">›</button>
       </div>
+
+      <div
+        v-if="!workListCollapsed"
+        class="list-resizer"
+        title="拖动调整列表宽度"
+        @pointerdown.prevent="startListResize"
+      ></div>
 
       <section class="original-panel card">
         <header class="original-head">
@@ -691,6 +699,25 @@ const form = ref({});
 const confirmOpen = ref(false);
 const originalFont = ref("md");
 const workListCollapsed = ref(false);
+const workListWidth = ref(270);
+const listResizing = ref(false);
+
+function startListResize() {
+  listResizing.value = true;
+  window.addEventListener("pointermove", onListResize);
+  window.addEventListener("pointerup", stopListResize);
+}
+
+function onListResize(e) {
+  if (!listResizing.value) return;
+  workListWidth.value = Math.min(420, Math.max(200, e.clientX - 232 - 32));
+}
+
+function stopListResize() {
+  listResizing.value = false;
+  window.removeEventListener("pointermove", onListResize);
+  window.removeEventListener("pointerup", stopListResize);
+}
 
 const toast = reactive({ show: false, message: "", tone: "ok" });
 let toastTimer = null;
@@ -823,6 +850,14 @@ function hydrateAssignedItems() {
 
 hydrateAssignedItems();
 if (selectedLitId.value) loadItem(selectedLitId.value);
+
+function prevItem() {
+  const list = activeItems.value;
+  if (!list.length) return;
+  const idx = list.findIndex((item) => item.id === currentId.value);
+  const prev = list[(idx - 1 + list.length) % list.length];
+  if (prev) selectItem(prev.id);
+}
 
 function nextItem() {
   const list = activeItems.value;
@@ -1027,17 +1062,33 @@ function confirmSubmit() {
 }
 
 .work-layout {
-  display: grid;
-  grid-template-columns: 270px minmax(0, 32%) minmax(0, 1fr);
-  gap: 14px;
+  display: flex;
+  gap: 12px;
   align-items: stretch;
 }
+.list-resizer {
+  flex: 0 0 7px; cursor: col-resize; background: #f0f2f2;
+  border-left: 1px solid #e8e8e8; border-right: 1px solid #e8e8e8;
+  border-radius: 4px; position: relative; touch-action: none;
+}
+.list-resizer::after {
+  content: ""; position: absolute; top: 50%; left: 50%; width: 3px; height: 30px;
+  transform: translate(-50%, -50%); border-radius: 3px; background: #c9d6d4;
+}
+.list-resizer:hover { background: #e0f2f1; }
+.list-resizer:hover::after { background: #00796b; }
+.task-list { flex: 0 0 auto; min-width: 0; }
+.original-panel { flex: 0 0 32%; min-width: 0; }
+.editor { flex: 1 1 auto; min-width: 0; }
 
 .task-list {
   display: flex;
   flex-direction: column;
   height: 700px;
   overflow: hidden;
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  background: #fff;
 }
 .list-head-right { display: flex; align-items: center; gap: 8px; }
 .list-toggle {
@@ -1045,7 +1096,7 @@ function confirmSubmit() {
   font-size: 15px; line-height: 1; padding: 0 2px;
 }
 .list-toggle:hover { color: #00796b; }
-.work-layout.list-collapsed { grid-template-columns: 26px minmax(0, 32%) minmax(0, 1fr); }
+.work-layout.list-collapsed .work-list-rail { flex: 0 0 26px; }
 .work-list-rail {
   display: flex; flex-direction: column; border: 1px solid var(--line);
   border-radius: 10px; background: #fafbfb; overflow: hidden;
@@ -1620,31 +1671,29 @@ function confirmSubmit() {
 }
 
 @media (max-width: 1280px) {
-  .work-layout {
-    grid-template-columns: 240px minmax(0, 30%) minmax(0, 1fr);
-  }
+  .original-panel { flex-basis: 30%; }
 }
 
 @media (max-width: 1100px) {
-  .work-layout {
-    grid-template-columns: 220px minmax(0, 1fr);
-  }
+  .work-layout { flex-wrap: wrap; }
 
   .task-list {
-    grid-row: span 2;
+    flex: 1 1 100%;
     height: auto;
     max-height: 700px;
   }
 
   .original-panel {
-    grid-column: 2;
+    flex: 1 1 100%;
     height: 300px;
   }
 
   .editor {
-    grid-column: 2;
+    flex: 1 1 100%;
     height: 620px;
   }
+
+  .list-resizer { display: none; }
 
   .editor-footer {
     flex-direction: column;
