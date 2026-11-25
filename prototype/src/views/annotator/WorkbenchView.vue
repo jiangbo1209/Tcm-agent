@@ -41,11 +41,11 @@
       </button>
       <button
         class="tab"
-        :class="{ active: activeTab === 'review' }"
-        @click="switchTab('review')"
+        :class="{ active: activeTab === 'rework' }"
+        @click="switchTab('rework')"
       >
-        抽取校验
-        <span class="tab-count">{{ reviewDocs.length }}</span>
+        返工箱
+        <span class="tab-count">{{ reworkTasks.length }}</span>
       </button>
       <button
         class="tab"
@@ -219,43 +219,37 @@
       </section>
     </div>
 
-    <!-- 抽取校验（待校验 / 待入图） -->
-    <div v-else-if="activeTab === 'review'" class="review-panel card">
+    <!-- 返工箱 -->
+    <div v-else-if="activeTab === 'rework'" class="review-panel card">
       <div class="records-head">
-        <h2>抽取校验</h2>
-        <span>待校验 {{ counts.review || 0 }} · 待入图 {{ counts.validated || 0 }} · 通过后直接入图</span>
+        <h2>返工箱</h2>
+        <span>复核驳回的条目 · 返工期限 5 天，超时回收</span>
       </div>
       <div class="table-wrap">
         <table class="pool-table">
           <thead>
             <tr>
-              <th>文档</th>
+              <th>任务</th>
               <th class="col-kind">类型</th>
-              <th class="col-status">状态</th>
-              <th class="col-conf">置信度</th>
-              <th class="col-prob">问题</th>
+              <th class="col-conf">条目数</th>
+              <th>驳回时间</th>
               <th class="col-actions">操作</th>
             </tr>
           </thead>
           <tbody>
-            <tr v-for="d in reviewDocs" :key="d.id">
-              <td class="cell-title" :title="d.name">{{ d.id }} · {{ d.name }}</td>
+            <tr v-for="t in reworkTasks" :key="t.id">
+              <td class="mono">{{ t.id }}</td>
               <td>
-                <span class="badge" :class="d.kind === 'lit' ? 'badge-lit' : 'badge-case'">
-                  {{ d.kind === "lit" ? "文献" : "病案" }}
+                <span class="badge" :class="t.kind === 'lit' ? 'badge-lit' : 'badge-case'">
+                  {{ t.kind === "lit" ? "文献" : "病案" }}
                 </span>
               </td>
-              <td>
-                <span class="badge" :class="d.state === 'review' ? 'badge-review' : 'badge-validated'">
-                  {{ d.state === "review" ? "待校验" : "待入图" }}
-                </span>
-              </td>
-              <td>{{ Math.round(d.confidence * 100) }}%</td>
-              <td :class="{ 'err-text': d.errors.length }">{{ d.errors.length }} 项</td>
-              <td><button class="btn-sm teal" @click="openReview(d)">查看并校验</button></td>
+              <td>{{ t.docIds.length }}</td>
+              <td class="muted">{{ t.rejectedAt || "—" }}</td>
+              <td><button class="btn-sm teal" @click="resubmitRework(t)">返工完成并重新提交</button></td>
             </tr>
-            <tr v-if="reviewDocs.length === 0">
-              <td colspan="6" class="empty-row">暂无待校验资源</td>
+            <tr v-if="reworkTasks.length === 0">
+              <td colspan="5" class="empty-row">暂无返工任务</td>
             </tr>
           </tbody>
         </table>
@@ -307,54 +301,6 @@
       </div>
     </div>
 
-    <!-- 抽取校验弹窗 -->
-    <div v-if="reviewDoc" class="modal-mask" @click.self="reviewDoc = null">
-      <div class="review-modal">
-        <header class="review-head">
-          <div>
-            <strong>{{ reviewDoc.id }} · {{ reviewDoc.name }}</strong>
-            <span class="review-hint">通过后状态直接变为「已完成」并入图</span>
-          </div>
-          <button class="modal-x" @click="reviewDoc = null">×</button>
-        </header>
-        <div class="review-body">
-          <section class="review-src">
-            <h4>原文</h4>
-            <p class="src-title">{{ reviewOriginal?.title }}</p>
-            <pre class="src-body">{{ reviewOriginal?.body || "暂无原文" }}</pre>
-          </section>
-          <section class="review-fields">
-            <h4>标注字段</h4>
-            <div class="rf-scroll">
-              <div v-for="g in reviewGroups" :key="g.label" class="rf-group">
-                <h5>{{ g.label }}<span>{{ g.fields.length }}</span></h5>
-                <div class="rf-grid">
-                  <label v-for="f in g.fields" :key="f.key" class="rf-item">
-                    <span class="rf-label">{{ f.label }}<i v-if="f.required">*</i></span>
-                    <select v-if="f.options" v-model="reviewValues[f.key]" class="rf-control">
-                      <option value="">— 请选择 —</option>
-                      <option v-for="opt in f.options" :key="opt" :value="opt">{{ opt }}</option>
-                    </select>
-                    <textarea v-else-if="isLongField(f)" v-model="reviewValues[f.key]" rows="2" class="rf-control"></textarea>
-                    <input v-else v-model="reviewValues[f.key]" class="rf-control" />
-                    <em v-if="reviewError(f.key)" class="rf-err">{{ reviewError(f.key) }}</em>
-                  </label>
-                </div>
-              </div>
-            </div>
-          </section>
-        </div>
-        <footer class="review-foot">
-          <span class="foot-hint">校验通过后直接入图</span>
-          <div class="foot-actions">
-            <button class="btn-sm" @click="reviewDoc = null">取消</button>
-            <button class="btn-sm" @click="rejectReview">退回重抽</button>
-            <button class="btn-primary" @click="approveReview">通过并入图</button>
-          </div>
-        </footer>
-      </div>
-    </div>
-
     <!-- 提交确认 -->
     <div v-if="confirmOpen" class="modal-mask" @click.self="confirmOpen = false">
       <div class="modal">
@@ -384,6 +330,7 @@ import { computed, reactive, ref } from "vue";
 import { CASE_GROUPS, LIT_GROUPS, flattenGroups } from "../../constants/dorFields";
 import { ORIGINALS, resolveOriginal } from "../../data/originals";
 import { etlStore } from "../../stores/etl";
+import { annotationStore } from "../../stores/annotation";
 
 const TASK = {
   id: "TASK-2026-014",
@@ -719,37 +666,15 @@ const records = [
 ];
 
 const activeTab = ref("lit");
-const reviewDoc = ref(null);
-const reviewValues = ref({});
 
-const reviewDocs = computed(() =>
-  etlStore.docs.filter((d) => ["review", "validated"].includes(d.state)),
-);
-const counts = computed(() => etlStore.counts.value);
-const reviewOriginal = computed(() => resolveOriginal(reviewDoc.value));
-const reviewGroups = computed(() =>
-  reviewDoc.value?.kind === "case" ? CASE_GROUPS : LIT_GROUPS,
-);
+const reworkTasks = computed(() => annotationStore.reworkTasks);
 
-function openReview(doc) {
-  reviewDoc.value = doc;
-  reviewValues.value = { ...doc.values };
+function resubmitRework(task) {
+  annotationStore.resubmit(task.id);
+  showToast(`任务 ${task.id} 已重新提交复核`, "ok");
 }
-function reviewError(key) {
-  return reviewDoc.value?.errors.find((e) => e.field === key)?.message || "";
-}
-function approveReview() {
-  etlStore.setState([reviewDoc.value.id], "graphed", "标注通过并入图");
-  showToast("校验通过，已直接入图");
-  reviewDoc.value = null;
-}
-function rejectReview() {
-  etlStore.setState([reviewDoc.value.id], "pending", "退回重抽");
-  showToast("已退回重抽", "warn");
-  reviewDoc.value = null;
-}
-const selectedLitId = ref("LIT-2026-107");
-const selectedCaseId = ref("CASE-2026-206");
+const selectedLitId = ref("");
+const selectedCaseId = ref("");
 const form = ref({});
 const confirmOpen = ref(false);
 const originalFont = ref("md");
@@ -759,14 +684,14 @@ let toastTimer = null;
 
 const activeItems = computed(() => {
   if (activeTab.value === "case") return caseItems;
-  if (activeTab.value === "review") return [];
+  if (activeTab.value === "rework") return [];
   return litItems;
 });
 
 const scopeLabel = computed(() => {
   if (activeTab.value === "case") return "病案";
   if (activeTab.value === "records") return "全部";
-  if (activeTab.value === "review") return "抽取校验";
+  if (activeTab.value === "rework") return "返工箱";
   return "文献";
 });
 
@@ -786,7 +711,7 @@ const currentOriginal = computed(() => {
 
 const scopeItems = computed(() => {
   if (activeTab.value === "records") return [...litItems, ...caseItems];
-  if (activeTab.value === "review") return reviewDocs.value;
+  if (activeTab.value === "rework") return [];
   return activeItems.value;
 });
 
@@ -828,10 +753,9 @@ function loadItem(id) {
 
 function switchTab(tab) {
   activeTab.value = tab;
-  if (tab === "lit") {
-    loadItem(selectedLitId.value);
-  } else if (tab === "case") {
-    loadItem(selectedCaseId.value);
+  if (tab === "lit" || tab === "case") {
+    hydrateAssignedItems();
+    loadItem(tab === "case" ? selectedCaseId.value : selectedLitId.value);
   }
 }
 
@@ -861,6 +785,32 @@ function showToast(message, tone = "ok") {
   }, 2600);
 }
 
+function docToItem(doc) {
+  return {
+    id: doc.id,
+    originalId: doc.id,
+    title: doc.name,
+    status: "待标注",
+    values: { ...doc.values },
+  };
+}
+
+function hydrateAssignedItems() {
+  const lit = annotationStore.assignedDocs("lit").map(docToItem);
+  const cs = annotationStore.assignedDocs("case").map(docToItem);
+  litItems.splice(0, litItems.length, ...lit);
+  caseItems.splice(0, caseItems.length, ...cs);
+  if (!litItems.some((i) => i.id === selectedLitId.value)) {
+    selectedLitId.value = litItems[0]?.id || "";
+  }
+  if (!caseItems.some((i) => i.id === selectedCaseId.value)) {
+    selectedCaseId.value = caseItems[0]?.id || "";
+  }
+}
+
+hydrateAssignedItems();
+if (selectedLitId.value) loadItem(selectedLitId.value);
+
 function goNext() {
   const list = activeItems.value;
   const index = list.findIndex((item) => item.id === currentId.value);
@@ -878,8 +828,9 @@ function markNoChange() {
   const item = currentItem.value;
   if (!item) return;
   item.values = {};
-  item.status = "已提交";
+  item.status = "已暂存";
   item.note = "无需修改";
+  annotationStore.markDrafting([item.id]);
   loadItem(item.id);
   showToast(`${item.id} 已标记为无需修改`);
   goNext();
@@ -890,6 +841,7 @@ function stashCurrent() {
   if (!item) return;
   item.values = { ...form.value };
   item.status = "已暂存";
+  annotationStore.markDrafting([item.id]);
   showToast(`${item.id} 已暂存到本地`);
   goNext();
 }
@@ -905,6 +857,9 @@ function confirmSubmit() {
     item.status = "已提交";
     item.submittedAt = submittedAt;
   });
+  if (staged.length) {
+    annotationStore.submitByDocs(staged.map((item) => item.id));
+  }
   confirmOpen.value = false;
   showToast(
     staged.length

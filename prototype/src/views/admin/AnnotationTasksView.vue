@@ -5,12 +5,15 @@
         <h1>标注管理</h1>
         <p class="header-sub">建池 → 派发 → 标注 → 复核 → 回滚 · 全流程留痕</p>
       </div>
-      <div class="header-meta">
-        <span class="meta-item">任务池 <strong>{{ POOLS.length }}</strong></span>
-        <span class="meta-divider"></span>
-        <span class="meta-item">待复核 <strong>{{ REVIEW_TASKS.length }}</strong></span>
-        <span class="meta-divider"></span>
-        <span class="meta-item">今日操作 <strong>{{ LOGS.length }}</strong></span>
+      <div class="header-right">
+        <div class="header-meta">
+          <span class="meta-item">任务池 <strong>{{ POOLS.length }}</strong></span>
+          <span class="meta-divider"></span>
+          <span class="meta-item">待复核 <strong>{{ REVIEW_TASKS.length }}</strong></span>
+          <span class="meta-divider"></span>
+          <span class="meta-item">今日操作 <strong>{{ LOGS.length }}</strong></span>
+        </div>
+        <button class="btn-primary" type="button" @click="wizardOpen = true">建池向导</button>
       </div>
     </header>
 
@@ -33,13 +36,19 @@
 
     <!-- ───────── 任务池 ───────── -->
     <div v-show="activeTab === 'pools'" class="tab-body">
-      <section class="panel wizard-panel">
+      <!-- 建池向导弹窗 -->
+      <div v-if="wizardOpen" class="modal-mask" @click.self="wizardOpen = false">
+        <div class="modal-box wizard-modal">
+
         <div class="panel-head">
           <div class="panel-heading">
             <h2 class="panel-title">建池向导</h2>
             <p class="panel-sub">选择表类型、输入检索词，预览命中后确认建池</p>
           </div>
-          <span class="panel-hint">简版 · 按检索式圈定待标注范围</span>
+          <div class="wizard-head-right">
+            <span class="panel-hint">简版 · 按检索式圈定待标注范围</span>
+            <button class="modal-close" type="button" @click="wizardOpen = false">×</button>
+          </div>
         </div>
 
         <div class="wizard-grid">
@@ -104,7 +113,9 @@
         <div v-else class="preview-empty">
           输入检索词后点击「预览」，查看 mock 命中条数与样例记录
         </div>
-      </section>
+        </div>
+      </div>
+
 
       <section class="panel">
         <div class="panel-head">
@@ -430,6 +441,7 @@
 <script setup>
 import { computed, onBeforeUnmount, reactive, ref } from "vue";
 import { LIT_RECORDS, CASE_RECORDS } from "../../data/dorMock";
+import { annotationStore } from "../../stores/annotation";
 
 /* ───────── 页签 ───────── */
 const TABS = [
@@ -438,6 +450,8 @@ const TABS = [
   { key: "logs", label: "操作记录" },
 ];
 const activeTab = ref("pools");
+
+
 
 function tabCount(key) {
   if (key === "pools") return POOLS.value.length;
@@ -512,6 +526,7 @@ const poolForm = reactive({
   expected: 40,
 });
 const previewResult = ref(null);
+const wizardOpen = ref(false);
 const poolSeq = ref(19);
 
 const previewSamples = computed(() => {
@@ -582,11 +597,23 @@ function confirmPool() {
   showToast(`任务池 ${id} 已创建，共 ${count} 条，等待指派（mock）`);
   poolForm.query = "";
   previewResult.value = null;
+  wizardOpen.value = false;
 }
 
 function assignPool(pool) {
+  const kind = pool.tableType === "case" ? "case" : "lit";
+  const docs = annotationStore
+    .availableDocs()
+    .filter((d) => d.kind === kind)
+    .slice(0, Math.min(5, pool.remaining || 5));
   if (pool.status === "pending") pool.status = "active";
-  showToast(`任务池 ${pool.id} 已指派给标注员周静（mock）`);
+  if (docs.length) {
+    const task = annotationStore.assign(docs.map((d) => d.id));
+    pool.remaining = Math.max(0, pool.remaining - docs.length);
+    showToast(`任务池 ${pool.id} 已指派 · 生成标注任务 ${task.id}（${docs.length} 条）`);
+  } else {
+    showToast(`任务池 ${pool.id} 已指派给标注员周静（mock）`);
+  }
 }
 
 function togglePause(pool) {
@@ -1944,4 +1971,29 @@ onBeforeUnmount(() => {
     margin-left: 0;
   }
 }
+.col-etl-check { width: 40px; text-align: center; }
+.etl-check { width: 15px; height: 15px; accent-color: #00796b; cursor: pointer; }
+.col-etl-conf { width: 90px; }
+.etl-task-list { margin-top: 16px; padding-top: 12px; border-top: 1px dashed #e0e0e0; }
+.etl-subtitle { margin: 0 0 8px; font-size: 13px; font-weight: 600; color: #444; }
+.header-right { display: flex; align-items: center; gap: 14px; }
+.wizard-head-right { display: flex; align-items: center; gap: 10px; }
+
+.modal-mask {
+  position: fixed; inset: 0; z-index: 100;
+  background: rgba(0, 0, 0, 0.42);
+  display: flex; align-items: center; justify-content: center;
+  padding: 24px;
+}
+.modal-box {
+  width: 760px; max-width: 96vw; max-height: 88vh; overflow-y: auto;
+  background: #fff; border-radius: 12px; padding: 18px 20px;
+  box-shadow: 0 24px 60px rgba(0, 0, 0, 0.22);
+}
+.modal-close {
+  width: 28px; height: 28px; border: none; background: transparent;
+  font-size: 20px; color: #999; cursor: pointer; border-radius: 4px;
+}
+.modal-close:hover { background: #f0f0f0; color: #333; }
+.wizard-modal .panel-head { margin-bottom: 14px; }
 </style>

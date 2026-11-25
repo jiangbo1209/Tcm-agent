@@ -64,8 +64,7 @@ const STATE_PLAN = [
   ...Array(8).fill("pending"),
   ...Array(3).fill("extracting"),
   ...Array(5).fill("failed"),
-  ...Array(10).fill("review"),
-  ...Array(6).fill("validated"),
+  ...Array(16).fill("review"),
   ...Array(6).fill("graphed"),
   ...Array(2).fill("ignored"),
 ];
@@ -87,6 +86,26 @@ baseDocs.forEach((doc, i) => {
 });
 
 const docs = reactive(baseDocs);
+
+/* 跨页面/刷新保留状态（原型演示） */
+const STATE_KEY = "tcm-dor-etl-doc-states-v1";
+try {
+  const saved = JSON.parse(localStorage.getItem(STATE_KEY) || "{}");
+  for (const d of docs) {
+    if (saved[d.id]) d.state = saved[d.id];
+  }
+} catch {
+  /* ignore */
+}
+function persistStates() {
+  try {
+    const map = {};
+    for (const d of docs) map[d.id] = d.state;
+    localStorage.setItem(STATE_KEY, JSON.stringify(map));
+  } catch {
+    /* ignore */
+  }
+}
 
 export const etlStore = {
   docs,
@@ -113,6 +132,7 @@ export const etlStore = {
         by: "demo_admin",
       });
     }
+    persistStates();
   },
   startExtraction(ids) {
     this.setState(ids, "extracting", "开始抽取");
