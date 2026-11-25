@@ -1,12 +1,5 @@
 <template>
   <div class="admin-page">
-    <div class="admin-header">
-      <div class="header-text">
-        <h1>智能问答</h1>
-      </div>
-      <button class="btn-sm" @click="clearChat">清空对话</button>
-    </div>
-
     <div class="chat-layout">
       <section class="card chat-card">
         <div ref="scrollRef" class="msg-list">
@@ -235,14 +228,6 @@ function send() {
   }, 800);
 }
 
-function clearChat() {
-  messages.value = [welcomeMessage()];
-  draft.value = "";
-  sending.value = false;
-  activeCite.value = "";
-  persistCurrent();
-  nextTick(() => inputRef.value && inputRef.value.focus());
-}
 /* 初始化：与侧栏共享会话；无会话时创建欢迎会话 */
 function loadActiveMessages() {
   const active = chatStore.active.value;

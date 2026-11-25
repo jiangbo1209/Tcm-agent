@@ -1,15 +1,5 @@
 <template>
   <div class="admin-page">
-    <header class="admin-header">
-      <div class="header-text">
-        <h1>平台总览</h1>
-      </div>
-      <div class="header-meta">
-        <span class="live-dot" aria-hidden="true"></span>
-        数据截至 2025-03-19 10:45
-      </div>
-    </header>
-
     <!-- 统计卡 -->
     <section class="stat-grid" aria-label="平台核心指标">
       <article

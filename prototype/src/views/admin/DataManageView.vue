@@ -1,11 +1,5 @@
 <template>
   <div class="admin-page">
-    <div class="admin-header">
-      <div class="header-text">
-        <h1>数据管理</h1>
-      </div>
-    </div>
-
     <div class="mgmt-tabs" role="tablist" aria-label="数据管理视图">
       <button
         v-for="tab in TABS"

@@ -1,21 +1,5 @@
 <template>
   <div class="admin-page">
-    <header class="admin-header">
-      <div class="header-text">
-        <h1>标注管理</h1>
-      </div>
-      <div class="header-right">
-        <div class="header-meta">
-          <span class="meta-item">任务池 <strong>{{ POOLS.length }}</strong></span>
-          <span class="meta-divider"></span>
-          <span class="meta-item">待复核 <strong>{{ REVIEW_TASKS.length }}</strong></span>
-          <span class="meta-divider"></span>
-          <span class="meta-item">今日操作 <strong>{{ LOGS.length }}</strong></span>
-        </div>
-        <button class="btn-primary header-btn" type="button" @click="wizardOpen = true">建池向导</button>
-      </div>
-    </header>
-
     <!-- 子页签 -->
     <div class="sub-tabs" role="tablist" aria-label="标注任务视图">
       <button
@@ -34,6 +18,17 @@
 
     <!-- ───────── 任务池 ───────── -->
     <div v-show="activeTab === 'pools'" class="tab-body">
+      <div class="pool-overview-row">
+        <button class="btn-primary header-btn" type="button" @click="wizardOpen = true">建池向导</button>
+        <div class="header-meta">
+          <span class="meta-item">任务池 <strong>{{ POOLS.length }}</strong></span>
+          <span class="meta-divider"></span>
+          <span class="meta-item">待复核 <strong>{{ REVIEW_TASKS.length }}</strong></span>
+          <span class="meta-divider"></span>
+          <span class="meta-item">今日操作 <strong>{{ LOGS.length }}</strong></span>
+        </div>
+      </div>
+
       <!-- 建池向导弹窗 -->
       <div v-if="wizardOpen" class="modal-mask" @click.self="wizardOpen = false">
         <div class="modal-box wizard-modal">
@@ -1393,6 +1388,13 @@ onBeforeUnmount(() => {
   font-size: 12px;
   color: var(--ink-400);
 }
+.pool-overview-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 14px;
+  margin-bottom: 14px;
+}
 .header-btn {
   height: 32px;
   padding: 0 16px;
@@ -1404,7 +1406,9 @@ onBeforeUnmount(() => {
   display: inline-flex;
   align-items: center;
   gap: 10px;
-  padding: 7px 12px;
+  height: 32px;
+  padding: 0 12px;
+  box-sizing: border-box;
   border: 1px solid var(--line);
   border-radius: 8px;
   background: #fff;

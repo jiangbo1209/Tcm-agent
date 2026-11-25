@@ -1,12 +1,5 @@
 <template>
   <div class="admin-page">
-    <header class="admin-header">
-      <div class="header-text">
-        <h1>用户管理</h1>
-      </div>
-      <button class="btn-primary" type="button" @click="openCreate">＋ 新增用户</button>
-    </header>
-
     <!-- 角色页签 -->
     <div class="role-tabs" role="tablist" aria-label="角色筛选">
       <button
@@ -23,6 +16,10 @@
         <span class="tab-label">{{ role.label }}</span>
         <span class="tab-count">{{ roleCount(role.key) }}</span>
       </button>
+    </div>
+
+    <div class="create-row">
+      <button class="btn-primary" type="button" @click="openCreate">＋ 新增用户</button>
     </div>
 
     <!-- 工具栏 -->
@@ -520,13 +517,16 @@ onBeforeUnmount(() => {
   display: flex;
   align-items: stretch;
   gap: 4px;
+  width: fit-content;
+  max-width: 100%;
   padding: 4px;
   border: 1px solid var(--line);
   border-radius: 10px;
   background: #fff;
-  margin-bottom: 14px;
+  margin-bottom: 12px;
   overflow-x: auto;
 }
+.create-row { display: flex; justify-content: flex-end; margin-bottom: 12px; }
 .role-tab {
   display: inline-flex;
   align-items: center;

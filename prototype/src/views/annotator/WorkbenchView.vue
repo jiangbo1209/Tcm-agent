@@ -1,9 +1,5 @@
 <template>
   <div class="admin-page">
-    <div class="admin-header">
-      <h1>标注工作台</h1>
-    </div>
-
     <!-- 页签 -->
     <div class="tabs">
       <button

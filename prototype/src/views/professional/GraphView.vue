@@ -1,13 +1,8 @@
 <template>
   <div class="admin-page">
-    <div class="admin-header">
-      <div>
-        <h1>知识图谱</h1>
-      </div>
-      <div class="header-stats">
-        <span class="stat-chip"><strong>{{ nodes.length }}</strong> 实体</span>
-        <span class="stat-chip"><strong>{{ edges.length }}</strong> 关系</span>
-      </div>
+    <div class="graph-stats-row">
+      <span class="stat-chip"><strong>{{ nodes.length }}</strong> 实体</span>
+      <span class="stat-chip"><strong>{{ edges.length }}</strong> 关系</span>
     </div>
 
     <!-- 边类型筛选 -->
@@ -297,10 +292,11 @@ function edgeWidth(edge) {
 </script>
 
 <style scoped>
-.header-stats {
+.graph-stats-row {
   display: flex;
   gap: 8px;
   align-items: center;
+  margin-bottom: 12px;
 }
 
 .stat-chip {
@@ -323,6 +319,8 @@ function edgeWidth(edge) {
   align-items: center;
   flex-wrap: wrap;
   gap: 8px;
+  width: fit-content;
+  max-width: 100%;
   padding: 10px 14px;
   margin-bottom: 14px;
 }

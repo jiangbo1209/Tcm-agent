@@ -1,11 +1,5 @@
 <template>
   <div class="admin-page search-page">
-    <div class="admin-header">
-      <div>
-        <h1>智能搜索</h1>
-      </div>
-    </div>
-
     <div class="search-layout">
       <aside v-if="searched" class="filter-panel card">
         <div class="filter-panel-head">

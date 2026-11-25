@@ -36,10 +36,7 @@
       </nav>
 
       <div v-if="showChatHistory && !isCollapsed" class="chat-history">
-        <div class="ch-head">
-          <span>对话历史</span>
-          <button class="ch-new" type="button" title="新建对话" @click="newChat">＋</button>
-        </div>
+        <button class="ch-new" type="button" @click="newChat">开启新对话</button>
         <div class="ch-scroll">
           <div v-for="group in grouped" :key="group.label" class="ch-group">
             <div v-if="group.items.length" class="ch-group-label">{{ group.label }}</div>
@@ -211,7 +208,7 @@ function switchRole() {
 .brand-text strong { color: #fff; font-size: 14px; letter-spacing: 0.5px; }
 .brand-text span { font-size: 10px; color: #7f8c9b; }
 
-.nav { display: flex; flex-direction: column; gap: 2px; flex: 1; }
+.nav { display: flex; flex-direction: column; gap: 2px; flex: 0 0 auto; }
 .nav-item {
   display: flex;
   align-items: center;
@@ -229,9 +226,13 @@ function switchRole() {
 .nav-icon :deep(svg) { width: 16px; height: 16px; }
 
 .chat-history { flex: 1; min-height: 0; display: flex; flex-direction: column; margin-top: 10px; padding-top: 10px; border-top: 1px solid rgba(255,255,255,0.08); }
-.ch-head { display: flex; align-items: center; justify-content: space-between; padding: 0 6px 6px; font-size: 11px; color: #7f8c9b; }
-.ch-new { width: 20px; height: 20px; border: 1px solid rgba(255,255,255,0.14); border-radius: 5px; background: transparent; color: #c9d1d9; cursor: pointer; font-size: 12px; line-height: 1; }
-.ch-new:hover { color: #7ff0df; border-color: #7ff0df; }
+.ch-new {
+  width: 100%; height: 34px; margin-bottom: 8px;
+  border: 1px solid rgba(255,255,255,0.16); border-radius: 10px;
+  background: rgba(255,255,255,0.06); color: #d7e0e8;
+  cursor: pointer; font-size: 12px; text-align: center;
+}
+.ch-new:hover { color: #7ff0df; border-color: #7ff0df; background: rgba(0,121,107,0.18); }
 .ch-scroll { flex: 1; overflow-y: auto; }
 .ch-group { margin-bottom: 8px; }
 .ch-group-label { padding: 4px 8px; font-size: 10px; color: #6b7885; }

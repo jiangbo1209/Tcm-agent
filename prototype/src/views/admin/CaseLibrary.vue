@@ -1,11 +1,5 @@
 <template>
   <div class="admin-page" :class="{ 'is-embedded': embedded }">
-    <div v-if="!embedded" class="admin-header">
-      <div class="header-text">
-        <h1>病案库</h1>
-      </div>
-    </div>
-
     <div class="toolbar">
       <div class="search-bar">
         <input

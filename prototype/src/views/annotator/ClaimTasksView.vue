@@ -1,12 +1,5 @@
 <template>
   <div class="admin-page">
-    <header class="admin-header">
-      <div>
-        <h1>任务领取</h1>
-      </div>
-      <button class="btn-sm" type="button" @click="goWorkbench">前往标注工作台 →</button>
-    </header>
-
     <div class="stat-row">
       <div class="stat-card">
         <span class="stat-label">可领取文献</span>
