@@ -337,6 +337,68 @@
       </div>
     </div>
 
+    <!-- 指派任务弹窗 -->
+    <div v-if="assignTarget" class="modal-mask" @click.self="assignTarget = null">
+      <div class="modal-box assign-modal">
+        <div class="panel-head">
+          <div class="panel-heading">
+            <h2 class="panel-title">指派任务 · {{ assignTarget.id }}</h2>
+            <p class="panel-sub">
+              {{ tableTypeLabel(assignTarget.tableType) }} ·
+              余量 {{ assignTarget.remaining }} / {{ assignTarget.total }}
+            </p>
+          </div>
+          <button class="modal-close" type="button" @click="assignTarget = null">×</button>
+        </div>
+
+        <label class="assign-field">
+          <span>指派给</span>
+          <select v-model="assignAnnotator" class="filter-select">
+            <option v-for="a in ANNOTATORS" :key="a" :value="a">{{ a }}</option>
+          </select>
+        </label>
+
+        <div class="assign-list-head">
+          <span>任务对象（勾选后指派）</span>
+          <span class="assign-count">已选 {{ assignSelected.size }} / {{ assignCandidates.length }}</span>
+        </div>
+        <div class="table-wrap assign-table">
+          <table class="pool-table">
+            <thead>
+              <tr>
+                <th class="assign-check">
+                  <input type="checkbox" :checked="assignAllSelected" @change="toggleAssignAll" />
+                </th>
+                <th>文档</th>
+                <th class="assign-type">类型</th>
+                <th class="assign-conf">置信度</th>
+              </tr>
+            </thead>
+            <tbody>
+              <tr v-for="doc in assignCandidates" :key="doc.id">
+                <td class="assign-check">
+                  <input type="checkbox" :checked="assignSelected.has(doc.id)" @change="toggleAssignDoc(doc.id)" />
+                </td>
+                <td>{{ doc.id }} · {{ doc.name }}</td>
+                <td>{{ doc.kind === "lit" ? "文献" : "病案" }}</td>
+                <td>{{ Math.round(doc.confidence * 100) }}%</td>
+              </tr>
+              <tr v-if="assignCandidates.length === 0">
+                <td colspan="4" class="empty-row">该池暂无可指派对象</td>
+              </tr>
+            </tbody>
+          </table>
+        </div>
+
+        <div class="modal-foot-actions">
+          <button class="btn-sm" type="button" @click="assignTarget = null">取消</button>
+          <button class="btn-primary" type="button" :disabled="assignSelected.size === 0" @click="confirmAssign">
+            确认指派（{{ assignSelected.size }}）
+          </button>
+        </div>
+      </div>
+    </div>
+
     <!-- 池详情弹窗 -->
     <div v-if="poolDetail" class="modal-mask" @click.self="poolDetail = null">
       <div class="modal-box pool-detail-modal">
@@ -580,6 +642,39 @@ const poolForm = reactive({
 const previewResult = ref(null);
 const wizardOpen = ref(false);
 const poolDetail = ref(null);
+
+/* ───────── 指派弹窗 ───────── */
+const ANNOTATORS = ["周静", "李明", "王芳", "陈晨"];
+const assignTarget = ref(null);
+const assignAnnotator = ref("周静");
+const assignSelected = ref(new Set());
+
+const assignCandidates = computed(() => {
+  if (!assignTarget.value) return [];
+  const kind = assignTarget.value.tableType === "case" ? "case" : "lit";
+  return annotationStore.availableDocs().filter((d) => d.kind === kind);
+});
+
+const assignAllSelected = computed(
+  () =>
+    assignCandidates.value.length > 0 &&
+    assignCandidates.value.every((d) => assignSelected.value.has(d.id)),
+);
+
+function toggleAssignDoc(id) {
+  const next = new Set(assignSelected.value);
+  if (next.has(id)) next.delete(id);
+  else next.add(id);
+  assignSelected.value = next;
+}
+
+function toggleAssignAll() {
+  if (assignAllSelected.value) {
+    assignSelected.value = new Set();
+  } else {
+    assignSelected.value = new Set(assignCandidates.value.map((d) => d.id));
+  }
+}
 const poolSeq = ref(19);
 
 const previewSamples = computed(() => {
@@ -653,19 +748,29 @@ function confirmPool() {
 }
 
 function assignPool(pool) {
-  const kind = pool.tableType === "case" ? "case" : "lit";
-  const docs = annotationStore
-    .availableDocs()
-    .filter((d) => d.kind === kind)
-    .slice(0, Math.min(5, pool.remaining || 5));
+  assignTarget.value = pool;
+  assignAnnotator.value = ANNOTATORS[0];
+  assignSelected.value = new Set();
+}
+
+function confirmAssign() {
+  const pool = assignTarget.value;
+  if (!pool || assignSelected.value.size === 0) return;
+  const ids = [...assignSelected.value];
+  const task = annotationStore.assign(ids, assignAnnotator.value);
   if (pool.status === "pending") pool.status = "active";
-  if (docs.length) {
-    const task = annotationStore.assign(docs.map((d) => d.id));
-    pool.remaining = Math.max(0, pool.remaining - docs.length);
-    showToast(`任务池 ${pool.id} 已指派 · 生成标注任务 ${task.id}（${docs.length} 条）`);
-  } else {
-    showToast(`任务池 ${pool.id} 已指派给标注员周静（mock）`);
-  }
+  pool.remaining = Math.max(0, pool.remaining - ids.length);
+  pool.claims = pool.claims || [];
+  pool.claims.unshift({
+    taskId: task.id,
+    annotator: assignAnnotator.value,
+    count: ids.length,
+    scope: `${tableTypeLabel(pool.tableType)} · 手动勾选`,
+    claimedAt: new Date().toISOString().slice(0, 16).replace("T", " "),
+  });
+  showToast(`已指派 ${ids.length} 条给 ${assignAnnotator.value}（任务 ${task.id}）`);
+  assignTarget.value = null;
+  assignSelected.value = new Set();
 }
 
 function togglePause(pool) {
@@ -2074,4 +2179,14 @@ onBeforeUnmount(() => {
 }
 .modal-close:hover { background: #f0f0f0; color: #333; }
 .wizard-modal .panel-head { margin-bottom: 14px; }
+.assign-field { display: flex; align-items: center; gap: 10px; margin: 4px 0 14px; font-size: 13px; }
+.assign-field span { color: var(--ink-500); }
+.assign-list-head { display: flex; justify-content: space-between; align-items: baseline; margin-bottom: 8px; font-size: 13px; color: var(--ink-700); }
+.assign-count { font-size: 12px; color: var(--ink-400); }
+.assign-table { max-height: 320px; overflow-y: auto; border: 1px solid var(--line); border-radius: 8px; }
+.assign-check { width: 40px; text-align: center; }
+.assign-check input { accent-color: #00796b; }
+.assign-type { width: 70px; }
+.assign-conf { width: 90px; }
+.modal-foot-actions { display: flex; justify-content: flex-end; gap: 10px; margin-top: 16px; }
 </style>
