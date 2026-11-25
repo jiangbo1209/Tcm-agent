@@ -534,6 +534,11 @@
       </section>
     </div>
 
+    <!-- ───────── 质检看板 ───────── -->
+    <div v-show="activeTab === 'quality'" class="tab-body">
+      <QualityView />
+    </div>
+
     <!-- 全局提示 -->
     <transition name="toast-fade">
       <div v-if="toast.visible" class="toast" :class="'toast-' + toast.type">
@@ -548,11 +553,13 @@ import { computed, nextTick, onBeforeUnmount, reactive, ref, watch } from "vue";
 import { LIT_RECORDS, CASE_RECORDS } from "../../data/dorMock";
 import { annotationStore } from "../../stores/annotation";
 import { resolveOriginal } from "../../data/originals";
+import QualityView from "./QualityView.vue";
 
 /* ───────── 页签 ───────── */
 const TABS = [
   { key: "pools", label: "任务池" },
   { key: "review", label: "复核队列" },
+  { key: "quality", label: "质检看板" },
   { key: "logs", label: "操作记录" },
 ];
 const activeTab = ref("pools");

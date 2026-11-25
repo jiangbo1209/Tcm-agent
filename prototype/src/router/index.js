@@ -62,7 +62,6 @@ const routes = [
         redirect: "/admin/sources/resources",
         children: [
           { path: "resources", name: "DataSourceResources", component: () => import("../views/admin/datasource/DataSourceResourceView.vue") },
-          { path: "quality", name: "DataSourceQuality", component: () => import("../views/admin/datasource/QualityView.vue") },
           { path: "settings", name: "DataSourceSettings", component: () => import("../views/admin/datasource/SettingsView.vue") },
         ],
       },

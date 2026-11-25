@@ -6,7 +6,6 @@
 
     <nav class="tabs">
       <router-link to="/admin/sources/resources" class="tab" :class="{ active: $route.path.startsWith('/admin/sources/resources') }">资源管理</router-link>
-      <router-link to="/admin/sources/quality" class="tab" :class="{ active: $route.path.startsWith('/admin/sources/quality') }">质检看板</router-link>
       <router-link to="/admin/sources/settings" class="tab" :class="{ active: $route.path.startsWith('/admin/sources/settings') }">基础配置</router-link>
     </nav>
 
