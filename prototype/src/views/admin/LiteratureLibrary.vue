@@ -120,10 +120,40 @@
             </span>
             <span class="editor-meta">更新于 {{ editingRecord.updated_at }}</span>
           </div>
-          <button class="editor-close" title="关闭" @click="closeEditor">&times;</button>
+          <div class="editor-actions">
+            <button class="btn-sm" type="button" @click="fieldsCollapsed = !fieldsCollapsed">
+              {{ fieldsCollapsed ? "展开字段" : "收起字段" }}
+            </button>
+            <button class="editor-close" title="关闭" @click="closeEditor">&times;</button>
+          </div>
         </header>
 
-        <div ref="editorBodyRef" class="editor-body">
+        <div
+          ref="editorBodyRef"
+          class="editor-body"
+          :class="{ 'fields-collapsed': fieldsCollapsed, 'list-collapsed': listCollapsed }"
+        >
+          <aside v-if="!listCollapsed" class="editor-list">
+            <div class="editor-list-head">
+              <span>记录列表</span>
+              <button class="list-toggle" type="button" title="收起列表" @click="listCollapsed = true">«</button>
+            </div>
+            <div class="editor-list-body">
+              <button
+                v-for="r in records"
+                :key="r.id"
+                class="editor-list-item"
+                :class="{ active: r.id === editingRecord.id }"
+                type="button"
+                @click="openEditor(r)"
+              >
+                <span class="mono editor-list-id">{{ r.id }}</span>
+                <span class="editor-list-title" :title="r.values.lit_1 || r.name">{{ r.values.lit_1 || r.name || r.id }}</span>
+              </button>
+            </div>
+          </aside>
+          <button v-else class="editor-list-expand" type="button" title="展开列表" @click="listCollapsed = false">»</button>
+
           <section class="editor-pane editor-source" :style="{ width: sourceWidth + '%' }">
             <div class="pane-head">
               <span class="pane-label">原文</span>
@@ -139,13 +169,14 @@
           </section>
 
           <div
+            v-if="!fieldsCollapsed"
             class="editor-splitter"
             :class="{ dragging: resizing }"
             title="拖动调整宽度"
             @pointerdown.prevent="startResize"
           ></div>
 
-          <section class="editor-pane editor-fields">
+          <section v-if="!fieldsCollapsed" class="editor-pane editor-fields">
             <div class="pane-head">
               <span class="pane-label">字段编辑</span>
               <span class="pane-hint">{{ LIT_FIELD_COUNT }} 字段 · {{ LIT_GROUPS.length }} 分组</span>
@@ -335,6 +366,8 @@ function openEditor(record) {
 }
 
 const sourceWidth = ref(40);
+const listCollapsed = ref(false);
+const fieldsCollapsed = ref(false);
 const resizing = ref(false);
 const editorBodyRef = ref(null);
 
@@ -539,4 +572,21 @@ textarea.field-control { resize: vertical; min-height: 52px; line-height: 1.4; }
 .page-info { font-size: 12px; color: #9ca3af; margin-left: auto; }
 .pager-btns { display: flex; gap: 8px; }
 .pager-btns .btn-sm:disabled { opacity: 0.45; cursor: not-allowed; }
+
+/* ── 三栏编辑：记录列表 / 原文 / 字段 ── */
+.editor-actions { display: flex; align-items: center; gap: 8px; flex-shrink: 0; }
+.editor-list { flex: 0 0 220px; width: 220px; border-right: 1px solid #e8e8e8; background: #fafbfb; display: flex; flex-direction: column; min-width: 0; }
+.editor-list-head { display: flex; align-items: center; justify-content: space-between; padding: 8px 12px; border-bottom: 1px solid #e8e8e8; font-size: 12px; font-weight: 600; color: #666; }
+.list-toggle { border: none; background: transparent; color: #8a9695; cursor: pointer; font-size: 16px; line-height: 1; }
+.list-toggle:hover { color: #00796b; }
+.editor-list-body { flex: 1; overflow-y: auto; padding: 6px; display: flex; flex-direction: column; gap: 3px; }
+.editor-list-item { display: flex; flex-direction: column; gap: 2px; width: 100%; padding: 6px 8px; border: 1px solid transparent; border-radius: 6px; background: transparent; text-align: left; cursor: pointer; }
+.editor-list-item:hover { background: #f0f7f6; }
+.editor-list-item.active { background: #fff; border-color: #b2dfdb; }
+.editor-list-id { font-size: 10px; color: #999; font-family: ui-monospace, Consolas, monospace; }
+.editor-list-title { font-size: 11px; color: #444; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.editor-list-expand { flex: 0 0 18px; width: 18px; border: none; border-right: 1px solid #e8e8e8; background: #fafbfb; color: #8a9695; cursor: pointer; font-size: 14px; }
+.editor-list-expand:hover { color: #00796b; background: #f0f7f6; }
+.editor-body.fields-collapsed .editor-source { width: auto !important; flex: 1 1 auto; }
+.editor-body.list-collapsed .editor-source { width: auto !important; }
 </style>
