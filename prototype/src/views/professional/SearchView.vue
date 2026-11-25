@@ -3,7 +3,6 @@
     <div class="admin-header">
       <div class="header-text">
         <h1>智能搜索</h1>
-        <p class="header-sub">文献库 65 字段 · 病案库 41 字段</p>
       </div>
     </div>
 

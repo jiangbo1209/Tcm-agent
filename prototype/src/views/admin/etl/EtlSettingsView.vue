@@ -3,7 +3,6 @@
     <section class="settings-head">
       <div>
         <h2>基础配置</h2>
-        <p class="desc">Prompt 模板 · 枚举词典 · 校验阈值 · 模型参数</p>
       </div>
       <button class="btn-primary" @click="saveAll">保存配置</button>
     </section>

@@ -4,7 +4,6 @@
     <div class="page-header">
       <div class="page-heading">
         <h1>质检看板</h1>
-        <p class="page-subtitle">LLM 抽取 → 校验 → 归一 → 建图</p>
       </div>
       <button class="btn-primary" type="button" @click="handleReextract">重新抽取</button>
     </div>

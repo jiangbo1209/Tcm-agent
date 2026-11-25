@@ -3,7 +3,6 @@
     <div v-if="!embedded" class="admin-header">
       <div class="header-text">
         <h1>病案库</h1>
-        <p class="header-sub">DOR 病案母版 · {{ CASE_FIELD_COUNT }} 字段 · {{ CASE_GROUPS.length }} 分组</p>
       </div>
     </div>
 

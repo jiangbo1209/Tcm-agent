@@ -3,7 +3,6 @@
     <header class="admin-header">
       <div class="header-text">
         <h1>用户管理</h1>
-        <p class="header-sub">四角色账号体系 · 共 {{ USERS.length }} 个账号</p>
       </div>
       <button class="btn-primary" type="button" @click="openCreate">＋ 新增用户</button>
     </header>

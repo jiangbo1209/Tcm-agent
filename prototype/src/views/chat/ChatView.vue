@@ -3,7 +3,6 @@
     <div class="admin-header">
       <div class="header-text">
         <h1>智能问答</h1>
-        <p class="header-sub">基于 DOR 文献与病案的 AI 助手（原型演示）</p>
       </div>
       <button class="btn-sm" @click="clearChat">清空对话</button>
     </div>

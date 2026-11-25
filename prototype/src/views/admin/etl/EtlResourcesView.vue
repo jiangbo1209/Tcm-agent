@@ -3,7 +3,6 @@
     <section class="page-head">
       <div>
         <h2>资源管理</h2>
-        <p class="desc">抽取资源全生命周期 · 待抽取 / 抽取中 / 抽取失败 / 已完成</p>
       </div>
     </section>
 

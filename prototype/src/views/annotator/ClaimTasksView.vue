@@ -3,7 +3,6 @@
     <header class="admin-header">
       <div>
         <h1>任务领取</h1>
-        <p class="header-sub">从可领取任务中选择批次，领取后在标注工作台完成标注</p>
       </div>
       <button class="btn-sm" type="button" @click="goWorkbench">前往标注工作台 →</button>
     </header>

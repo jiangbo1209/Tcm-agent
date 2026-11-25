@@ -3,7 +3,6 @@
     <div v-if="!embedded" class="admin-header">
       <div class="header-text">
         <h1>文献库</h1>
-        <p class="header-sub">DOR 文献母版 · {{ LIT_FIELD_COUNT }} 字段 · {{ LIT_GROUPS.length }} 分组</p>
       </div>
     </div>
 

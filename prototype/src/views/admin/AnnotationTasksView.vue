@@ -3,7 +3,6 @@
     <header class="admin-header">
       <div class="header-text">
         <h1>标注管理</h1>
-        <p class="header-sub">建池 → 派发 → 标注 → 复核 → 回滚 · 全流程留痕</p>
       </div>
       <div class="header-right">
         <div class="header-meta">
@@ -42,7 +41,6 @@
         <div class="panel-head">
           <div class="panel-heading">
             <h2 class="panel-title">建池向导</h2>
-            <p class="panel-sub">选择表类型、输入检索词，预览命中后确认建池</p>
           </div>
           <div class="wizard-head-right">
             <span class="panel-hint">简版 · 按检索式圈定待标注范围</span>
@@ -120,7 +118,6 @@
         <div class="panel-head">
           <div class="panel-heading">
             <h2 class="panel-title">池列表</h2>
-            <p class="panel-sub">按状态跟踪余量与截止时间</p>
           </div>
           <span class="panel-hint">共 {{ POOLS.length }} 个池</span>
         </div>
@@ -362,10 +359,6 @@
         <div class="panel-head">
           <div class="panel-heading">
             <h2 class="panel-title">指派任务 · {{ assignTarget.id }}</h2>
-            <p class="panel-sub">
-              {{ tableTypeLabel(assignTarget.tableType) }} ·
-              余量 {{ assignTarget.remaining }} / {{ assignTarget.total }}
-            </p>
           </div>
           <button class="modal-close" type="button" @click="assignTarget = null">×</button>
         </div>
@@ -424,11 +417,6 @@
         <div class="panel-head">
           <div class="panel-heading">
             <h2 class="panel-title">任务池详情 · {{ poolDetail.id }}</h2>
-            <p class="panel-sub">
-              {{ tableTypeLabel(poolDetail.tableType) }} ·
-              余量 {{ poolDetail.remaining }} / {{ poolDetail.total }} ·
-              截止 {{ poolDetail.deadline }}
-            </p>
           </div>
           <button class="modal-close" type="button" @click="poolDetail = null">×</button>
         </div>
@@ -460,7 +448,6 @@
         <div class="panel-head">
           <div class="panel-heading">
             <h2 class="panel-title">操作记录</h2>
-            <p class="panel-sub">建池、修改、复核全链路审计</p>
           </div>
           <span class="panel-hint">共 {{ filteredLogs.length }} 条记录</span>
         </div>

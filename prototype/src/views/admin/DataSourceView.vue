@@ -4,7 +4,6 @@
     <div class="admin-header">
       <div>
         <h1>数据源管理</h1>
-        <p class="header-sub">管理文献 / 病案原始文件 · 队列上限 10 · 支持脚本批量导入</p>
       </div>
       <div class="header-actions">
         <button type="button" class="btn-primary" @click="openUploadModal">上传文件</button>
@@ -39,7 +38,6 @@
       <div class="panel-head">
         <div>
           <h2 class="panel-title">数据源列表</h2>
-          <p class="panel-desc">可调整分类或删除已上传的原始文件</p>
         </div>
       </div>
 

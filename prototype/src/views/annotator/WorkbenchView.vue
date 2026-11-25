@@ -3,7 +3,6 @@
     <div class="admin-header">
       <div class="header-main">
         <h1>标注工作台</h1>
-        <p class="header-sub">DOR 文献 / 病案抽取复核 · 本地原型（不调用接口）</p>
         <div class="task-meta">
           <span class="task-code">{{ TASK.id }}</span>
           <span class="meta-item">来源池「{{ TASK.pool }}」</span>

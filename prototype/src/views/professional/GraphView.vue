@@ -3,7 +3,6 @@
     <div class="admin-header">
       <div>
         <h1>知识图谱</h1>
-        <p class="header-sub">实体关系图 · 关键词/证型/方剂/药物连接</p>
       </div>
       <div class="header-stats">
         <span class="stat-chip"><strong>{{ nodes.length }}</strong> 实体</span>

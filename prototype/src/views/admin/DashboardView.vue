@@ -3,7 +3,6 @@
     <header class="admin-header">
       <div class="header-text">
         <h1>平台总览</h1>
-        <p class="header-sub">DOR 数据治理 · 四角色体系</p>
       </div>
       <div class="header-meta">
         <span class="live-dot" aria-hidden="true"></span>
@@ -34,7 +33,6 @@
         <div class="panel-head">
           <div class="panel-heading">
             <h2 class="panel-title">最近动态</h2>
-            <p class="panel-sub">建池、派发、复核与异常处理</p>
           </div>
           <span class="panel-hint">近 24 小时 · {{ ACTIVITIES.length }} 条</span>
         </div>
@@ -61,7 +59,6 @@
         <div class="panel-head">
           <div class="panel-heading">
             <h2 class="panel-title">待办</h2>
-            <p class="panel-sub">需人工介入的治理事项</p>
           </div>
           <span class="todo-total">3 项</span>
         </div>

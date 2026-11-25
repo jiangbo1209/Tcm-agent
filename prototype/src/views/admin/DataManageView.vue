@@ -3,7 +3,6 @@
     <div class="admin-header">
       <div class="header-text">
         <h1>数据管理</h1>
-        <p class="header-sub">DOR 文献库 65 字段 · 病案库 41 字段 · 人工编辑</p>
       </div>
     </div>
 

@@ -3,7 +3,6 @@
     <header class="etl-header">
       <div>
         <h1>ETL 管理</h1>
-        <p class="header-sub">资源抽取 · 质量校验 · 参数配置</p>
       </div>
     </header>
 
@@ -23,11 +22,17 @@
 .etl-header h1 { font-size: 22px; font-weight: 600; color: var(--ink-900); margin: 0 0 4px; }
 .header-sub { margin: 0; font-size: 12px; color: var(--ink-400); }
 
-.etl-nav { display: flex; gap: 4px; margin-bottom: 18px; border-bottom: 1px solid var(--line); }
+.etl-nav { display: flex; align-items: center; gap: 4px; margin-bottom: 16px; border-bottom: 1px solid var(--line); }
 .etl-tab {
-  padding: 8px 16px; font-size: 13px; color: var(--ink-500); text-decoration: none;
-  border-bottom: 2px solid transparent; margin-bottom: -1px; transition: color 0.15s, border-color 0.15s;
+  position: relative; display: inline-flex; align-items: center; gap: 7px;
+  padding: 9px 16px 11px; font-size: 13px; color: var(--ink-500);
+  text-decoration: none; border: none; background: transparent;
+  transition: color 0.15s ease;
 }
-.etl-tab:hover { color: var(--teal-dark); }
-.etl-tab.active { color: var(--teal-dark); font-weight: 600; border-bottom-color: var(--teal); }
+.etl-tab:hover { color: var(--ink-700); }
+.etl-tab.active { color: var(--teal-dark); font-weight: 600; }
+.etl-tab.active::after {
+  content: ""; position: absolute; left: 10px; right: 10px; bottom: -1px;
+  height: 2px; border-radius: 2px 2px 0 0; background: var(--teal);
+}
 </style>
