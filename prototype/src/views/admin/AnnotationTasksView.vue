@@ -361,7 +361,7 @@
             <span>动作</span>
             <select v-model="logAction" class="filter-select">
               <option value="">全部</option>
-              <option v-for="action in LOG_ACTIONS" :key="action.key" :value="action.key">
+              <option v-for="action in filteredLogActions" :key="action.key" :value="action.key">
                 {{ action.label }}
               </option>
             </select>
@@ -439,7 +439,7 @@
 </template>
 
 <script setup>
-import { computed, onBeforeUnmount, reactive, ref } from "vue";
+import { computed, onBeforeUnmount, reactive, ref, watch } from "vue";
 import { LIT_RECORDS, CASE_RECORDS } from "../../data/dorMock";
 import { annotationStore } from "../../stores/annotation";
 
@@ -916,6 +916,16 @@ const LOG_ACTIONS = [
   { key: "pause", label: "暂停" },
 ];
 
+const LOG_ACTION_CATEGORY = {
+  create_pool: "task",
+  assign: "task",
+  pause: "task",
+  save_direct: "edit",
+  save_submit: "edit",
+  approve: "review",
+  reject: "review",
+};
+
 const LOG_CATEGORY_META = {
   task: { label: "任务记录" },
   edit: { label: "修改记录" },
@@ -1025,6 +1035,22 @@ const LOGS = ref([
 
 const logCategory = ref("");
 const logAction = ref("");
+
+// 分类与动作绑定：选定分类后只展示该分类下的动作
+const filteredLogActions = computed(() => {
+  if (!logCategory.value) return LOG_ACTIONS;
+  return LOG_ACTIONS.filter((a) => LOG_ACTION_CATEGORY[a.key] === logCategory.value);
+});
+
+watch(logCategory, () => {
+  if (
+    logAction.value &&
+    LOG_ACTION_CATEGORY[logAction.value] !== logCategory.value &&
+    logCategory.value
+  ) {
+    logAction.value = "";
+  }
+});
 
 const filteredLogs = computed(() =>
   LOGS.value.filter((log) => {
