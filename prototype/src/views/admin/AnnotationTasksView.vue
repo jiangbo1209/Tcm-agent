@@ -192,39 +192,55 @@
 
     <!-- ───────── 复核队列 ───────── -->
     <div v-show="activeTab === 'review'" class="tab-body">
-      <div class="task-cards">
-        <article
-          v-for="task in REVIEW_TASKS"
-          :key="task.id"
-          class="task-card"
-          :class="{ active: selectedTaskId === task.id }"
+      <div class="review-carousel">
+        <button
+          class="carousel-arrow left"
+          type="button"
+          :disabled="REVIEW_TASKS.length === 0"
+          title="上一条"
+          @click="stepReview(-1)"
         >
-          <div class="task-card-top">
-            <span class="mono task-id">{{ task.id }}</span>
-            <span class="badge" :class="task.tableType === 'case' ? 'badge-warn' : 'badge-teal'">
-              {{ tableTypeLabel(task.tableType) }}
-            </span>
-          </div>
-          <div class="task-card-meta">
-            <span class="task-person">
-              <span class="mini-avatar">{{ task.annotator.slice(0, 1) }}</span>
-              {{ task.annotator }}
-            </span>
-            <span class="task-total">{{ task.total }} 条</span>
-          </div>
-          <p class="task-time">提交于 {{ task.submittedAt }}</p>
-          <div class="task-card-foot">
-            <span class="task-pending">待处理 {{ taskPendingCount(task) }} / {{ task.entries.length }}</span>
-            <button
-              class="btn-sm"
-              :class="{ teal: selectedTaskId === task.id }"
-              type="button"
-              @click="enterReview(task)"
-            >
-              {{ selectedTaskId === task.id ? "继续复核" : "进入复核" }}
-            </button>
-          </div>
-        </article>
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round">
+            <polyline points="15 18 9 12 15 6" />
+          </svg>
+        </button>
+
+        <div class="task-cards" @wheel.prevent="onReviewWheel">
+          <article
+            v-for="task in REVIEW_TASKS"
+            :key="task.id"
+            class="task-card"
+            :class="{ active: selectedTaskId === task.id }"
+            @click="enterReview(task)"
+          >
+            <div class="task-card-top">
+              <span class="mono task-id">{{ task.id }}</span>
+              <span class="badge" :class="task.tableType === 'case' ? 'badge-warn' : 'badge-teal'">
+                {{ tableTypeLabel(task.tableType) }}
+              </span>
+            </div>
+            <div class="task-card-meta">
+              <span class="task-person">
+                <span class="mini-avatar">{{ task.annotator.slice(0, 1) }}</span>
+                {{ task.annotator }}
+              </span>
+              <span class="pending-chip">待处理 {{ taskPendingCount(task) }} / {{ task.entries.length }}</span>
+            </div>
+            <p class="task-time">提交于 {{ task.submittedAt }}</p>
+          </article>
+        </div>
+
+        <button
+          class="carousel-arrow right"
+          type="button"
+          :disabled="REVIEW_TASKS.length === 0"
+          title="下一条"
+          @click="stepReview(1)"
+        >
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round">
+            <polyline points="9 18 15 12 9 6" />
+          </svg>
+        </button>
       </div>
 
       <section v-if="selectedTask" class="panel review-detail">
@@ -538,7 +554,7 @@
 </template>
 
 <script setup>
-import { computed, onBeforeUnmount, reactive, ref, watch } from "vue";
+import { computed, nextTick, onBeforeUnmount, reactive, ref, watch } from "vue";
 import { LIT_RECORDS, CASE_RECORDS } from "../../data/dorMock";
 import { annotationStore } from "../../stores/annotation";
 
@@ -1013,6 +1029,47 @@ const REVIEW_TASKS = ref([
   },
 ]);
 
+const EXTRA_REVIEW_META = [
+  { id: "TK-2025-084", tableType: "case", annotator: "李明", submittedAt: "2025-03-18 16:40" },
+  { id: "TK-2025-083", tableType: "literature", annotator: "王芳", submittedAt: "2025-03-18 14:10" },
+  { id: "TK-2025-082", tableType: "case", annotator: "陈晨", submittedAt: "2025-03-18 11:25" },
+  { id: "TK-2025-081", tableType: "literature", annotator: "赵磊", submittedAt: "2025-03-17 17:05" },
+  { id: "TK-2025-080", tableType: "case", annotator: "周静", submittedAt: "2025-03-17 15:30" },
+];
+
+EXTRA_REVIEW_META.forEach((meta, i) => {
+  REVIEW_TASKS.value.push({
+    ...meta,
+    total: 6 + i,
+    entries: [
+      {
+        id: `${meta.tableType === "case" ? "CASE" : "LIT"}-${String(30 + i).padStart(3, "0")}`,
+        annotator: meta.annotator,
+        summary: meta.tableType === "case"
+          ? `${28 + i} 岁 · ${["肾虚证", "肝肾阴虚证", "痰湿证"][i % 3]} · AMH ${(0.4 + i * 0.06).toFixed(2)}`
+          : `DOR ${["RCT", "队列", "横断面"][i % 3]} · 样本 ${40 + i * 12}`,
+        status: "pending",
+        diffs: [
+          diff("AMH", `${(0.4 + i * 0.03).toFixed(2)} ng/mL`, `${(0.5 + i * 0.03).toFixed(2)} ng/mL`),
+          diff("证型", ["肾虚证", "肝肾阴虚证", "痰湿证"][i % 3], ["肾虚证", "肝肾阴虚证", "痰湿证"][i % 3]),
+          diff("临床妊娠率", `${(18 + i * 2)}%`, `${(22 + i * 2)}%`),
+        ],
+      },
+      {
+        id: `${meta.tableType === "case" ? "CASE" : "LIT"}-${String(40 + i).padStart(3, "0")}`,
+        annotator: meta.annotator,
+        summary: meta.tableType === "case" ? "复诊记录 · 症状改善" : "疗效指标补录",
+        status: "pending",
+        diffs: [
+          diff("FSH", `${(12 + i).toFixed(1)} IU/L`, `${(10 + i).toFixed(1)} IU/L`),
+          diff("证型", "肾虚证", "肾虚证"),
+        ],
+      },
+    ],
+  });
+});
+
+
 const selectedTaskId = ref(null);
 const expandedEntryId = ref(null);
 
@@ -1032,9 +1089,26 @@ function changedCount(entry) {
   return entry.diffs.filter((item) => item.changed).length;
 }
 
-function enterReview(task) {
+function onReviewWheel(e) {
+  const el = e.currentTarget;
+  el.scrollLeft += e.deltaY || e.deltaX;
+}
+
+function stepReview(delta) {
+  const list = REVIEW_TASKS.value;
+  if (!list.length) return;
+  const idx = list.findIndex((t) => t.id === selectedTaskId.value);
+  const next = idx === -1 ? (delta > 0 ? 0 : list.length - 1) : Math.min(list.length - 1, Math.max(0, idx + delta));
+  const task = list[next];
+  if (task) enterReview(task);
+}
+
+async function enterReview(task) {
   selectedTaskId.value = task.id;
   expandedEntryId.value = null;
+  await nextTick();
+  const el = document.querySelector(".task-card.active");
+  el?.scrollIntoView({ behavior: "smooth", inline: "center", block: "nearest" });
 }
 
 function leaveReview() {
@@ -1638,16 +1712,28 @@ onBeforeUnmount(() => {
 }
 
 /* ── 复核卡片 ── */
-.task-cards {
-  display: grid;
-  grid-template-columns: repeat(3, minmax(0, 1fr));
-  gap: 12px;
-  margin-bottom: 16px;
+.review-carousel { display: flex; align-items: stretch; gap: 10px; margin-bottom: 16px; }
+.carousel-arrow {
+  flex: 0 0 34px; width: 34px; border: none; background: transparent;
+  color: #64748b; opacity: 0.35; cursor: pointer; border-radius: 8px;
+  display: flex; align-items: center; justify-content: center;
+  transition: opacity 0.15s, background 0.15s;
 }
+.carousel-arrow:hover:not(:disabled) { opacity: 1; background: #f1f5f4; }
+.carousel-arrow:disabled { opacity: 0.2; cursor: default; }
+.carousel-arrow svg { width: 26px; height: 26px; }
+.task-cards {
+  display: flex; gap: 10px; overflow-x: auto; scroll-behavior: smooth;
+  padding-bottom: 4px; flex: 1; min-width: 0;
+  scrollbar-width: thin;
+}
+.task-cards::-webkit-scrollbar { height: 6px; }
+.task-cards::-webkit-scrollbar-thumb { background: #dfe7e5; border-radius: 3px; }
+.task-card { flex: 0 0 252px; width: 252px; cursor: pointer; }
 .task-card {
   display: flex;
   flex-direction: column;
-  padding: 13px 14px 12px;
+  padding: 10px 12px 9px;
   border: 1px solid var(--line);
   border-radius: 10px;
   background: #fff;
@@ -1666,7 +1752,7 @@ onBeforeUnmount(() => {
   align-items: center;
   justify-content: space-between;
   gap: 8px;
-  margin-bottom: 9px;
+  margin-bottom: 7px;
 }
 .task-id {
   color: var(--ink-900);
@@ -1678,8 +1764,10 @@ onBeforeUnmount(() => {
   align-items: center;
   justify-content: space-between;
   gap: 8px;
+  flex-wrap: nowrap;
 }
 .task-person {
+  min-width: 0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
   display: inline-flex;
   align-items: center;
   gap: 7px;
@@ -1718,10 +1806,13 @@ onBeforeUnmount(() => {
   padding-top: 9px;
   border-top: 1px dashed var(--line);
 }
-.task-pending {
-  font-size: 10px;
-  color: var(--ink-400);
+.task-pending { font-size: 10px; color: var(--ink-400); }
+.pending-chip {
+  flex-shrink: 0;
+  font-size: 10px; color: #b06a00; background: #fff7e6;
+  border: 1px solid #ffe3b3; border-radius: 999px; padding: 1px 7px; white-space: nowrap;
 }
+.task-time { margin: 6px 0 0; font-size: 10px; color: var(--ink-400); }
 
 /* ── 复核详情 ── */
 .review-detail {
