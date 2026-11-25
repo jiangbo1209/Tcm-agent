@@ -249,7 +249,7 @@ function switchRole() {
 .ch-del:hover { background: rgba(198,40,40,0.25); color: #ff8a80; }
 .ch-empty { margin: 10px 8px; font-size: 11px; color: #6b7885; }
 
-.sidebar-footer { border-top: 1px solid rgba(255, 255, 255, 0.08); padding-top: 12px; display: flex; flex-direction: column; gap: 8px; flex-shrink: 0; }
+.sidebar-footer { margin-top: auto; border-top: 1px solid rgba(255, 255, 255, 0.08); padding-top: 12px; display: flex; flex-direction: column; gap: 8px; flex-shrink: 0; }
 .role-card { display: flex; align-items: center; gap: 8px; padding: 8px 10px; border-radius: 8px; background: rgba(255, 255, 255, 0.05); }
 .role-dot { width: 8px; height: 8px; border-radius: 50%; flex-shrink: 0; }
 .role-text { display: flex; flex-direction: column; line-height: 1.25; min-width: 0; }
