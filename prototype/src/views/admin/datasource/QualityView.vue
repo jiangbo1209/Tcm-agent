@@ -1,13 +1,5 @@
 <template>
   <div class="quality-page" data-testid="etl-quality-dashboard">
-    <!-- ── 页头 ── -->
-    <div class="page-header">
-      <div class="page-heading">
-        <h1>质检看板</h1>
-      </div>
-      <button class="btn-primary" type="button" @click="handleReextract">重新抽取</button>
-    </div>
-
     <!-- ── 统计卡片行 ── -->
     <div class="stat-grid">
       <div v-for="s in STATS" :key="s.key" class="stat-card" :class="'tone-' + s.tone">
@@ -24,7 +16,6 @@
     <section class="panel">
       <div class="panel-head">
         <h2 class="panel-title">抽取状态分布</h2>
-        <span class="panel-hint">共 {{ STATS[0].value }} 篇文献</span>
       </div>
       <div class="status-list">
         <div v-for="s in EXTRACT_STATUS" :key="s.key" class="status-row">
@@ -46,7 +37,6 @@
       <section class="panel">
         <div class="panel-head">
           <h2 class="panel-title">节点类型分布</h2>
-          <span class="panel-hint">节点总数 {{ nodeTotal }}</span>
         </div>
         <div class="bar-list">
           <div v-for="n in NODE_TYPES" :key="n.key" class="bar-row">
@@ -66,7 +56,6 @@
       <section class="panel">
         <div class="panel-head">
           <h2 class="panel-title">边类型分布</h2>
-          <span class="panel-hint">边总数 {{ edgeTotal }}</span>
         </div>
         <div class="bar-list">
           <div v-for="e in EDGE_TYPES" :key="e.key" class="bar-row">
@@ -88,7 +77,6 @@
     <section class="panel">
       <div class="panel-head">
         <h2 class="panel-title">质检卡点</h2>
-        <span class="panel-hint">任一指标超阈值即打回重抽</span>
       </div>
       <div class="gate-grid">
         <div
@@ -115,62 +103,10 @@
               }"
             ></div>
           </div>
-          <p class="gate-meta">
-            阈值 {{ g.threshold }}% · 当前 {{ g.value }}%
-            <span v-if="!g.passed" class="gate-action">→ 超出 {{ (g.value - g.threshold).toFixed(1) }} 个百分点，已打回重抽</span>
-          </p>
-          <p class="gate-desc">{{ g.desc }}</p>
+
         </div>
       </div>
     </section>
-
-    <!-- ── 待复核清单 ── -->
-    <section class="panel">
-      <div class="panel-head">
-        <h2 class="panel-title">待复核清单</h2>
-        <span class="panel-hint">共 {{ REVIEW_ROWS.length }} 份文件待人工确认</span>
-      </div>
-      <div class="table-wrap">
-        <table class="review-table" data-testid="etl-review-table">
-          <thead>
-            <tr>
-              <th>文件</th>
-              <th>doc_kind</th>
-              <th>置信度</th>
-              <th>原因</th>
-              <th class="col-action">操作</th>
-            </tr>
-          </thead>
-          <tbody>
-            <tr v-for="row in REVIEW_ROWS" :key="row.id">
-              <td class="cell-file" :title="row.file">{{ row.file }}</td>
-              <td>
-                <span class="doc-badge" :class="'doc-' + row.doc_kind">
-                  {{ DOC_KIND_LABELS[row.doc_kind] }}
-                </span>
-              </td>
-              <td>
-                <span class="conf" :class="confidenceLevel(row.confidence)">
-                  {{ row.confidence.toFixed(2) }}
-                </span>
-              </td>
-              <td class="cell-reason">{{ row.reason }}</td>
-              <td class="col-action">
-                <button class="btn-sm" type="button" @click="dispatch(row)">
-                  派发标注
-                </button>
-              </td>
-            </tr>
-          </tbody>
-        </table>
-      </div>
-    </section>
-
-    <!-- ── 页脚说明 ── -->
-    <p class="page-footer">
-      三层兜底：<strong>缺失留空</strong> + <strong>校验拦截</strong> + <strong>低置信人工复核</strong>
-      —— 抽取结果不猜测、不臆造，低置信一律进入待复核清单。
-    </p>
 
     <!-- ── 全局提示 ── -->
     <transition name="toast-fade">

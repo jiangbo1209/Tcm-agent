@@ -1,16 +1,12 @@
 <template>
   <div class="settings-page">
     <section class="settings-head">
-      <div>
-        <h2>基础配置</h2>
-      </div>
       <button class="btn-primary" @click="saveAll">保存配置</button>
     </section>
 
     <section class="panel">
       <div class="panel-head">
         <h3>Prompt 模板</h3>
-        <span class="hint">按研究类型区分抽取模板</span>
       </div>
       <table class="pool-table">
         <thead><tr><th>研究类型</th><th>模板版本</th><th>更新时间</th><th>状态</th><th>操作</th></tr></thead>
@@ -29,7 +25,6 @@
     <section class="panel">
       <div class="panel-head">
         <h3>枚举词典</h3>
-        <span class="hint">用于抽取结果归一与校验</span>
       </div>
       <div class="dict-grid">
         <div v-for="d in dictionaries" :key="d.name" class="dict-card">
@@ -51,7 +46,6 @@
     <section class="panel">
       <div class="panel-head">
         <h3>校验阈值</h3>
-        <span class="hint">不达标的结果进入待复核</span>
       </div>
       <div class="form-grid">
         <label class="form-item">
@@ -84,7 +78,7 @@
     </section>
 
     <section class="panel">
-      <div class="panel-head"><h3>模型参数</h3><span class="hint">LLM 抽取使用</span></div>
+      <div class="panel-head"><h3>模型参数</h3></div>
       <div class="form-grid">
         <label class="form-item">
           <span>模型</span>
@@ -157,7 +151,7 @@ function removeDictItem(d, i) {
 </script>
 
 <style scoped>
-.settings-head { display: flex; align-items: flex-start; justify-content: space-between; gap: 12px; margin-bottom: 14px; }
+.settings-head { display: flex; align-items: center; justify-content: flex-end; gap: 12px; margin-bottom: 14px; }
 .settings-head h2 { margin: 0 0 4px; font-size: 16px; }
 .desc { margin: 0; font-size: 12px; color: var(--ink-400); }
 .panel { background: #fff; border: 1px solid var(--line); border-radius: 10px; padding: 16px 18px; margin-bottom: 14px; }

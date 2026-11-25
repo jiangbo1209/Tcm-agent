@@ -1,19 +1,15 @@
 <template>
   <div class="resource-page">
-    <header class="page-head">
-      <div class="head-actions">
-        <button class="btn-primary" type="button" @click="uploadModalOpen = true">上传文件</button>
-        <button class="btn-sm" type="button" @click="queueModalOpen = true">
-          上传队列（{{ queue.length }}/{{ MAX_QUEUE }}）
-        </button>
-      </div>
-    </header>
-
     <div class="stat-row">
       <div class="stat-card"><span>资源总数</span><strong>{{ eligibleCount }}</strong></div>
       <div class="stat-card"><span>文献</span><strong>{{ countKind('lit') }}</strong></div>
       <div class="stat-card"><span>病案</span><strong>{{ countKind('case') }}</strong></div>
-      <div class="stat-card"><span>待上传</span><strong>{{ queue.length }}</strong></div>
+      <div class="stat-actions">
+        <button class="btn-primary upload-btn" type="button" @click="uploadModalOpen = true">上传文件</button>
+        <button class="btn-sm upload-btn" type="button" @click="queueModalOpen = true">
+          上传队列（{{ queue.length }}/{{ MAX_QUEUE }}）
+        </button>
+      </div>
     </div>
 
     <div class="toolbar">
@@ -447,6 +443,8 @@ async function startUpload() {
 .head-actions { display: flex; align-items: center; gap: 8px; }
 
 .stat-row { display: grid; grid-template-columns: repeat(auto-fit, minmax(140px, 1fr)); gap: 12px; margin-bottom: 14px; }
+.stat-actions { display: flex; align-items: center; gap: 10px; }
+.upload-btn { height: 38px; padding: 0 18px; display: inline-flex; align-items: center; justify-content: center; }
 .stat-card { background: #fff; border: 1px solid var(--line); border-radius: 10px; padding: 12px 14px; display: flex; flex-direction: column; gap: 2px; }
 .stat-card span { font-size: 12px; color: var(--ink-400); }
 .stat-card strong { font-size: 22px; color: var(--teal-dark); }
