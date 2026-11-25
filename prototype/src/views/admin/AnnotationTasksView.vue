@@ -207,6 +207,7 @@
             :key="task.id"
             class="task-card"
             :class="{ active: selectedTaskId === task.id }"
+            :style="{ '--review-color': reviewTaskColor(task) }"
             @click="enterReview(task)"
           >
             <div class="task-card-top">
@@ -241,7 +242,7 @@
 
       <section v-if="selectedTask" class="review-detail">
         <div ref="reviewBodyRef" class="review-three">
-          <aside v-if="!leftCollapsed" class="rv-list">
+          <aside v-if="!leftCollapsed" class="rv-list" :style="{ borderColor: selectedReviewColor }">
             <div class="rv-list-head">
               <span>复核对象</span>
               <button class="rv-toggle" type="button" title="收起对象列表" @click="leftCollapsed = true">«</button>
@@ -263,7 +264,7 @@
             </div>
           </aside>
 
-          <div v-else class="rv-list-rail">
+          <div v-else class="rv-list-rail" :style="{ borderColor: selectedReviewColor }">
             <button type="button" title="展开对象列表" @click="leftCollapsed = false">»</button>
             <button type="button" title="上一条" @click="prevReviewEntry">‹</button>
             <button type="button" title="下一条" @click="nextReviewEntry">›</button>
@@ -1053,6 +1054,15 @@ const selectedTask = computed(
   () => REVIEW_TASKS.value.find((task) => task.id === selectedTaskId.value) || null,
 );
 
+const REVIEW_TASK_COLORS = ["#00796b", "#1565c0", "#b06a00", "#6a1b9a", "#c62828"];
+function reviewTaskColor(task) {
+  const idx = REVIEW_TASKS.value.findIndex((t) => t.id === task.id);
+  return REVIEW_TASK_COLORS[(idx < 0 ? 0 : idx) % REVIEW_TASK_COLORS.length];
+}
+const selectedReviewColor = computed(() =>
+  selectedTask.value ? reviewTaskColor(selectedTask.value) : "var(--line)",
+);
+
 function reviewStatusMeta(status) {
   return REVIEW_STATUS[status] || { label: status || "—", cls: "badge-muted" };
 }
@@ -1787,8 +1797,7 @@ onBeforeUnmount(() => {
   box-shadow: 0 4px 14px rgba(0, 0, 0, 0.04);
 }
 .task-card.active {
-  border-color: var(--teal);
-  box-shadow: 0 0 0 2px rgba(0, 121, 107, 0.08);
+  border-color: var(--review-color, var(--teal));
 }
 .task-card-top {
   display: flex;
@@ -2339,8 +2348,9 @@ onBeforeUnmount(() => {
 .rv-toggle { border: none; background: transparent; color: #8a9695; cursor: pointer; font-size: 16px; line-height: 1; }
 .rv-toggle:hover { color: #00796b; }
 .rv-list-rail {
-  flex: 0 0 26px; width: 26px; border: 1px solid var(--line); border-radius: 10px;
-  background: #fafbfb; display: flex; flex-direction: column; align-items: stretch; overflow: hidden;
+  flex: 0 0 26px; width: 26px; border: 1px solid var(--line); border-left-width: 3px;
+  border-radius: 10px; background: #fafbfb; display: flex; flex-direction: column;
+  align-items: stretch; overflow: hidden;
 }
 .rv-list-rail button {
   border: none; background: transparent; color: #8a9695; cursor: pointer;

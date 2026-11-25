@@ -9,9 +9,9 @@ import { etlStore } from "./etl";
 
 const now = () => new Date().toISOString().slice(0, 16).replace("T", " ");
 
-let seq = 5;
+let seq = 9;
 
-const STORAGE_KEY = "tcm-dor-annotation-tasks-v1";
+const STORAGE_KEY = "tcm-dor-annotation-tasks-v2";
 
 const initialTasks = [
   {
@@ -53,6 +53,46 @@ const initialTasks = [
     createdAt: "2026-11-23 11:00",
     rejectedAt: "",
     deadline: "2026-11-29",
+  },
+  {
+    id: "AT-2026-005",
+    kind: "lit",
+    assignee: "demo_annotator",
+    status: "assigned",
+    docIds: ["LIT-018", "LIT-019"],
+    createdAt: "2026-11-24 16:10",
+    rejectedAt: "",
+    deadline: "2026-12-03",
+  },
+  {
+    id: "AT-2026-006",
+    kind: "case",
+    assignee: "demo_annotator",
+    status: "assigned",
+    docIds: ["CASE-007", "CASE-008"],
+    createdAt: "2026-11-24 16:25",
+    rejectedAt: "",
+    deadline: "2026-12-03",
+  },
+  {
+    id: "AT-2026-007",
+    kind: "case",
+    assignee: "demo_annotator",
+    status: "drafting",
+    docIds: ["CASE-009", "CASE-010", "CASE-011"],
+    createdAt: "2026-11-24 17:00",
+    rejectedAt: "",
+    deadline: "2026-12-04",
+  },
+  {
+    id: "AT-2026-008",
+    kind: "case",
+    assignee: "demo_annotator",
+    status: "assigned",
+    docIds: ["CASE-012"],
+    createdAt: "2026-11-25 09:15",
+    rejectedAt: "",
+    deadline: "2026-12-05",
   },
 ];
 

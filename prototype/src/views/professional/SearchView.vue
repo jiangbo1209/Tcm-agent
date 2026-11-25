@@ -7,7 +7,7 @@
     </div>
 
     <div class="search-layout">
-      <aside class="filter-panel card">
+      <aside v-if="searched" class="filter-panel card">
         <div class="filter-panel-head">
           <h2>筛选</h2>
           <button v-if="activeFilterCount" class="filter-clear" type="button" @click="clearFilters">清空</button>
@@ -228,7 +228,8 @@ const results = computed(() =>
     }),
 );
 
-const countBy = (predicate) => allRecords.filter(predicate).length;
+const filterBase = computed(() => keywordMatches.value);
+const countBy = (predicate) => filterBase.value.filter(predicate).length;
 
 const kindOptions = computed(() => [
   { key: "lit", label: "文献", count: countBy((r) => r.kind === "lit") },
@@ -237,7 +238,7 @@ const kindOptions = computed(() => [
 
 const studyTypeOptions = computed(() => {
   const map = new Map();
-  for (const rec of allRecords.filter((r) => r.kind === "lit")) {
+  for (const rec of filterBase.value.filter((r) => r.kind === "lit")) {
     if (!rec.tagA) continue;
     map.set(rec.tagA, (map.get(rec.tagA) || 0) + 1);
   }
@@ -246,7 +247,7 @@ const studyTypeOptions = computed(() => {
 
 const syndromeOptions = computed(() => {
   const map = new Map();
-  for (const rec of allRecords) {
+  for (const rec of filterBase.value) {
     if (!rec.tagB) continue;
     map.set(rec.tagB, (map.get(rec.tagB) || 0) + 1);
   }
@@ -255,7 +256,7 @@ const syndromeOptions = computed(() => {
 
 const yearOptions = computed(() => {
   const map = new Map();
-  for (const rec of allRecords) {
+  for (const rec of filterBase.value) {
     const y = rec.values.lit_3;
     if (!y) continue;
     map.set(String(y), (map.get(String(y)) || 0) + 1);

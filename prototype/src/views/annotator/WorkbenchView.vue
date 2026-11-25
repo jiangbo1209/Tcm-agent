@@ -1,23 +1,7 @@
 <template>
   <div class="admin-page">
     <div class="admin-header">
-      <div class="header-main">
-        <h1>标注工作台</h1>
-        <div class="task-meta">
-          <span class="task-code">{{ selectedTask ? selectedTask.id : "—" }}</span>
-          <span class="meta-item">来源池「DOR 抽取复核」</span>
-          <span class="meta-item">当前对象：{{ currentItem ? currentItem.id : "—" }}</span>
-          <span class="meta-item deadline">{{ selectedTask ? selectedTask.deadline : "—" }}</span>
-        </div>
-      </div>
-      <div v-if="activeTab === 'tasks'" class="progress-box">
-        <div class="progress-text">
-          已处理 <strong>{{ processed }}</strong><span>/ {{ total }}</span>
-        </div>
-        <div class="progress-track">
-          <div class="progress-fill" :style="{ width: progressPct + '%' }"></div>
-        </div>
-      </div>
+      <h1>标注工作台</h1>
     </div>
 
     <!-- 页签 -->
@@ -643,16 +627,6 @@ const currentKind = computed(() => currentDoc.value?.kind || "lit");
 
 const currentOriginal = computed(() => resolveOriginal(currentDoc.value));
 
-const processed = computed(
-  () => activeItems.value.filter((item) => item.status !== "待标注").length,
-);
-
-const total = computed(() => activeItems.value.length);
-
-const progressPct = computed(() =>
-  total.value ? Math.round((processed.value / total.value) * 100) : 0,
-);
-
 const stagedCount = computed(
   () => activeItems.value.filter((item) => item.status === "已暂存").length,
 );
@@ -829,88 +803,6 @@ function confirmSubmit() {
 </script>
 
 <style scoped>
-.header-main {
-  min-width: 0;
-}
-
-.task-meta {
-  display: flex;
-  align-items: center;
-  flex-wrap: wrap;
-  gap: 10px;
-  margin-top: 10px;
-  font-size: 12px;
-  color: var(--ink-500);
-}
-
-.task-code {
-  padding: 2px 8px;
-  border: 1px solid var(--teal-border);
-  border-radius: 4px;
-  background: var(--teal-soft);
-  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
-  font-size: 11px;
-  color: var(--teal-dark);
-}
-
-.meta-item {
-  position: relative;
-  padding-left: 12px;
-}
-
-.meta-item::before {
-  content: "";
-  position: absolute;
-  left: 0;
-  top: 50%;
-  width: 3px;
-  height: 3px;
-  border-radius: 50%;
-  background: #c3cbd3;
-  transform: translateY(-50%);
-}
-
-.meta-item.deadline {
-  color: var(--warn);
-  font-weight: 500;
-}
-
-.progress-box {
-  width: 190px;
-  flex-shrink: 0;
-  padding-top: 6px;
-}
-
-.progress-text {
-  margin-bottom: 6px;
-  font-size: 12px;
-  color: var(--ink-500);
-  text-align: right;
-}
-
-.progress-text strong {
-  font-size: 18px;
-  color: var(--teal-dark);
-}
-
-.progress-text span {
-  color: var(--ink-400);
-}
-
-.progress-track {
-  height: 6px;
-  border-radius: 999px;
-  background: #e8eeee;
-  overflow: hidden;
-}
-
-.progress-fill {
-  height: 100%;
-  border-radius: inherit;
-  background: linear-gradient(90deg, #26a69a, var(--teal));
-  transition: width 0.25s ease;
-}
-
 .tabs {
   display: flex;
   gap: 4px;
@@ -1073,6 +965,7 @@ function confirmSubmit() {
 .work-layout.list-collapsed .work-list-rail { flex: 0 0 26px; }
 .work-list-rail {
   display: flex; flex-direction: column; border: 1px solid var(--line);
+  border-left-width: 3px;
   border-radius: 10px; background: #fafbfb; overflow: hidden;
 }
 .work-list-rail button {
