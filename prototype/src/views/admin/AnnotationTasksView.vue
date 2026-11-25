@@ -561,17 +561,15 @@ function invalidatePreview() {
 
 function previewPool() {
   const query = poolForm.query.trim();
-  if (!query) {
-    previewResult.value = null;
-    showToast("请先输入搜索词", "error");
-    return;
-  }
   const expected = Math.max(1, Number(poolForm.expected) || 1);
-  const seed = [...query].reduce((sum, ch) => sum + ch.charCodeAt(0), 0);
-  const count = Math.max(1, expected + (seed % 13) - 6);
+  // 搜索词仅用于缩小范围；留空表示全部记录，同样可以预览
+  const seed = query
+    ? [...query].reduce((sum, ch) => sum + ch.charCodeAt(0), 0)
+    : 0;
+  const count = query ? Math.max(1, expected + (seed % 13) - 6) : expected;
   previewResult.value = {
     tableType: poolForm.tableType,
-    query,
+    query: query || "全部记录",
     expected,
     count,
   };
