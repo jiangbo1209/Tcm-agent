@@ -33,14 +33,18 @@ const routes = [
       },
       {
         path: "annotate",
-        name: "Annotate",
-        component: () => import("../views/annotator/WorkbenchView.vue"),
-        meta: { roles: ["annotator"] },
+        redirect: "/annotate/tasks",
       },
       {
         path: "annotate/tasks",
         name: "AnnotateTasks",
         component: () => import("../views/annotator/ClaimTasksView.vue"),
+        meta: { roles: ["annotator"] },
+      },
+      {
+        path: "annotate/workbench",
+        name: "AnnotateWorkbench",
+        component: () => import("../views/annotator/WorkbenchView.vue"),
         meta: { roles: ["annotator"] },
       },
       {

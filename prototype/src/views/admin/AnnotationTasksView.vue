@@ -240,24 +240,6 @@
       </div>
 
       <section v-if="selectedTask" class="review-detail">
-        <div class="detail-head">
-          <div class="detail-heading">
-            <div class="detail-title">
-              <span>复核详情</span>
-              <span v-if="currentEntry" class="badge" :class="reviewStatusMeta(currentEntry.status).cls">
-                {{ reviewStatusMeta(currentEntry.status).label }}
-              </span>
-            </div>
-            <p class="detail-sub">
-              当前对象 {{ currentEntry ? currentEntry.id : "—" }} ·
-              共 {{ selectedTask.entries.length }} 条待复核
-            </p>
-          </div>
-          <div class="detail-actions">
-            <button class="btn-sm" type="button" @click="leaveReview">收起复核</button>
-          </div>
-        </div>
-
         <div ref="reviewBodyRef" class="review-three">
           <aside v-if="!leftCollapsed" class="rv-list">
             <div class="rv-list-head">
@@ -341,10 +323,6 @@
             </footer>
           </section>
         </div>
-
-        <p class="detail-note">
-          amber 高亮为本次提交发生变更的字段；复核通过后变更合入母版，驳回则退回标注员修改。
-        </p>
       </section>
 
       <div v-else class="review-empty">
@@ -1173,11 +1151,6 @@ function nextReviewEntry() {
   currentEntryId.value = entries[(idx + 1) % entries.length].id;
 }
 
-function leaveReview() {
-  selectedTaskId.value = null;
-  expandedEntryId.value = null;
-}
-
 function toggleDiff(entryId) {
   expandedEntryId.value = expandedEntryId.value === entryId ? null : entryId;
 }
@@ -1888,26 +1861,6 @@ onBeforeUnmount(() => {
 .review-detail {
   margin-bottom: 0;
 }
-.detail-head {
-  display: flex;
-  align-items: flex-start;
-  justify-content: space-between;
-  gap: 14px;
-  margin-bottom: 12px;
-}
-.detail-title {
-  display: flex;
-  align-items: center;
-  gap: 9px;
-  font-size: 13px;
-  font-weight: 600;
-  color: var(--ink-900);
-}
-.detail-sub {
-  margin: 5px 0 0;
-  font-size: 11px;
-  color: var(--ink-400);
-}
 .review-table {
   min-width: 860px;
 }
@@ -2067,16 +2020,6 @@ onBeforeUnmount(() => {
 .diff-item.changed .diff-arrow {
   color: var(--warn);
   font-weight: 700;
-}
-.detail-note {
-  margin: 12px 0 0;
-  padding: 8px 11px;
-  border-left: 3px solid #ffd54f;
-  background: #fffdf7;
-  border-radius: 0 6px 6px 0;
-  font-size: 10px;
-  line-height: 1.6;
-  color: var(--ink-400);
 }
 .review-empty {
   padding: 46px 20px;
@@ -2350,11 +2293,11 @@ onBeforeUnmount(() => {
 .assign-type { width: 70px; }
 .assign-conf { width: 90px; }
 .modal-foot-actions { display: flex; justify-content: flex-end; gap: 10px; margin-top: 16px; }
-.detail-actions { display: flex; gap: 8px; }
 .review-three {
   display: flex;
   gap: 10px;
-  height: 520px;
+  height: calc(100vh - 286px);
+  min-height: 520px;
 }
 .rv-list {
   flex: 0 0 220px; width: 220px; min-width: 0; display: flex; flex-direction: column;

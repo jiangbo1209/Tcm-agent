@@ -160,8 +160,8 @@ const NAV = {
     { to: "/graph", label: "知识图谱", icon: "graph" },
   ],
   annotator: [
-    { to: "/annotate", label: "标注工作台", icon: "annotate" },
     { to: "/annotate/tasks", label: "任务领取", icon: "tasks" },
+    { to: "/annotate/workbench", label: "标注工作台", icon: "annotate" },
   ],
   admin: [
     { to: "/admin", label: "平台总览", icon: "dashboard" },

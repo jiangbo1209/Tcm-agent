@@ -153,7 +153,7 @@ function statusCls(status) {
   return "badge-muted";
 }
 function goWorkbench() {
-  router.push("/annotate");
+  router.push("/annotate/workbench");
 }
 </script>
 
