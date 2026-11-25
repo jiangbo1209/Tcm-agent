@@ -1,15 +1,10 @@
 <template>
   <div class="resource-page">
-    <div class="stat-row">
-      <div class="stat-card"><span>资源总数</span><strong>{{ eligibleCount }}</strong></div>
-      <div class="stat-card"><span>文献</span><strong>{{ countKind('lit') }}</strong></div>
-      <div class="stat-card"><span>病案</span><strong>{{ countKind('case') }}</strong></div>
-      <div class="stat-actions">
-        <button class="btn-primary upload-btn" type="button" @click="uploadModalOpen = true">上传文件</button>
-        <button class="btn-sm upload-btn" type="button" @click="queueModalOpen = true">
-          上传队列（{{ queue.length }}/{{ MAX_QUEUE }}）
-        </button>
-      </div>
+    <div class="action-row">
+      <button class="btn-primary upload-btn" type="button" @click="uploadModalOpen = true">上传文件</button>
+      <button class="btn-sm upload-btn" type="button" @click="queueModalOpen = true">
+        上传队列（{{ queue.length }}/{{ MAX_QUEUE }}）
+      </button>
     </div>
 
     <div class="toolbar">
@@ -37,7 +32,6 @@
       </select>
       <input v-model="searchQuery" class="filter-input" placeholder="搜索文档 / 编号..." />
       <button v-if="searchQuery" class="btn-clear" type="button" @click="searchQuery = ''">清除</button>
-      <span class="result-count">共 {{ filtered.length }} 条</span>
     </div>
 
     <div class="table-wrap">
@@ -442,18 +436,13 @@ async function startUpload() {
 .page-head h1 { margin: 0; font-size: 22px; font-weight: 600; color: var(--ink-900); }
 .head-actions { display: flex; align-items: center; gap: 8px; }
 
-.stat-row { display: grid; grid-template-columns: repeat(auto-fit, minmax(140px, 1fr)); gap: 12px; margin-bottom: 14px; }
-.stat-actions { display: flex; align-items: center; gap: 10px; }
+.action-row { display: flex; align-items: center; justify-content: flex-end; gap: 10px; margin-bottom: 12px; }
 .upload-btn { height: 38px; padding: 0 18px; display: inline-flex; align-items: center; justify-content: center; }
-.stat-card { background: #fff; border: 1px solid var(--line); border-radius: 10px; padding: 12px 14px; display: flex; flex-direction: column; gap: 2px; }
-.stat-card span { font-size: 12px; color: var(--ink-400); }
-.stat-card strong { font-size: 22px; color: var(--teal-dark); }
 
 .toolbar { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; margin-bottom: 12px; }
 .batch-select { width: 132px; font-variant-numeric: tabular-nums; cursor: pointer; }
 .batch-select:disabled { background: #f3f4f4; border-color: #e0e0e0; color: #9ca3af; cursor: not-allowed; }
 .btn-clear { padding: 7px 12px; border: 1px solid #d0d0d0; border-radius: 6px; background: #fff; color: var(--ink-500); font-size: 12px; cursor: pointer; }
-.result-count { font-size: 12px; color: var(--ink-400); margin-left: auto; white-space: nowrap; }
 
 .col-check { width: 40px; text-align: center; }
 .row-check { width: 15px; height: 15px; accent-color: var(--teal); cursor: pointer; }

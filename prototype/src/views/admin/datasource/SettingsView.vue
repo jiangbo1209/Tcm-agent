@@ -1,9 +1,5 @@
 <template>
   <div class="settings-page">
-    <section class="settings-head">
-      <button class="btn-primary" @click="saveAll">保存配置</button>
-    </section>
-
     <section class="panel">
       <div class="panel-head">
         <h3>Prompt 模板</h3>
@@ -99,12 +95,11 @@
       </div>
     </section>
 
-    <transition name="toast"><div v-if="toastVisible" class="toast">配置已保存（原型）</div></transition>
   </div>
 </template>
 
 <script setup>
-import { reactive, ref } from "vue";
+import { reactive, ref, watch } from "vue";
 
 const prompts = reactive([
   { type: "META分析/系统评价", version: "2.1", updatedAt: "2025-03-10 14:20", active: true },
@@ -128,12 +123,33 @@ const dictionaries = reactive([
 const thresholds = reactive({ minConfidence: 0.6, requiredPolicy: "block", unitPolicy: "warn", concurrency: 4 });
 const model = reactive({ name: "qwen2.5-72b-instruct", temperature: 0.1, maxTokens: 8192, timeout: 120 });
 
-const toastVisible = ref(false);
-let timer = null;
-function saveAll() {
-  toastVisible.value = true;
-  clearTimeout(timer);
-  timer = setTimeout(() => (toastVisible.value = false), 2200);
+const CONFIG_KEY = "tcm-dor-etl-config-v1";
+
+function persist() {
+  try {
+    localStorage.setItem(
+      CONFIG_KEY,
+      JSON.stringify({ prompts, dictionaries, thresholds, model }),
+    );
+  } catch {
+    /* ignore */
+  }
+}
+
+// 编辑即保存
+watch([prompts, dictionaries, thresholds, model], persist, { deep: true });
+
+const saved = localStorage.getItem(CONFIG_KEY);
+if (saved) {
+  try {
+    const data = JSON.parse(saved);
+    if (Array.isArray(data.prompts)) Object.assign(prompts, data.prompts);
+    if (Array.isArray(data.dictionaries)) Object.assign(dictionaries, data.dictionaries);
+    if (data.thresholds) Object.assign(thresholds, data.thresholds);
+    if (data.model) Object.assign(model, data.model);
+  } catch {
+    /* ignore */
+  }
 }
 function editPrompt(p) {
   p.version = (Number(p.version) + 0.1).toFixed(1);
@@ -151,7 +167,6 @@ function removeDictItem(d, i) {
 </script>
 
 <style scoped>
-.settings-head { display: flex; align-items: center; justify-content: flex-end; gap: 12px; margin-bottom: 14px; }
 .settings-head h2 { margin: 0 0 4px; font-size: 16px; }
 .desc { margin: 0; font-size: 12px; color: var(--ink-400); }
 .panel { background: #fff; border: 1px solid var(--line); border-radius: 10px; padding: 16px 18px; margin-bottom: 14px; }
@@ -175,7 +190,4 @@ function removeDictItem(d, i) {
 .form-item { display: flex; flex-direction: column; gap: 5px; font-size: 12px; color: var(--ink-700); }
 .form-item small { font-size: 10px; color: var(--ink-400); }
 
-.toast { position: fixed; top: 24px; right: 24px; background: var(--teal); color: #fff; padding: 10px 16px; border-radius: 8px; font-size: 13px; }
-.toast-enter-active, .toast-leave-active { transition: opacity .2s; }
-.toast-enter-from, .toast-leave-to { opacity: 0; }
 </style>
