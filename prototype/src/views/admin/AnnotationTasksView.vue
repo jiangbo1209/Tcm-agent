@@ -247,99 +247,89 @@
         <div class="detail-head">
           <div class="detail-heading">
             <div class="detail-title">
-              <span class="mono">{{ selectedTask.id }}</span>
-              <span class="badge" :class="selectedTask.tableType === 'case' ? 'badge-warn' : 'badge-teal'">
-                {{ tableTypeLabel(selectedTask.tableType) }}
+              <span>复核详情</span>
+              <span v-if="currentEntry" class="badge" :class="reviewStatusMeta(currentEntry.status).cls">
+                {{ reviewStatusMeta(currentEntry.status).label }}
               </span>
             </div>
             <p class="detail-sub">
-              标注员 {{ selectedTask.annotator }} · 共 {{ selectedTask.total }} 条 ·
-              当前展示 {{ selectedTask.entries.length }} 条样例
+              当前对象 {{ currentEntry ? currentEntry.id : "—" }} ·
+              共 {{ selectedTask.entries.length }} 条待复核
             </p>
           </div>
-          <button class="btn-sm" type="button" @click="leaveReview">收起复核</button>
+          <div class="detail-actions">
+            <button class="btn-sm" type="button" @click="leftCollapsed = !leftCollapsed">
+              {{ leftCollapsed ? "展开对象列表" : "收起对象列表" }}
+            </button>
+            <button class="btn-sm" type="button" @click="leaveReview">收起复核</button>
+          </div>
         </div>
 
-        <div class="table-wrap">
-          <table class="pool-table review-table">
-            <thead>
-              <tr>
-                <th class="col-record">记录 ID</th>
-                <th class="col-annotator">标注员</th>
-                <th class="col-summary">摘要</th>
-                <th class="col-review-status">状态</th>
-                <th class="col-pass">通过</th>
-                <th class="col-reject">驳回</th>
-                <th class="col-diff">差异</th>
-              </tr>
-            </thead>
-            <tbody>
-              <template v-for="entry in selectedTask.entries" :key="entry.id">
-                <tr :class="{ 'row-open': expandedEntryId === entry.id }">
-                  <td class="mono record-id">{{ entry.id }}</td>
-                  <td class="cell-annotator">{{ entry.annotator }}</td>
-                  <td class="cell-summary" :title="entry.summary">{{ entry.summary }}</td>
-                  <td>
-                    <span class="badge" :class="reviewStatusMeta(entry.status).cls">
-                      {{ reviewStatusMeta(entry.status).label }}
-                    </span>
-                  </td>
-                  <td>
-                    <button
-                      class="btn-sm pass"
-                      type="button"
-                      :disabled="entry.status !== 'pending'"
-                      @click="approveEntry(entry)"
-                    >
-                      通过
-                    </button>
-                  </td>
-                  <td>
-                    <button
-                      class="btn-sm reject"
-                      type="button"
-                      :disabled="entry.status !== 'pending'"
-                      @click="rejectEntry(entry)"
-                    >
-                      驳回
-                    </button>
-                  </td>
-                  <td>
-                    <button class="btn-link" type="button" @click="toggleDiff(entry.id)">
-                      {{ expandedEntryId === entry.id ? "收起 diff" : `展开 diff (${changedCount(entry)})` }}
-                    </button>
-                  </td>
-                </tr>
-                <tr v-if="expandedEntryId === entry.id" class="diff-row">
-                  <td colspan="7">
-                    <div class="diff-panel">
-                      <div class="diff-head">
-                        <span class="diff-head-title">字段变更对比</span>
-                        <span class="diff-legend"><i></i> 变更字段</span>
-                      </div>
-                      <div class="diff-cols">
-                        <span></span>
-                        <span>当前值</span>
-                        <span></span>
-                        <span>提交值</span>
-                      </div>
-                      <div
-                        v-for="item in entry.diffs"
-                        :key="item.label"
-                        class="diff-item"
-                        :class="{ changed: item.changed }"
-                      >
-                        <span class="diff-label">{{ item.label }}</span>
-                        <span class="diff-value current" :title="item.current">{{ item.current || "—" }}</span>
-                        <span class="diff-arrow">→</span>
-                        <span class="diff-value submitted" :title="item.submitted">{{ item.submitted || "—" }}</span>
-                      </div>
-                    </div>
-                  </td>
-                </tr>
-              </template>
-            </tbody>
-          </table>
+        <div class="review-three">
+          <aside v-if="!leftCollapsed" class="rv-list">
+            <div class="rv-list-head">复核对象</div>
+            <div class="rv-list-body">
+              <button
+                v-for="entry in selectedTask.entries"
+                :key="entry.id"
+                class="rv-item"
+                :class="{ active: currentEntryId === entry.id }"
+                type="button"
+                @click="currentEntryId = entry.id"
+              >
+                <span class="mono rv-item-id">{{ entry.id }}</span>
+                <span class="badge" :class="reviewStatusMeta(entry.status).cls">
+                  {{ reviewStatusMeta(entry.status).label }}
+                </span>
+              </button>
+            </div>
+          </aside>
+
+          <section class="rv-source">
+            <div class="rv-pane-head">原文</div>
+            <div class="rv-source-body">
+              <p v-if="currentOriginal" class="rv-source-title">{{ currentOriginal.title }}</p>
+              <pre class="rv-source-text">{{ currentOriginal?.body || "暂无原文" }}</pre>
+            </div>
+          </section>
+
+          <section class="rv-form">
+            <div class="rv-pane-head">
+              需复核项目
+              <span class="rv-change-count">{{ currentEntry ? changedCount(currentEntry) : 0 }} 项变更</span>
+            </div>
+            <div class="rv-form-body">
+              <div
+                v-for="item in (currentEntry ? currentEntry.diffs : [])"
+                :key="item.label"
+                class="rv-diff"
+                :class="{ changed: item.changed }"
+              >
+                <span class="rv-diff-label">{{ item.label }}</span>
+                <span class="rv-diff-current" :title="item.current">{{ item.current || "—" }}</span>
+                <span class="rv-diff-arrow">→</span>
+                <span class="rv-diff-submitted" :title="item.submitted">{{ item.submitted || "—" }}</span>
+              </div>
+            </div>
+            <footer class="rv-actions">
+              <button
+                class="btn-sm reject"
+                type="button"
+                :disabled="!currentEntry || currentEntry.status !== 'pending'"
+                @click="rejectEntry(currentEntry)"
+              >
+                驳回
+              </button>
+              <button
+                class="btn-sm pass"
+                type="button"
+                :disabled="!currentEntry || currentEntry.status !== 'pending'"
+                @click="approveEntry(currentEntry)"
+              >
+                通过
+              </button>
+            </footer>
+          </section>
         </div>
 
         <p class="detail-note">
@@ -557,6 +547,7 @@
 import { computed, nextTick, onBeforeUnmount, reactive, ref, watch } from "vue";
 import { LIT_RECORDS, CASE_RECORDS } from "../../data/dorMock";
 import { annotationStore } from "../../stores/annotation";
+import { resolveOriginal } from "../../data/originals";
 
 /* ───────── 页签 ───────── */
 const TABS = [
@@ -1103,8 +1094,35 @@ function stepReview(delta) {
   if (task) enterReview(task);
 }
 
+const leftCollapsed = ref(false);
+const currentEntryId = ref(null);
+
+const currentEntry = computed(() => {
+  if (!selectedTask.value) return null;
+  return (
+    selectedTask.value.entries.find((e) => e.id === currentEntryId.value) ||
+    selectedTask.value.entries[0] ||
+    null
+  );
+});
+
+const currentOriginal = computed(() => {
+  if (!currentEntry.value || !selectedTask.value) return null;
+  return resolveOriginal({
+    id: currentEntry.value.id,
+    kind: selectedTask.value.tableType === "case" ? "case" : "lit",
+    values: {},
+    name: currentEntry.value.id,
+  });
+});
+
+watch(selectedTask, (task) => {
+  currentEntryId.value = task?.entries?.[0]?.id || null;
+});
+
 async function enterReview(task) {
   selectedTaskId.value = task.id;
+  currentEntryId.value = task.entries?.[0]?.id || null;
   expandedEntryId.value = null;
   await nextTick();
   const el = document.querySelector(".task-card.active");
@@ -2280,4 +2298,41 @@ onBeforeUnmount(() => {
 .assign-type { width: 70px; }
 .assign-conf { width: 90px; }
 .modal-foot-actions { display: flex; justify-content: flex-end; gap: 10px; margin-top: 16px; }
+.detail-actions { display: flex; gap: 8px; }
+.review-three {
+  display: grid;
+  grid-template-columns: 240px minmax(0, 1fr) minmax(0, 1.1fr);
+  gap: 0;
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  overflow: hidden;
+  height: 520px;
+}
+.rv-list { border-right: 1px solid var(--line); background: #fafbfb; display: flex; flex-direction: column; min-width: 0; }
+.rv-list-head { padding: 9px 12px; font-size: 12px; font-weight: 600; color: var(--ink-500); border-bottom: 1px solid var(--line); }
+.rv-list-body { flex: 1; overflow-y: auto; padding: 6px; display: flex; flex-direction: column; gap: 4px; }
+.rv-item {
+  display: flex; align-items: center; justify-content: space-between; gap: 8px;
+  padding: 7px 9px; border: 1px solid transparent; border-radius: 7px;
+  background: transparent; cursor: pointer; text-align: left; font-size: 12px;
+}
+.rv-item:hover { background: #f0f7f6; }
+.rv-item.active { background: #fff; border-color: var(--teal-border); box-shadow: 0 1px 4px rgba(0,0,0,.04); }
+.rv-item-id { font-size: 11px; color: var(--ink-700); }
+.rv-source { border-right: 1px solid var(--line); background: #fafafa; display: flex; flex-direction: column; min-width: 0; }
+.rv-form { display: flex; flex-direction: column; min-width: 0; background: #fff; }
+.rv-pane-head { padding: 9px 12px; font-size: 12px; font-weight: 600; color: var(--ink-500); border-bottom: 1px solid var(--line); display: flex; justify-content: space-between; align-items: center; }
+.rv-change-count { font-size: 10px; color: #b06a00; }
+.rv-source-body { flex: 1; overflow-y: auto; padding: 12px; }
+.rv-source-title { margin: 0 0 8px; font-size: 13px; font-weight: 600; }
+.rv-source-text { margin: 0; white-space: pre-wrap; font-size: 12px; line-height: 1.8; font-family: inherit; color: #333; }
+.rv-form-body { flex: 1; overflow-y: auto; padding: 10px 12px; display: flex; flex-direction: column; gap: 6px; }
+.rv-diff { display: grid; grid-template-columns: 90px 1fr 16px 1fr; gap: 8px; align-items: center; padding: 6px 8px; border-radius: 6px; font-size: 12px; }
+.rv-diff.changed { background: #fffaf0; border-left: 3px solid #b06a00; }
+.rv-diff-label { color: var(--ink-400); font-size: 11px; }
+.rv-diff-current { color: var(--ink-700); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.rv-diff-arrow { color: var(--ink-400); text-align: center; }
+.rv-diff-submitted { color: var(--teal-dark); font-weight: 500; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.rv-diff.changed .rv-diff-submitted { color: #b06a00; }
+.rv-actions { display: flex; justify-content: flex-end; gap: 8px; padding: 10px 12px; border-top: 1px solid var(--line); }
 </style>
