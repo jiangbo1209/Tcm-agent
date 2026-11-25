@@ -9,6 +9,28 @@
     </div>
 
     <div class="chat-layout">
+      <aside class="card history-panel">
+        <div class="history-head">
+          <span>历史对话</span>
+          <button class="btn-sm" type="button" @click="newChat">新建</button>
+        </div>
+        <div class="history-list">
+          <button
+            v-for="conv in history"
+            :key="conv.id"
+            class="history-item"
+            :class="{ active: conv.id === activeId }"
+            type="button"
+            @click="switchChat(conv.id)"
+          >
+            <span class="h-title">{{ conv.title }}</span>
+            <span class="h-meta">{{ conv.updatedAt }}</span>
+            <span class="h-del" title="删除" @click.stop="deleteChat(conv.id)">×</span>
+          </button>
+          <p v-if="history.length === 0" class="h-empty">暂无历史对话</p>
+        </div>
+      </aside>
+
       <section class="card chat-card">
         <div ref="scrollRef" class="msg-list">
           <div
@@ -122,7 +144,39 @@ function welcomeMessage() {
   };
 }
 
-const messages = ref([welcomeMessage()]);
+const STORAGE_KEY = "tcm-dor-chat-history-v1";
+
+function loadHistory() {
+  try {
+    const raw = JSON.parse(localStorage.getItem(STORAGE_KEY) || "[]");
+    return Array.isArray(raw) ? raw : [];
+  } catch {
+    return [];
+  }
+}
+
+function cloneMessages(list) {
+  return list.map((m) => ({ ...m, cites: (m.cites || []).map((c) => ({ ...c })) }));
+}
+
+function convId() {
+  return `conv-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 6)}`;
+}
+
+function titleOf(list) {
+  const firstUser = list.find((m) => m.role === "user");
+  if (!firstUser) return "新对话";
+  const text = String(firstUser.text || "").replace(/\s+/g, " ").trim();
+  return text.length > 18 ? `${text.slice(0, 18)}…` : text || "新对话";
+}
+
+function stamp() {
+  return new Date().toISOString().slice(0, 16).replace("T", " ");
+}
+
+const history = ref(loadHistory());
+const activeId = ref("");
+const messages = ref([]);
 const draft = ref("");
 const sending = ref(false);
 const activeCite = ref("");
@@ -184,6 +238,75 @@ function buildReply(text) {
   };
 }
 
+function maxMessageId(list) {
+  return list.reduce((max, m) => Math.max(max, Number(m.id) || 0), 0);
+}
+
+function persistCurrent() {
+  if (!activeId.value) return;
+  const conv = history.value.find((c) => c.id === activeId.value);
+  if (!conv) return;
+  conv.messages = cloneMessages(messages.value);
+  conv.title = titleOf(messages.value);
+  conv.updatedAt = stamp();
+  try {
+    localStorage.setItem(STORAGE_KEY, JSON.stringify(history.value));
+  } catch {
+    /* ignore */
+  }
+}
+
+function setActive(conv) {
+  activeId.value = conv.id;
+  messages.value = cloneMessages(conv.messages || []);
+  uid = maxMessageId(messages.value);
+  nextTick(() => inputRef.value && inputRef.value.focus());
+  scrollToBottom();
+}
+
+function newChat() {
+  persistCurrent();
+  const welcome = welcomeMessage();
+  const conv = {
+    id: convId(),
+    title: "新对话",
+    createdAt: stamp(),
+    updatedAt: stamp(),
+    messages: [welcome],
+  };
+  history.value.unshift(conv);
+  activeId.value = conv.id;
+  messages.value = [welcome];
+  uid = maxMessageId(messages.value);
+  draft.value = "";
+  persistCurrent();
+  nextTick(() => inputRef.value && inputRef.value.focus());
+}
+
+function switchChat(id) {
+  if (id === activeId.value) return;
+  persistCurrent();
+  const conv = history.value.find((c) => c.id === id);
+  if (conv) setActive(conv);
+}
+
+function deleteChat(id) {
+  history.value = history.value.filter((c) => c.id !== id);
+  if (activeId.value === id) {
+    if (history.value.length) {
+      setActive(history.value[0]);
+    } else {
+      newChat();
+      return;
+    }
+  }
+  try {
+    localStorage.setItem(STORAGE_KEY, JSON.stringify(history.value));
+  } catch {
+    /* ignore */
+  }
+}
+
 function scrollToBottom() {
   nextTick(() => {
     const el = scrollRef.value;
@@ -205,6 +328,7 @@ function send() {
   });
   draft.value = "";
   sending.value = true;
+  persistCurrent();
   scrollToBottom();
 
   setTimeout(() => {
@@ -219,6 +343,7 @@ function send() {
     });
     sending.value = false;
     activeCite.value = "";
+    persistCurrent();
     scrollToBottom();
   }, 800);
 }
@@ -228,7 +353,15 @@ function clearChat() {
   draft.value = "";
   sending.value = false;
   activeCite.value = "";
+  persistCurrent();
   nextTick(() => inputRef.value && inputRef.value.focus());
+}
+/* 初始化：恢复最近会话或创建新会话 */
+if (history.value.length) {
+  const latest = [...history.value].sort((a, b) => String(b.updatedAt).localeCompare(String(a.updatedAt)))[0];
+  setActive(latest);
+} else {
+  newChat();
 }
 </script>
 
@@ -244,6 +377,52 @@ function clearChat() {
   display: flex;
   gap: 16px;
   align-items: stretch;
+}
+
+.history-panel {
+  width: 220px;
+  flex-shrink: 0;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+}
+.history-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 10px 12px;
+  border-bottom: 1px solid var(--line);
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--ink-700);
+}
+.history-list { flex: 1; overflow-y: auto; padding: 6px; display: flex; flex-direction: column; gap: 4px; }
+.history-item {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  padding: 8px 26px 8px 10px;
+  border: 1px solid transparent;
+  border-radius: 8px;
+  background: transparent;
+  text-align: left;
+  cursor: pointer;
+}
+.history-item:hover { background: #f0f7f6; }
+.history-item.active { background: #fff; border-color: var(--teal-border); }
+.h-title { font-size: 12px; color: var(--ink-700); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.h-meta { font-size: 10px; color: var(--ink-400); }
+.h-del {
+  position: absolute; right: 6px; top: 8px;
+  width: 16px; height: 16px; line-height: 14px; text-align: center;
+  border-radius: 4px; color: var(--ink-400); font-size: 13px;
+}
+.h-del:hover { background: #ffebee; color: #c62828; }
+.h-empty { margin: 12px; font-size: 12px; color: var(--ink-400); text-align: center; }
+
+@media (max-width: 1100px) {
+  .history-panel { display: none; }
 }
 
 .chat-card {
