@@ -122,18 +122,13 @@
             </span>
             <span class="editor-meta">更新于 {{ editingRecord.updated_at }}</span>
           </div>
-          <div class="editor-actions">
-            <button class="btn-sm" type="button" @click="fieldsCollapsed = !fieldsCollapsed">
-              {{ fieldsCollapsed ? "展开字段" : "收起字段" }}
-            </button>
-            <button class="editor-close" title="关闭" @click="closeEditor">&times;</button>
-          </div>
+          <button class="editor-close" title="关闭" @click="closeEditor">&times;</button>
         </header>
 
         <div
           ref="editorBodyRef"
           class="editor-body"
-          :class="{ 'fields-collapsed': fieldsCollapsed, 'list-collapsed': listCollapsed }"
+          :class="{ 'list-collapsed': listCollapsed }"
         >
           <aside v-if="!listCollapsed" class="editor-list">
             <div class="editor-list-head">
@@ -171,14 +166,13 @@
           </section>
 
           <div
-            v-if="!fieldsCollapsed"
             class="editor-splitter"
             :class="{ dragging: resizing }"
             title="拖动调整宽度"
             @pointerdown.prevent="startResize"
           ></div>
 
-          <section v-if="!fieldsCollapsed" class="editor-pane editor-fields">
+          <section class="editor-pane editor-fields">
             <div class="pane-head">
               <span class="pane-label">字段编辑</span>
               <span class="pane-hint">{{ CASE_FIELD_COUNT }} 字段 · {{ CASE_GROUPS.length }} 分组</span>
@@ -369,7 +363,6 @@ function openEditor(record) {
 
 const sourceWidth = ref(40);
 const listCollapsed = ref(false);
-const fieldsCollapsed = ref(false);
 const resizing = ref(false);
 const editorBodyRef = ref(null);
 
@@ -585,6 +578,4 @@ textarea.field-control { resize: vertical; min-height: 52px; line-height: 1.4; }
 .editor-list-title { font-size: 11px; color: #444; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .editor-list-expand { flex: 0 0 18px; width: 18px; border: none; border-right: 1px solid #e8e8e8; background: #fafbfb; color: #8a9695; cursor: pointer; font-size: 14px; }
 .editor-list-expand:hover { color: #00796b; background: #f0f7f6; }
-.editor-body.fields-collapsed .editor-source { width: auto !important; flex: 1 1 auto; }
-.editor-body.list-collapsed .editor-source { width: auto !important; }
 </style>
