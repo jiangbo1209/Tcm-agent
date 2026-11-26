@@ -1,24 +1,24 @@
 <template>
   <div class="admin-page">
     <!-- 角色页签 -->
-    <div class="role-tabs" role="tablist" aria-label="角色筛选">
-      <button
-        v-for="role in ROLE_LIST"
-        :key="role.key"
-        class="role-tab"
-        :class="{ active: activeRole === role.key }"
-        type="button"
-        role="tab"
-        :aria-selected="activeRole === role.key"
-        @click="activeRole = role.key"
-      >
-        <span class="tab-dot" :style="{ background: role.color }"></span>
-        <span class="tab-label">{{ role.label }}</span>
-        <span class="tab-count">{{ roleCount(role.key) }}</span>
-      </button>
-    </div>
+    <div class="role-row">
+      <div class="role-tabs" role="tablist" aria-label="角色筛选">
+        <button
+          v-for="role in ROLE_LIST"
+          :key="role.key"
+          class="role-tab"
+          :class="{ active: activeRole === role.key }"
+          type="button"
+          role="tab"
+          :aria-selected="activeRole === role.key"
+          @click="activeRole = role.key"
+        >
+          <span class="tab-dot" :style="{ background: role.color }"></span>
+          <span class="tab-label">{{ role.label }}</span>
+          <span class="tab-count">{{ roleCount(role.key) }}</span>
+        </button>
+      </div>
 
-    <div class="create-row">
       <button class="btn-primary" type="button" @click="openCreate">＋ 新增用户</button>
     </div>
 
@@ -523,10 +523,9 @@ onBeforeUnmount(() => {
   border: 1px solid var(--line);
   border-radius: 10px;
   background: #fff;
-  margin-bottom: 12px;
   overflow-x: auto;
 }
-.create-row { display: flex; justify-content: flex-end; margin-bottom: 12px; }
+.role-row { display: flex; align-items: center; justify-content: space-between; gap: 12px; margin-bottom: 12px; }
 .role-tab {
   display: inline-flex;
   align-items: center;
