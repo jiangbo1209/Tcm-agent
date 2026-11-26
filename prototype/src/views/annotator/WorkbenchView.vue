@@ -501,10 +501,9 @@ const selectedTask = computed(
   () => activeTasks.value.find((t) => t.id === selectedTaskId.value) || null,
 );
 
-const TASK_COLORS = ["#00796b", "#1565c0", "#b06a00", "#6a1b9a", "#c62828", "#00838f"];
+const KIND_COLORS = { lit: "#00796b", case: "#b06a00" };
 function taskColor(task) {
-  const idx = activeTasks.value.findIndex((t) => t.id === task.id);
-  return TASK_COLORS[(idx < 0 ? 0 : idx) % TASK_COLORS.length];
+  return KIND_COLORS[task.kind] || "var(--line)";
 }
 const activeTaskColor = computed(() =>
   selectedTask.value ? taskColor(selectedTask.value) : "var(--line)",
@@ -874,17 +873,18 @@ function confirmSubmit() {
   display: flex;
   flex-direction: column;
   padding: 10px 12px 9px;
-  border: 1px solid var(--line);
+  border: 1px solid var(--task-color, var(--line));
   border-radius: 10px;
   background: #fff;
   transition: border-color 0.16s ease, box-shadow 0.16s ease;
 }
 .task-card:hover {
-  border-color: var(--teal-border);
+  border-color: var(--task-color, var(--teal-border));
   box-shadow: 0 4px 14px rgba(0, 0, 0, 0.04);
 }
 .task-card.active {
   border-color: var(--task-color, var(--teal));
+  box-shadow: 0 0 0 2px color-mix(in srgb, var(--task-color, var(--teal)) 14%, transparent);
 }
 .task-card-top {
   display: flex;

@@ -1049,10 +1049,9 @@ const selectedTask = computed(
   () => REVIEW_TASKS.value.find((task) => task.id === selectedTaskId.value) || null,
 );
 
-const REVIEW_TASK_COLORS = ["#00796b", "#1565c0", "#b06a00", "#6a1b9a", "#c62828"];
+const REVIEW_KIND_COLORS = { literature: "#00796b", case: "#b06a00" };
 function reviewTaskColor(task) {
-  const idx = REVIEW_TASKS.value.findIndex((t) => t.id === task.id);
-  return REVIEW_TASK_COLORS[(idx < 0 ? 0 : idx) % REVIEW_TASK_COLORS.length];
+  return REVIEW_KIND_COLORS[task.tableType] || "var(--line)";
 }
 const selectedReviewColor = computed(() =>
   selectedTask.value ? reviewTaskColor(selectedTask.value) : "var(--line)",
@@ -1791,17 +1790,18 @@ onBeforeUnmount(() => {
   display: flex;
   flex-direction: column;
   padding: 10px 12px 9px;
-  border: 1px solid var(--line);
+  border: 1px solid var(--review-color, var(--line));
   border-radius: 10px;
   background: #fff;
   transition: border-color 0.16s ease, box-shadow 0.16s ease;
 }
 .task-card:hover {
-  border-color: var(--teal-border);
+  border-color: var(--review-color, var(--teal-border));
   box-shadow: 0 4px 14px rgba(0, 0, 0, 0.04);
 }
 .task-card.active {
   border-color: var(--review-color, var(--teal));
+  box-shadow: 0 0 0 2px color-mix(in srgb, var(--review-color, var(--teal)) 14%, transparent);
 }
 .task-card-top {
   display: flex;
