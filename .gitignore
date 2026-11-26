@@ -17,6 +17,8 @@ venv/
 
 # Data
 data/
+!prototype/src/data/
+!prototype/src/data/**
 *.db
 
 # Node
