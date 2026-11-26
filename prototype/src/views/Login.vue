@@ -10,6 +10,9 @@
       </div>
 
       <p class="pick-hint">选择角色进入原型（纯前端演示，无需账号密码）</p>
+      <p v-if="route.query.redirect" class="redirect-hint">
+        该页面需要对应角色，选择后将自动继续进入
+      </p>
 
       <div class="role-grid">
         <button
@@ -34,13 +37,24 @@
 </template>
 
 <script setup>
-import { useRouter } from "vue-router";
+import { useRoute, useRouter } from "vue-router";
 import { session, ROLE_META } from "../stores/session";
 
 const router = useRouter();
+const route = useRoute();
 
 function enter(role) {
   session.login(role);
+  const redirect =
+    typeof route.query.redirect === "string" ? route.query.redirect : "";
+  if (redirect.startsWith("/") && !redirect.startsWith("//")) {
+    const resolved = router.resolve(redirect);
+    const roles = resolved.meta?.roles;
+    if (Array.isArray(roles) && roles.includes(role)) {
+      router.push(redirect);
+      return;
+    }
+  }
   router.push(ROLE_META[role].home);
 }
 </script>
@@ -64,6 +78,7 @@ function enter(role) {
 .brand p { margin: 0; font-size: 12px; color: var(--ink-400); }
 
 .pick-hint { font-size: 12px; color: var(--ink-500); margin: 0 0 14px; }
+.redirect-hint { margin: -4px 0 14px; padding: 7px 10px; border-left: 3px solid #ffd54f; background: #fffdf7; border-radius: 0 6px 6px 0; font-size: 11px; color: #8a6d1d; }
 
 .role-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
 .role-card {

@@ -96,11 +96,11 @@ router.beforeEach((to) => {
     return true;
   }
   if (!session.isLoggedIn.value) {
-    return "/login";
+    return { path: "/login", query: { redirect: to.fullPath } };
   }
   const allowed = to.meta.roles;
   if (Array.isArray(allowed) && !allowed.includes(session.state.role)) {
-    return "/login";
+    return { path: "/login", query: { redirect: to.fullPath } };
   }
   if (to.path === "/") {
     return session.state.role === "admin"
