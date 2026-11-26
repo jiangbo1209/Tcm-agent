@@ -1,5 +1,5 @@
 <template>
-  <div class="admin-page">
+  <div class="admin-page" :class="{ 'workbench-fill': activeTab === 'tasks' }">
     <!-- 页签 -->
     <div class="tabs">
       <button
@@ -912,6 +912,10 @@ function confirmSubmit() {
 .review-empty p { margin: 0 0 6px; font-size: 13px; color: var(--ink-700); }
 .review-empty span { font-size: 11px; color: var(--ink-400); }
 
+.workbench-fill { display: flex; flex-direction: column; height: 100%; }
+.workbench-fill .tabs,
+.workbench-fill .review-carousel { flex-shrink: 0; }
+.workbench-fill .work-layout { flex: 1 1 auto; height: auto; min-height: 560px; }
 .work-layout {
   display: flex;
   gap: 12px;
@@ -936,7 +940,7 @@ function confirmSubmit() {
 .task-list {
   display: flex;
   flex-direction: column;
-  height: 700px;
+  height: 100%;
   overflow: hidden;
   border: 1px solid var(--line);
   border-radius: 10px;
@@ -1047,7 +1051,7 @@ function confirmSubmit() {
 .original-panel {
   display: flex;
   flex-direction: column;
-  height: 700px;
+  height: 100%;
   min-width: 0;
   overflow: hidden;
 }
@@ -1167,7 +1171,7 @@ function confirmSubmit() {
 .editor {
   display: flex;
   flex-direction: column;
-  height: 700px;
+  height: 100%;
   min-width: 0;
   overflow: hidden;
 }
@@ -1520,7 +1524,8 @@ function confirmSubmit() {
 }
 
 @media (max-width: 1100px) {
-  .work-layout { flex-wrap: wrap; }
+  .workbench-fill .work-layout { flex: 0 0 auto; }
+  .work-layout { flex-wrap: wrap; height: auto; min-height: 0; }
 
   .task-list {
     flex: 1 1 100%;
