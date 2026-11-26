@@ -236,7 +236,7 @@
       </div>
 
       <section v-if="selectedTask" class="review-detail">
-        <div ref="reviewBodyRef" class="review-three">
+        <div ref="reviewBodyRef" class="review-three" :class="{ 'list-collapsed': leftCollapsed }">
           <aside v-if="!leftCollapsed" class="rv-list" :style="{ borderColor: selectedReviewColor }">
             <div class="rv-list-head">
               <span>复核对象</span>
@@ -266,7 +266,7 @@
           </div>
 
 
-          <section class="rv-source" :style="{ width: sourceWidth + '%' }">
+          <section class="rv-source" :style="sourceWidth ? { width: sourceWidth + '%' } : {}">
             <div class="rv-pane-head">原文</div>
             <div class="rv-source-body">
               <p v-if="currentOriginal" class="rv-source-title">{{ currentOriginal.title }}</p>
@@ -1085,7 +1085,10 @@ function stepReview(delta) {
 
 const leftCollapsed = ref(false);
 const currentEntryId = ref(null);
-const sourceWidth = ref(50);
+const sourceWidth = ref(null);
+watch(leftCollapsed, () => {
+  sourceWidth.value = null;
+});
 const sourceResizing = ref(false);
 const reviewBodyRef = ref(null);
 
@@ -2313,7 +2316,7 @@ onBeforeUnmount(() => {
   min-height: 520px;
 }
 .rv-list {
-  flex: 0 0 220px; width: 220px; min-width: 0; display: flex; flex-direction: column;
+  flex: 0 0 auto; width: calc((100% - 37px) * 0.2); min-width: 0; display: flex; flex-direction: column;
   border: 1px solid var(--line); border-radius: 10px; background: #fff; overflow: hidden;
 }
 .rv-list-head { display: flex; align-items: center; justify-content: space-between; height: 38px; padding: 0 10px 0 12px; box-sizing: border-box; font-size: 12px; font-weight: 600; color: var(--ink-500); border-bottom: 1px solid var(--line); }
@@ -2328,11 +2331,12 @@ onBeforeUnmount(() => {
 .rv-item.active { background: #fff; border-color: var(--teal-border); box-shadow: 0 1px 4px rgba(0,0,0,.04); }
 .rv-item-id { font-size: 11px; color: var(--ink-700); }
 .rv-source {
-  flex: 0 0 auto; min-width: 0; display: flex; flex-direction: column;
+  flex: 0 0 auto; width: calc((100% - 37px) * 0.4); min-width: 0; display: flex; flex-direction: column;
   border: 1px solid var(--line); border-radius: 10px; background: #fafafa; overflow: hidden;
 }
+.review-three.list-collapsed .rv-source { width: calc((100% - 63px) * 0.6); }
 .rv-form {
-  flex: 1 1 auto; min-width: 0; display: flex; flex-direction: column;
+  flex: 1 1 0; min-width: 0; display: flex; flex-direction: column;
   border: 1px solid var(--line); border-radius: 10px; background: #fff; overflow: hidden;
 }
 .rv-pane-head { height: 38px; padding: 0 12px; box-sizing: border-box; font-size: 12px; font-weight: 600; color: var(--ink-500); border-bottom: 1px solid var(--line); display: flex; justify-content: space-between; align-items: center; }

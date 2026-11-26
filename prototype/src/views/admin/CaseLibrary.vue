@@ -152,7 +152,7 @@
           </div>
 
 
-          <section class="editor-pane editor-source" :style="{ width: sourceWidth + '%' }">
+          <section class="editor-pane editor-source" :style="sourceWidth ? { width: sourceWidth + '%' } : {}">
             <div class="pane-head">
               <span class="pane-label">原文</span>
               <span v-if="original" class="pane-hint">{{ original.source }}</span>
@@ -374,8 +374,11 @@ function openEditor(record) {
   editValues.value = next;
 }
 
-const sourceWidth = ref(40);
+const sourceWidth = ref(null);
 const listCollapsed = ref(false);
+watch(listCollapsed, () => {
+  sourceWidth.value = null;
+});
 const resizing = ref(false);
 const editorBodyRef = ref(null);
 
@@ -514,12 +517,13 @@ onBeforeUnmount(() => {
 
 .editor-body { flex: 1; min-height: 0; display: flex; gap: 10px; padding: 12px; background: #f7f9f9; }
 .editor-pane { display: flex; flex-direction: column; min-width: 0; min-height: 0; }
-.editor-source { flex: 0 0 auto; background: #fafafa; min-width: 0; border: 1px solid #e8e8e8; border-radius: 10px; overflow: hidden; }
+.editor-source { flex: 0 0 auto; width: calc((100% - 37px) * 0.4); background: #fafafa; min-width: 0; border: 1px solid #e8e8e8; border-radius: 10px; overflow: hidden; }
+.editor-body.list-collapsed .editor-source { width: calc((100% - 63px) * 0.6); }
 .editor-splitter { flex: 0 0 7px; cursor: col-resize; background: #f0f2f2; border-left: 1px solid #e8e8e8; border-right: 1px solid #e8e8e8; position: relative; touch-action: none; transition: background 0.15s; }
 .editor-splitter::after { content: ""; position: absolute; top: 50%; left: 50%; width: 3px; height: 34px; transform: translate(-50%, -50%); border-radius: 3px; background: #c9d6d4; }
 .editor-splitter:hover, .editor-splitter.dragging { background: var(--teal-soft, #e0f2f1); }
 .editor-splitter:hover::after, .editor-splitter.dragging::after { background: var(--teal, #00796b); }
-.editor-fields { flex: 1 1 auto; min-width: 0; border: 1px solid #e8e8e8; border-radius: 10px; overflow: hidden; background: #fff; }
+.editor-fields { flex: 1 1 0; min-width: 0; border: 1px solid #e8e8e8; border-radius: 10px; overflow: hidden; background: #fff; }
 .pane-head { display: flex; align-items: center; justify-content: space-between; gap: 8px; padding: 9px 16px; border-bottom: 1px solid #ececec; flex-shrink: 0; }
 .pane-label { font-size: 12px; font-weight: 600; color: #00796b; letter-spacing: 0.5px; }
 .pane-hint { font-size: 11px; color: #999; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
@@ -580,7 +584,7 @@ textarea.field-control { resize: vertical; min-height: 52px; line-height: 1.4; }
 
 /* ── 三栏编辑：记录列表 / 原文 / 字段 ── */
 .editor-actions { display: flex; align-items: center; gap: 8px; flex-shrink: 0; }
-.editor-list { flex: 0 0 220px; width: 220px; min-width: 0; display: flex; flex-direction: column; border: 1px solid #e8e8e8; border-radius: 10px; background: #fff; overflow: hidden; }
+.editor-list { flex: 0 0 auto; width: calc((100% - 37px) * 0.2); min-width: 0; display: flex; flex-direction: column; border: 1px solid #e8e8e8; border-radius: 10px; background: #fff; overflow: hidden; }
 .editor-list-head { display: flex; align-items: center; justify-content: space-between; padding: 8px 12px; border-bottom: 1px solid #e8e8e8; font-size: 12px; font-weight: 600; color: #666; }
 .list-toggle { border: none; background: transparent; color: #8a9695; cursor: pointer; font-size: 16px; line-height: 1; }
 .list-toggle:hover { color: #00796b; }

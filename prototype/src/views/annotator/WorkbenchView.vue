@@ -117,7 +117,7 @@
           <button type="button" title="下一条" @click="nextItem">›</button>
         </div>
 
-        <section class="original-panel card" :style="{ width: sourceWidth + 'px' }">
+        <section class="original-panel card" :style="sourceWidth ? { width: sourceWidth + 'px' } : {}">
           <header class="original-head">
             <div class="original-title">
               <span class="original-tag">原文</span>
@@ -552,32 +552,23 @@ const form = ref({});
 const confirmOpen = ref(false);
 const originalFont = ref("md");
 const workListCollapsed = ref(false);
-const sourceWidth = ref(window.innerWidth <= 1400 ? 360 : 420);
+const sourceWidth = ref(null);
 const sourceResizing = ref(false);
 const workLayoutRef = ref(null);
 let resizeStartX = 0;
 let resizeStartW = 0;
-let collapseGain = 244;
 
 function setListCollapsed(collapsed) {
   if (collapsed === workListCollapsed.value) return;
-  if (collapsed) {
-    const list = workLayoutRef.value?.querySelector(".task-list");
-    if (list) {
-      collapseGain = Math.max(0, Math.round(list.getBoundingClientRect().width) - 26);
-    }
-    workListCollapsed.value = true;
-    sourceWidth.value = Math.max(280, sourceWidth.value + collapseGain);
-  } else {
-    workListCollapsed.value = false;
-    sourceWidth.value = Math.max(280, sourceWidth.value - collapseGain);
-  }
+  workListCollapsed.value = collapsed;
+  sourceWidth.value = null;
 }
 
 function startSourceResize(e) {
   sourceResizing.value = true;
   resizeStartX = e.clientX;
-  resizeStartW = sourceWidth.value;
+  const source = workLayoutRef.value?.querySelector(".original-panel");
+  resizeStartW = source ? source.getBoundingClientRect().width : 0;
   window.addEventListener("pointermove", onSourceResize);
   window.addEventListener("pointerup", stopSourceResize);
 }
@@ -585,9 +576,8 @@ function startSourceResize(e) {
 function onSourceResize(e) {
   if (!sourceResizing.value) return;
   const rect = workLayoutRef.value?.getBoundingClientRect();
-  const listWidth = workListCollapsed.value ? 26 : 270;
-  const gain = workListCollapsed.value ? collapseGain : 0;
-  const max = rect ? rect.width - listWidth - 320 - 31 - gain : 900;
+  const listWidth = workListCollapsed.value ? 26 : rect ? rect.width * 0.2 : 0;
+  const max = rect ? rect.width - listWidth - 320 - 31 : 900;
   sourceWidth.value = Math.min(
     Math.max(280, max),
     Math.max(280, resizeStartW + (e.clientX - resizeStartX)),
@@ -927,9 +917,10 @@ function confirmSubmit() {
   gap: 12px;
   align-items: stretch;
 }
-.task-list { flex: 0 0 270px; width: 270px; min-width: 0; }
-.original-panel { flex: 0 0 auto; min-width: 0; }
-.editor { flex: 1 1 auto; min-width: 0; }
+.task-list { flex: 0 0 auto; width: calc((100% - 43px) * 0.2); min-width: 0; }
+.original-panel { flex: 0 0 auto; width: calc((100% - 43px) * 0.4); min-width: 0; }
+.editor { flex: 1 1 0; min-width: 0; }
+.work-layout.list-collapsed .original-panel { width: calc((100% - 69px) * 0.6); }
 .source-editor-splitter {
   flex: 0 0 7px; cursor: col-resize; background: #f0f2f2;
   border-left: 1px solid #e8e8e8; border-right: 1px solid #e8e8e8;
@@ -1526,10 +1517,6 @@ function confirmSubmit() {
 .toast-pop-leave-to {
   opacity: 0;
   transform: translate(-50%, 8px);
-}
-
-@media (max-width: 1400px) {
-  .task-list { flex: 0 0 220px; width: 220px; }
 }
 
 @media (max-width: 1100px) {
