@@ -19,7 +19,6 @@
     <!-- ───────── 任务池 ───────── -->
     <div v-show="activeTab === 'pools'" class="tab-body">
       <div class="pool-overview-row">
-        <button class="btn-primary header-btn" type="button" @click="wizardOpen = true">建池向导</button>
         <div class="header-meta">
           <span class="meta-item">任务池 <strong>{{ POOLS.length }}</strong></span>
           <span class="meta-divider"></span>
@@ -27,6 +26,7 @@
           <span class="meta-divider"></span>
           <span class="meta-item">今日操作 <strong>{{ LOGS.length }}</strong></span>
         </div>
+        <button class="btn-primary header-btn" type="button" @click="wizardOpen = true">建池向导</button>
       </div>
 
       <!-- 建池向导弹窗 -->
