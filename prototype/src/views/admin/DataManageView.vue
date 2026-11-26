@@ -48,13 +48,13 @@ function setKind(kind) {
 </script>
 
 <style scoped>
-.admin-page { width: 100%; padding: 24px 32px; }
+.admin-page { width: 100%; height: 100%; padding: 24px 32px; display: flex; flex-direction: column; }
 
 .admin-header { display: flex; align-items: flex-start; justify-content: space-between; gap: 16px; margin-bottom: 16px; }
 .header-text h1 { font-size: 22px; font-weight: 600; color: #1a1a2e; margin: 0 0 4px; }
 .header-sub { margin: 0; font-size: 12px; color: #888; }
 
-.mgmt-tabs { display: flex; align-items: center; gap: 4px; border-bottom: 1px solid #e8e8e8; margin-bottom: 18px; }
+.mgmt-tabs { flex-shrink: 0; display: flex; align-items: center; gap: 4px; border-bottom: 1px solid #e8e8e8; margin-bottom: 18px; }
 .mgmt-tab {
   position: relative;
   display: inline-flex;
@@ -92,5 +92,5 @@ function setKind(kind) {
 }
 .mgmt-tab.active .mgmt-count { background: #e0f2f1; color: #00796b; }
 
-.mgmt-body { min-height: 200px; }
+.mgmt-body { flex: 1 1 auto; min-height: 0; display: flex; }
 </style>

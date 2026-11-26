@@ -285,7 +285,8 @@ function dispatch(row) {
 </script>
 
 <style scoped>
-.quality-page { width: 100%; box-sizing: border-box; }
+.quality-page { width: 100%; height: 100%; box-sizing: border-box; display: flex; flex-direction: column; }
+.quality-page > .panel:last-of-type { flex: 1 1 auto; min-height: 0; }
 
 /* ── 页头 ── */
 .page-header { display: flex; align-items: flex-start; justify-content: space-between; gap: 16px; margin-bottom: 20px; }

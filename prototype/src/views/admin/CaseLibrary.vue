@@ -443,7 +443,7 @@ onBeforeUnmount(() => {
 
 <style scoped>
 .admin-page { width: 100%; padding: 24px 32px; }
-.admin-page.is-embedded { padding: 0; }
+.admin-page.is-embedded { padding: 0; flex: 1; min-height: 0; display: flex; flex-direction: column; }
 
 .admin-header { display: flex; align-items: flex-start; justify-content: space-between; gap: 16px; margin-bottom: 18px; }
 .header-text h1 { font-size: 22px; font-weight: 600; color: #1a1a2e; margin: 0 0 4px; }
@@ -452,7 +452,7 @@ onBeforeUnmount(() => {
 .btn-primary { padding: 8px 18px; border: none; border-radius: 6px; background: #00796b; color: #fff; font-size: 13px; cursor: pointer; white-space: nowrap; transition: background 0.15s; }
 .btn-primary:hover { background: #00695c; }
 
-.toolbar { display: flex; align-items: center; justify-content: space-between; gap: 16px; flex-wrap: wrap; margin-bottom: 14px; }
+.toolbar { display: flex; align-items: center; justify-content: space-between; gap: 16px; flex-wrap: wrap; flex-shrink: 0; margin-bottom: 14px; }
 .search-bar { display: flex; gap: 8px; flex: 1; max-width: 360px; }
 .search-input { flex: 1; padding: 8px 12px; border: 1px solid #d0d0d0; border-radius: 6px; font-size: 13px; outline: none; transition: border-color 0.2s; }
 .search-input:focus { border-color: #00796b; }
@@ -466,7 +466,7 @@ onBeforeUnmount(() => {
 .filter-select:focus { border-color: #00796b; }
 .result-count { font-size: 12px; color: #888; white-space: nowrap; }
 
-.table-wrap { overflow-x: auto; border: 1px solid #e8e8e8; border-radius: 8px; }
+.table-wrap { flex: 1 1 auto; min-height: 0; overflow: auto; border: 1px solid #e8e8e8; border-radius: 8px; }
 .pool-table { width: 100%; border-collapse: collapse; font-size: 13px; }
 .pool-table th { text-align: left; padding: 10px 12px; background: #f5f5f5; color: #666; font-weight: 500; border-bottom: 2px solid #e0e0e0; white-space: nowrap; }
 .pool-table td { padding: 10px 12px; border-bottom: 1px solid #eee; color: #333; vertical-align: middle; }
@@ -575,7 +575,7 @@ textarea.field-control { resize: vertical; min-height: 52px; line-height: 1.4; }
 .toast-fade-enter-from, .toast-fade-leave-to { opacity: 0; transform: translateY(-8px); }
 
 /* ── 分页 ── */
-.pager-bar { display: flex; align-items: center; gap: 12px; margin-top: 14px; flex-wrap: wrap; }
+.pager-bar { display: flex; align-items: center; gap: 12px; margin-top: 14px; flex-wrap: wrap; flex-shrink: 0; }
 .page-size { display: flex; align-items: center; gap: 6px; font-size: 12px; color: #6b7280; }
 .page-size .filter-select { padding: 4px 8px; }
 .page-info { font-size: 12px; color: #9ca3af; margin-left: auto; }

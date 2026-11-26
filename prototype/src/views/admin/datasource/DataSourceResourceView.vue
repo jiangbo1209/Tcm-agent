@@ -33,7 +33,7 @@
       </div>
     </div>
 
-    <div class="table-wrap">
+    <div class="table-wrap resource-table">
       <table class="pool-table">
         <thead>
           <tr>
@@ -430,7 +430,7 @@ async function startUpload() {
 </script>
 
 <style scoped>
-.resource-page { width: 100%; padding: 0 0 40px; }
+.resource-page { flex: 1 1 auto; min-height: 0; display: flex; flex-direction: column; width: 100%; padding: 0 0 24px; }
 .page-head { display: flex; align-items: center; justify-content: flex-end; margin-bottom: 12px; }
 .page-head h1 { margin: 0; font-size: 22px; font-weight: 600; color: var(--ink-900); }
 .head-actions { display: flex; align-items: center; gap: 8px; }
@@ -438,7 +438,8 @@ async function startUpload() {
 .toolbar-actions { display: flex; align-items: center; gap: 10px; margin-left: auto; }
 .upload-btn { height: 33px; padding: 0 16px; display: inline-flex; align-items: center; justify-content: center; }
 
-.toolbar { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; margin-bottom: 12px; }
+.resource-table { flex: 1 1 auto; min-height: 0; overflow: auto; border: 1px solid var(--line); border-radius: 10px; background: #fff; }
+.toolbar { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; flex-shrink: 0; margin-bottom: 12px; }
 .batch-select { width: 132px; font-variant-numeric: tabular-nums; cursor: pointer; }
 .batch-select:disabled { background: #f3f4f4; border-color: #e0e0e0; color: #9ca3af; cursor: not-allowed; }
 .btn-clear { padding: 7px 12px; border: 1px solid #d0d0d0; border-radius: 6px; background: #fff; color: var(--ink-500); font-size: 12px; cursor: pointer; }
@@ -462,7 +463,7 @@ async function startUpload() {
 .conf-mid { background: #fff8e1; color: var(--warn); }
 .conf-low { background: #ffebee; color: var(--danger); }
 
-.pager-bar { display: flex; align-items: center; gap: 12px; margin-top: 14px; flex-wrap: wrap; }
+.pager-bar { display: flex; align-items: center; gap: 12px; margin-top: 14px; flex-wrap: wrap; flex-shrink: 0; }
 .page-size { display: flex; align-items: center; gap: 6px; font-size: 12px; color: var(--ink-500); }
 .page-info { font-size: 12px; color: var(--ink-400); margin-left: auto; }
 .pager-btns { display: flex; gap: 8px; }

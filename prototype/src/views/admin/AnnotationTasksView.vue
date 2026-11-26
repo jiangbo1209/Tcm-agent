@@ -17,7 +17,7 @@
     </div>
 
     <!-- ───────── 任务池 ───────── -->
-    <div v-show="activeTab === 'pools'" class="tab-body">
+    <div v-show="activeTab === 'pools'" class="tab-body tab-fill">
       <div class="pool-overview-row">
         <div class="header-meta">
           <span class="meta-item">任务池 <strong>{{ POOLS.length }}</strong></span>
@@ -182,7 +182,7 @@
     </div>
 
     <!-- ───────── 复核队列 ───────── -->
-    <div v-show="activeTab === 'review'" class="tab-body">
+    <div v-show="activeTab === 'review'" class="tab-body tab-fill">
       <div class="review-carousel">
         <button
           class="carousel-arrow left"
@@ -417,7 +417,7 @@
     </div>
 
     <!-- ───────── 操作记录 ───────── -->
-    <div v-show="activeTab === 'logs'" class="tab-body">
+    <div v-show="activeTab === 'logs'" class="tab-body tab-fill">
       <section class="panel">
         <div class="panel-head">
           <div class="panel-heading">
@@ -509,7 +509,7 @@
     </div>
 
     <!-- ───────── 质检看板 ───────── -->
-    <div v-show="activeTab === 'quality'" class="tab-body">
+    <div v-show="activeTab === 'quality'" class="tab-body tab-fill">
       <QualityView />
     </div>
 
@@ -1366,9 +1366,11 @@ onBeforeUnmount(() => {
 <style scoped>
 .admin-page {
   width: 100%;
-  min-height: 100%;
-  padding: 24px 32px 40px;
+  height: 100%;
+  padding: 24px 32px 24px;
   box-sizing: border-box;
+  display: flex;
+  flex-direction: column;
 }
 
 /* ── 页头 ── */
@@ -1394,6 +1396,7 @@ onBeforeUnmount(() => {
   display: flex;
   align-items: center;
   justify-content: space-between;
+  flex-shrink: 0;
   gap: 14px;
   margin-bottom: 14px;
 }
@@ -1434,6 +1437,7 @@ onBeforeUnmount(() => {
 .sub-tabs {
   display: flex;
   align-items: center;
+  flex-shrink: 0;
   gap: 4px;
   border-bottom: 1px solid var(--line);
   margin-bottom: 16px;
@@ -1485,6 +1489,9 @@ onBeforeUnmount(() => {
 .tab-body {
   min-height: 200px;
 }
+.tab-fill { flex: 1 1 auto; min-height: 0; display: flex; flex-direction: column; }
+.tab-fill > .panel { flex: 1 1 auto; min-height: 0; display: flex; flex-direction: column; margin-bottom: 0; }
+.tab-fill > .panel .table-wrap { flex: 1 1 auto; min-height: 0; overflow: auto; }
 
 /* ── 面板通用 ── */
 .panel {
@@ -1771,7 +1778,7 @@ onBeforeUnmount(() => {
 }
 
 /* ── 复核卡片 ── */
-.review-carousel { display: flex; align-items: stretch; gap: 10px; margin-bottom: 16px; }
+.review-carousel { display: flex; align-items: stretch; flex-shrink: 0; gap: 10px; margin-bottom: 16px; }
 .carousel-arrow {
   flex: 0 0 34px; width: 34px; border: none; background: transparent;
   color: #64748b; opacity: 0.35; cursor: pointer; border-radius: 8px;
@@ -1875,6 +1882,10 @@ onBeforeUnmount(() => {
 
 /* ── 复核详情 ── */
 .review-detail {
+  flex: 1 1 auto;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
   margin-bottom: 0;
 }
 .review-table {
@@ -2038,6 +2049,7 @@ onBeforeUnmount(() => {
   font-weight: 700;
 }
 .review-empty {
+  flex: 1;
   padding: 46px 20px;
   border: 1px dashed #d8dfe2;
   border-radius: 10px;
@@ -2312,7 +2324,7 @@ onBeforeUnmount(() => {
 .review-three {
   display: flex;
   gap: 10px;
-  height: calc(100vh - 286px);
+  flex: 1 1 auto;
   min-height: 520px;
 }
 .rv-list {

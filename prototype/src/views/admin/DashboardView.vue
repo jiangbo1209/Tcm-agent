@@ -171,9 +171,11 @@ function formatNum(value) {
 <style scoped>
 .admin-page {
   width: 100%;
-  min-height: 100%;
+  height: 100%;
   padding: 24px 32px 40px;
   box-sizing: border-box;
+  display: flex;
+  flex-direction: column;
 }
 
 /* ── 页头 ── */
@@ -221,6 +223,7 @@ function formatNum(value) {
   display: grid;
   grid-template-columns: repeat(6, minmax(0, 1fr));
   gap: 12px;
+  flex-shrink: 0;
   margin-bottom: 16px;
 }
 .stat-card {
@@ -331,10 +334,16 @@ function formatNum(value) {
   grid-template-columns: minmax(0, 1fr) 320px;
   gap: 16px;
   align-items: stretch;
+  flex: 1 1 auto;
+  min-height: 0;
 }
 .mid-grid .panel {
-  margin-bottom: 16px;
+  margin-bottom: 0;
+  min-height: 0;
 }
+.activity-panel { display: flex; flex-direction: column; }
+.activity-panel .timeline { flex: 1; overflow-y: auto; }
+.todo-panel .todo-list { flex: 1; overflow-y: auto; }
 
 /* ── 能力矩阵 ── */
 .matrix-panel {
@@ -720,11 +729,13 @@ function formatNum(value) {
 
 /* ── 响应式 ── */
 @media (max-width: 1240px) {
+  .admin-page { height: auto; min-height: 100%; }
   .stat-grid {
     grid-template-columns: repeat(3, minmax(0, 1fr));
   }
   .mid-grid {
     grid-template-columns: minmax(0, 1fr);
+    flex: 0 0 auto;
   }
   .pipeline {
     flex-wrap: wrap;

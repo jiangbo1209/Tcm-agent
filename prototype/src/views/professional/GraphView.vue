@@ -292,10 +292,12 @@ function edgeWidth(edge) {
 </script>
 
 <style scoped>
+.admin-page { display: flex; flex-direction: column; height: 100%; }
 .graph-stats-row {
   display: flex;
   gap: 8px;
   align-items: center;
+  flex-shrink: 0;
   margin-bottom: 12px;
 }
 
@@ -321,6 +323,7 @@ function edgeWidth(edge) {
   gap: 8px;
   width: fit-content;
   max-width: 100%;
+  flex-shrink: 0;
   padding: 10px 14px;
   margin-bottom: 14px;
 }
@@ -387,7 +390,8 @@ function edgeWidth(edge) {
   grid-template-columns: 212px minmax(0, 1fr) 268px;
   gap: 14px;
   align-items: stretch;
-  height: calc(100vh - 240px);
+  flex: 1 1 auto;
+  height: auto;
   min-height: 520px;
 }
 
@@ -724,6 +728,7 @@ function edgeWidth(edge) {
 }
 
 .status-bar {
+  flex-shrink: 0;
   display: flex;
   align-items: center;
   gap: 12px;

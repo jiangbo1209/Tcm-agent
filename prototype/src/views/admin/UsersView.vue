@@ -487,9 +487,11 @@ onBeforeUnmount(() => {
 <style scoped>
 .admin-page {
   width: 100%;
-  min-height: 100%;
-  padding: 24px 32px 40px;
+  height: 100%;
+  padding: 24px 32px 24px;
   box-sizing: border-box;
+  display: flex;
+  flex-direction: column;
 }
 
 /* ── 页头 ── */
@@ -525,7 +527,7 @@ onBeforeUnmount(() => {
   background: #fff;
   overflow-x: auto;
 }
-.role-row { display: flex; align-items: center; justify-content: space-between; gap: 12px; margin-bottom: 12px; }
+.role-row { display: flex; align-items: center; justify-content: space-between; gap: 12px; flex-shrink: 0; margin-bottom: 12px; }
 .role-tab {
   display: inline-flex;
   align-items: center;
@@ -580,6 +582,7 @@ onBeforeUnmount(() => {
   justify-content: space-between;
   gap: 14px;
   flex-wrap: wrap;
+  flex-shrink: 0;
   margin-bottom: 12px;
 }
 .search-wrap {
@@ -639,7 +642,9 @@ onBeforeUnmount(() => {
 
 /* ── 表格 ── */
 .table-wrap {
-  overflow-x: auto;
+  flex: 1 1 auto;
+  min-height: 0;
+  overflow: auto;
   border: 1px solid var(--line);
   border-radius: 10px;
   background: #fff;
@@ -761,6 +766,7 @@ onBeforeUnmount(() => {
 }
 
 .page-note {
+  flex-shrink: 0;
   margin: 12px 0 0;
   padding-left: 10px;
   border-left: 3px solid var(--teal-border);

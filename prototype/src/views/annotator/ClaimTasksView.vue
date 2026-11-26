@@ -50,7 +50,7 @@
       </div>
     </section>
 
-    <section class="panel">
+    <section class="panel my-tasks-panel">
       <div class="panel-head">
         <h2>我的任务</h2>
         <span class="panel-hint">含进行中与返工</span>
@@ -151,14 +151,17 @@ function goWorkbench() {
 </script>
 
 <style scoped>
-.stat-row { display: grid; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); gap: 12px; margin-bottom: 16px; }
+.stat-row { flex-shrink: 0; display: grid; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); gap: 12px; margin-bottom: 16px; }
 .stat-card { background: #fff; border: 1px solid var(--line); border-radius: 10px; padding: 12px 14px; display: flex; flex-direction: column; gap: 2px; }
 .stat-label { font-size: 12px; color: var(--ink-400); }
 .stat-value { font-size: 22px; color: var(--teal-dark); }
 .stat-value.warn { color: #b06a00; }
 .stat-hint { font-size: 11px; color: var(--ink-400); }
 
+.admin-page { height: 100%; display: flex; flex-direction: column; }
 .panel { background: #fff; border: 1px solid var(--line); border-radius: 10px; padding: 16px 18px; margin-bottom: 14px; }
+.my-tasks-panel { flex: 1 1 auto; min-height: 0; display: flex; flex-direction: column; margin-bottom: 0; }
+.my-tasks-panel .table-wrap { flex: 1 1 auto; min-height: 0; overflow: auto; }
 .panel-head { display: flex; align-items: baseline; justify-content: space-between; margin-bottom: 12px; }
 .panel-head h2 { margin: 0; font-size: 14px; }
 .panel-hint { font-size: 11px; color: var(--ink-400); }

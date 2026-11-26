@@ -268,7 +268,7 @@ watch(
   display: flex;
   gap: 16px;
   align-items: stretch;
-  height: calc(100vh - 150px);
+  height: calc(100vh - 48px);
   min-height: 480px;
 }
 

@@ -10,11 +10,11 @@
 </template>
 
 <style scoped>
-.ds-page { padding: 24px 32px 0; }
+.ds-page { padding: 24px 32px 0; height: 100%; display: flex; flex-direction: column; }
 .page-head { margin-bottom: 14px; }
 .page-head h1 { margin: 0; font-size: 22px; font-weight: 600; color: var(--ink-900); }
 
-.tabs { display: flex; align-items: center; gap: 4px; margin-bottom: 16px; border-bottom: 1px solid var(--line); }
+.tabs { flex-shrink: 0; display: flex; align-items: center; gap: 4px; margin-bottom: 16px; border-bottom: 1px solid var(--line); }
 .tab {
   position: relative; display: inline-flex; align-items: center; padding: 9px 16px 11px;
   font-size: 13px; color: var(--ink-500); text-decoration: none;

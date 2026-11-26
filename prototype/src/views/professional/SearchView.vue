@@ -306,7 +306,7 @@ function clearFilters() {
   display: flex;
   gap: 16px;
   align-items: flex-start;
-  min-height: calc(100vh - 150px);
+  min-height: calc(100vh - 48px);
 }
 
 .filter-panel {
@@ -328,7 +328,7 @@ function clearFilters() {
 .opt-count { font-size: 10px; color: var(--ink-400); }
 .filter-empty { margin: 4px 0; font-size: 11px; color: var(--ink-400); }
 
-.search-main { flex: 1; min-width: 0; display: flex; flex-direction: column; min-height: calc(100vh - 150px); }
+.search-main { flex: 1; min-width: 0; display: flex; flex-direction: column; min-height: calc(100vh - 48px); }
 .search-bar { display: flex; gap: 10px; padding: 12px 14px; margin-bottom: 10px; }
 .search-input { flex: 1; padding: 9px 12px; border: 1px solid #d0d0d0; border-radius: 8px; font-size: 13px; outline: none; }
 .search-input:focus { border-color: var(--teal); }
