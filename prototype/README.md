@@ -8,7 +8,7 @@
 ```bash
 cd prototype
 npm install
-npm run dev      # http://localhost:5600
+npm run dev      # 监听 0.0.0.0:5600
 ```
 
 构建：
@@ -16,6 +16,47 @@ npm run dev      # http://localhost:5600
 ```bash
 npm run build
 ```
+
+## 云服务器部署
+
+Vite 已配置为监听 `0.0.0.0`，可通过公网 IP / 域名访问；云服务器安全组需放行对应端口。
+
+### 方式一：直接运行（快速验证）
+
+```bash
+cd prototype
+npm ci
+npm run dev -- --host 0.0.0.0 --port 5600
+```
+
+访问 `http://<服务器公网IP>:5600`。
+
+生产构建预览：
+
+```bash
+npm run build
+npm run preview -- --host 0.0.0.0 --port 5601
+```
+
+访问 `http://<服务器公网IP>:5601`。安全组放行 `5600` 或 `5601`。
+
+### 方式二：Nginx 静态部署（推荐）
+
+```bash
+cd prototype
+npm ci
+npm run build
+
+sudo mkdir -p /var/www/tcm-dor-prototype
+sudo cp -r dist/* /var/www/tcm-dor-prototype/
+sudo cp deploy/nginx.conf /etc/nginx/conf.d/tcm-dor.conf
+sudo nginx -t
+sudo systemctl reload nginx
+```
+
+访问 `http://<服务器公网IP>`。安全组放行 `80`（HTTPS 再放行 `443`）。
+
+> 前端使用 `createWebHistory`，Nginx 必须配置 `try_files $uri $uri/ /index.html;` 作为 SPA 回退，否则刷新子路由会 404。
 
 ## 四角色
 
